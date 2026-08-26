@@ -1,0 +1,48 @@
+{
+  "id": "neon_run",
+  "title": "霓虹夜奔",
+  "description": "你是一名数据跑者，受雇从巨企服务器偷出一份加密档案。雨夜、霓虹、追兵——今晚只能信自己的义体与本能。",
+  "world_id": "cyberpunk",
+  "world": "赛博朋克 dystopia 都市「新港」",
+  "tone": "霓虹、雨夜、黑色电影",
+  "opening_scene_id": "safehouse_neon",
+  "opening_scene_name": "新港·地下安全屋",
+  "opening_prompt": "雇主通过加密频道发来委托：潜入「天穹科技」区域节点，取回代号「白噪」的数据核。报酬足够换一副新义眼。起点：跑者安全屋，收到任务简报与初始线索。",
+  "initial_quests": [
+    {
+      "id": "white_noise",
+      "title": "盗取白噪数据核",
+      "status": "active",
+      "description": "潜入天穹科技区域节点，在追兵赶到前完成提取。"
+    }
+  ],
+  "key_nodes": [
+    {
+      "id": "safehouse_neon",
+      "title": "地下安全屋",
+      "description": "接收委托，整理装备与联系人。"
+    },
+    {
+      "id": "corp_plaza",
+      "title": "天穹广场",
+      "description": "巨企外围，安保 drones 与社工入口。"
+    },
+    {
+      "id": "ice_core",
+      "title": "区域节点机房",
+      "description": "防火墙与物理隔离，数据核所在。"
+    }
+  ],
+  "endings": [
+    {
+      "id": "escape",
+      "title": "携核脱身",
+      "condition": "成功提取数据并甩掉追兵"
+    },
+    {
+      "id": "double_cross",
+      "title": "反水",
+      "condition": "发现雇主另有图谋并做出抉择"
+    }
+  ]
+}

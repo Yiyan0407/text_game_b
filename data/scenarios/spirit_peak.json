@@ -1,0 +1,48 @@
+{
+  "id": "spirit_peak",
+  "title": "断剑峰",
+  "description": "你是被逐出外门的散修，在断剑峰下听说秘境将开。机缘、宗门恩怨、旧日因果——这一趟可能改写你的道途。",
+  "world_id": "xianxia",
+  "world": "东方修真界·苍岚洲",
+  "tone": "问道、机缘、因果",
+  "opening_scene_id": "peak_foot",
+  "opening_scene_name": "断剑峰·山脚坊市",
+  "opening_prompt": "断剑峰秘境百年一开，各派散修云集山脚坊市。你身怀旧怨与一枚残缺剑符，需要在秘境开启前打听消息、备齐丹符，并决定与谁结盟、与谁为敌。",
+  "initial_quests": [
+    {
+      "id": "secret_realm",
+      "title": "探秘断剑峰",
+      "status": "active",
+      "description": "在秘境开启时进入，寻找剑符所指的上古遗泽。"
+    }
+  ],
+  "key_nodes": [
+    {
+      "id": "peak_foot",
+      "title": "山脚坊市",
+      "description": "交易丹符、打听各派动向。"
+    },
+    {
+      "id": "realm_gate",
+      "title": "秘境入口",
+      "description": "阵法开启，先攻与禁制并存。"
+    },
+    {
+      "id": "sword_tomb",
+      "title": "断剑遗冢",
+      "description": "剑符共鸣之地，核心机缘。"
+    }
+  ],
+  "endings": [
+    {
+      "id": "inheritance",
+      "title": "剑道传承",
+      "condition": "取得遗泽并活着离开"
+    },
+    {
+      "id": "grudge",
+      "title": "了却因果",
+      "condition": "面对旧怨并做出抉择"
+    }
+  ]
+}

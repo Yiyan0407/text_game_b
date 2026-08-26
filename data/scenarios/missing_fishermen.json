@@ -1,0 +1,58 @@
+{
+  "id": "missing_fishermen",
+  "title": "雾港失踪案",
+  "description": "调查灰港三名渔民在浓雾夜神秘失踪的事件，揭开雾中隐藏的真相。",
+  "world_id": "fantasy",
+  "world": "低魔奇幻世界「灰港」",
+  "tone": "神秘、紧张，但不过于黑暗",
+  "opening_scene_id": "tavern_seagull",
+  "opening_scene_name": "灰港·海鸥尾酒馆",
+  "opening_prompt": "玩家受雇调查灰港最近三名渔民在浓雾夜失踪的事件。起点：灰港「海鸥尾」酒馆的雇主介绍任务。线索方向：码头老水手、雾夜异响、城北废弃灯塔。",
+  "initial_quests": [
+    {
+      "id": "missing_fishermen",
+      "title": "调查雾港渔民失踪",
+      "status": "active",
+      "description": "三名渔民在浓雾夜失踪，雇主悬赏调查。"
+    }
+  ],
+  "key_nodes": [
+    {
+      "id": "tavern_seagull",
+      "title": "海鸥尾酒馆",
+      "description": "雇主在此发布委托，可打听渔民与雾夜传闻。"
+    },
+    {
+      "id": "harbor_dock",
+      "title": "灰港码头",
+      "description": "失踪渔民最后出现的地方，可询问老水手。"
+    },
+    {
+      "id": "north_lighthouse",
+      "title": "城北废弃灯塔",
+      "description": "雾夜有异响与微光，可能是关键线索。"
+    },
+    {
+      "id": "fog_revelation",
+      "title": "雾中真相",
+      "description": "揭示失踪原因的核心节点，需玩家主动推进。"
+    }
+  ],
+  "endings": [
+    {
+      "id": "rescue",
+      "title": "营救归来",
+      "condition": "找到并救出失踪渔民"
+    },
+    {
+      "id": "truth",
+      "title": "雾中真相",
+      "condition": "查明失踪原因但无法全员营救"
+    },
+    {
+      "id": "conspiracy",
+      "title": "更大阴谋",
+      "condition": "发现失踪事件与更深层势力有关"
+    }
+  ]
+}
