@@ -6,6 +6,7 @@ from config.worlds import DEFAULT_WORLD_ID, WORLD_OPTIONS
 from game.save import SaveManager
 from game.scenario import Scenario
 from game.scenario_loader import list_scenarios
+from ui.streaming import render_streaming_markdown
 
 
 def _format_saved_at(saved_at: str) -> str:
