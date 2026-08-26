@@ -1,0 +1,6 @@
+[server]
+port = 8503
+
+[browser]
+# 启动后自动打开浏览器（不需要可改为 false）
+gatherUsageStats = false
