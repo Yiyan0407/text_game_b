@@ -179,3 +179,19 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Project — local game saves
+data/saves/*
+!data/saves/.gitkeep
+
+# AI 生成的剧本（本地）
+data/scenarios/generated/*
+!data/scenarios/generated/.gitkeep
+
+# Streamlit 本地密钥（勿提交）
+.streamlit/secrets.toml
+
+# 操作系统杂项
+.DS_Store
+Thumbs.db
+desktop.ini
