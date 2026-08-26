@@ -15,8 +15,14 @@ def create_kp_tools(character: Character, game_state: GameState) -> list[BaseToo
     """为当前角色与游戏状态创建 KP 可用的 LangChain Tools。"""
 
     def roll_dice(notation: str) -> str:
-        """掷骰子。用于伤害、随机事件、非战斗掷骰。notation 示例: d20, 2d6, 1d20+3"""
-        return roll(notation).describe()
+        """掷骰子。用于伤害、随机事件、非战斗掷骰。notation 示例: d20, d100, 2d6, 1d20+3"""
+        try:
+            return roll(notation).describe()
+        except ValueError as exc:
+            return (
+                f"掷骰失败：{exc}。"
+                "请使用标准格式，如 d20、d100、2d6、1d20+3；百分骰写 d100，不要只写 100。"
+            )
 
     def run_ability_check(
         ability: AbilityKey,
@@ -101,7 +107,8 @@ def create_kp_tools(character: Character, game_state: GameState) -> list[BaseToo
             name="roll_dice",
             description=(
                 "掷骰子。凡需要随机结果时（伤害、遭遇、随机事件等）必须调用，"
-                "不要自行编造骰点。notation 示例: d20, 2d6, 1d6+2"
+                "不要自行编造骰点。notation 必须用标准格式：d20、d100、2d6、1d20+3；"
+                "百分骰写 d100，不要只写数字 100。"
             ),
         ),
         StructuredTool.from_function(

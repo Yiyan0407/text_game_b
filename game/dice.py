@@ -9,9 +9,24 @@ _DICE_PATTERN = re.compile(
 )
 
 
+def normalize_dice_notation(notation: str) -> str:
+    """规范化骰子表达式，兼容 KP 常见误写（如 100 → d100）。"""
+    cleaned = notation.strip().lower().replace(" ", "")
+    if not cleaned:
+        raise ValueError("骰子表达式不能为空")
+
+    if cleaned.isdigit():
+        sides = int(cleaned)
+        if sides < 2:
+            raise ValueError(f"无效的面数: {notation}")
+        return f"d{sides}"
+
+    return cleaned
+
+
 def parse_dice(notation: str) -> tuple[int, int, int]:
     """解析骰子表达式，返回 (颗数, 面数, 修正值)。"""
-    cleaned = notation.strip().lower().replace(" ", "")
+    cleaned = normalize_dice_notation(notation)
     match = _DICE_PATTERN.match(cleaned)
     if not match:
         raise ValueError(f"无法解析骰子表达式: {notation}")
@@ -34,7 +49,7 @@ def roll(notation: str) -> DiceRoll:
     rolls = [random.randint(1, sides) for _ in range(count)]
     total = sum(rolls) + modifier
     return DiceRoll(
-        notation=notation.strip(),
+        notation=normalize_dice_notation(notation),
         rolls=rolls,
         modifier=modifier,
         total=total,

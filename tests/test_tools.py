@@ -40,6 +40,15 @@ def test_roll_dice_tool():
     assert "d6" in result
 
 
+def test_roll_dice_tool_accepts_bare_100():
+    character = Character(name="测试")
+    game_state = GameState()
+    tools = create_kp_tools(character, game_state)
+    dice_tool = next(t for t in tools if t.name == "roll_dice")
+    result = dice_tool.invoke({"notation": "100"})
+    assert "d100" in result
+
+
 def test_update_scene_tool():
     character = Character(name="测试")
     game_state = GameState()

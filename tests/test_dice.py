@@ -7,6 +7,17 @@ def test_parse_d20():
     assert parse_dice("d20") == (1, 20, 0)
 
 
+def test_parse_bare_number_as_die():
+    assert parse_dice("100") == (1, 100, 0)
+    assert parse_dice("6") == (1, 6, 0)
+
+
+def test_roll_bare_100():
+    result = roll("100")
+    assert result.notation == "d100"
+    assert 1 <= result.total <= 100
+
+
 def test_parse_2d6():
     assert parse_dice("2d6") == (2, 6, 0)
 
