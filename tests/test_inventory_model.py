@@ -31,6 +31,26 @@ def test_normalize_legacy_string_list():
     assert items[1] == InventoryItem(name="铜板", quantity=3, unit="枚")
 
 
+def test_parse_qualifier_stack_with_chinese_numeral():
+    item = InventoryItem.parse("食盐（五袋）")
+    assert item.name == "食盐"
+    assert item.quantity == 5
+    assert item.unit == "袋"
+    assert item.display() == "食盐（5袋）"
+
+
+def test_repair_malformed_unit_on_normalize():
+    items = normalize_inventory_list(
+        [
+            InventoryItem(name="食盐", quantity=1, unit="五袋"),
+            InventoryItem(name="食盐", quantity=6, unit="袋"),
+        ]
+    )
+    assert len(items) == 1
+    assert items[0].quantity == 11
+    assert items[0].unit == "袋"
+
+
 def test_matches_fuzzy_name():
     item = InventoryItem(name="定金币", quantity=15, unit="枚")
     assert item.matches("定金币")

@@ -7,6 +7,31 @@ from pydantic import BaseModel, Field, field_validator
 _STACK_ITEM_RE = re.compile(r"^(.+?)（(\d+)(.+?)）$")
 _QUALIFIER_RE = re.compile(r"^(.+?)（(.+?)）$")
 _CN_ONE_PREFIXES = ("一", "壹", "单")
+_CN_DIGITS = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "壹": 1,
+    "单": 1,
+    "二": 2,
+    "两": 2,
+    "贰": 2,
+    "三": 3,
+    "叁": 3,
+    "四": 4,
+    "肆": 4,
+    "五": 5,
+    "伍": 5,
+    "六": 6,
+    "陆": 6,
+    "七": 7,
+    "柒": 7,
+    "八": 8,
+    "捌": 8,
+    "九": 9,
+    "玖": 9,
+}
+_CN_TEN_MARKERS = ("十", "拾")
 
 
 class InventoryItem(BaseModel):
@@ -70,16 +95,58 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"\s+", "", name.strip().lower())
 
 
+def _parse_chinese_quantity(text: str) -> int | None:
+    cleaned = text.strip()
+    if not cleaned:
+        return None
+    if cleaned.isdigit():
+        return int(cleaned)
+
+    for ten_marker in _CN_TEN_MARKERS:
+        if ten_marker in cleaned:
+            left, _, right = cleaned.partition(ten_marker)
+            tens = 1 if left == "" else _CN_DIGITS.get(left)
+            if tens is None:
+                return None
+            ones = 0 if right == "" else _CN_DIGITS.get(right)
+            if right and ones is None:
+                return None
+            return tens * 10 + ones
+
+    if len(cleaned) == 1 and cleaned in _CN_DIGITS:
+        return _CN_DIGITS[cleaned]
+    return None
+
+
 def _parse_unit_qualifier(unit_part: str) -> tuple[int, str]:
     cleaned = unit_part.strip()
     if not cleaned:
         return 1, "个"
     if cleaned.isdigit():
         return int(cleaned), "个"
+
+    for index in range(len(cleaned), 0, -1):
+        num_part = cleaned[:index]
+        unit = cleaned[index:].strip()
+        if not unit:
+            continue
+        quantity = _parse_chinese_quantity(num_part)
+        if quantity is not None:
+            return max(1, quantity), unit
+
     for prefix in _CN_ONE_PREFIXES:
         if cleaned.startswith(prefix) and len(cleaned) > len(prefix):
             return 1, cleaned[len(prefix) :] or "个"
     return 1, cleaned
+
+
+def _repair_inventory_item(item: InventoryItem) -> InventoryItem:
+    if item.quantity != 1 or not item.unit:
+        return item
+    quantity, unit = _parse_unit_qualifier(item.unit)
+    if quantity > 1 and unit and unit != item.unit:
+        return InventoryItem(name=item.name, quantity=quantity, unit=unit)
+    return item
 
 
 def normalize_inventory_list(value) -> list[InventoryItem]:
@@ -97,7 +164,8 @@ def normalize_inventory_list(value) -> list[InventoryItem]:
             items.append(InventoryItem.model_validate(entry))
         else:
             raise TypeError(f"unsupported inventory entry: {entry!r}")
-    return items
+    items = [_repair_inventory_item(item) for item in items]
+    return merge_inventory_items(items)
 
 
 def merge_inventory_items(items: list[InventoryItem]) -> list[InventoryItem]:
