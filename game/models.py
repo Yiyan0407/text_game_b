@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from game.inventory import InventoryItem, normalize_inventory_list
 
 ABILITY_ORDER: tuple[tuple[str, str, str], ...] = (
     ("str", "strength", "力量"),
@@ -29,8 +31,13 @@ class Character(BaseModel):
     charisma: int = Field(default=12, ge=3, le=18)
     hp: int = Field(default=20, ge=1)
     max_hp: int = Field(default=20, ge=1)
-    inventory: list[str] = Field(default_factory=list)
+    inventory: list[InventoryItem] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
+
+    @field_validator("inventory", mode="before")
+    @classmethod
+    def _coerce_inventory(cls, value):
+        return normalize_inventory_list(value)
 
     def modifier(self, attr: str) -> int:
         field = ABILITY_FIELDS.get(attr.lower(), attr.lower())
@@ -48,7 +55,19 @@ class Character(BaseModel):
     def format_inventory(self) -> str:
         if not self.inventory:
             return "（空，尚未获得任何物品）"
-        return "、".join(self.inventory)
+        return "、".join(item.display() for item in self.inventory)
+
+    def inventory_displays(self) -> list[str]:
+        return [item.display() for item in self.inventory]
+
+    def find_inventory_item(self, item_ref: str) -> InventoryItem | None:
+        for item in self.inventory:
+            if item.matches(item_ref):
+                return item
+        return None
+
+    def has_inventory_item(self, item_ref: str) -> bool:
+        return self.find_inventory_item(item_ref) is not None
 
     def format_skills(self) -> str:
         if not self.skills:
@@ -69,19 +88,75 @@ class Character(BaseModel):
         self.skills.remove(skill)
         return True
 
-    def add_inventory_item(self, item: str) -> bool:
-        item = item.strip()
-        if not item or item in self.inventory:
-            return False
-        self.inventory.append(item)
+    def add_inventory_item(
+        self,
+        item: str | InventoryItem,
+        quantity: int = 1,
+        unit: str = "个",
+    ) -> bool:
+        if isinstance(item, InventoryItem):
+            incoming = item.model_copy()
+        else:
+            text = item.strip()
+            if not text:
+                return False
+            if "（" in text and text.endswith("）"):
+                incoming = InventoryItem.parse(text)
+            else:
+                incoming = InventoryItem(
+                    name=text,
+                    quantity=max(1, quantity),
+                    unit=unit.strip() or "个",
+                )
+
+        for existing in self.inventory:
+            if existing.name == incoming.name and existing.unit == incoming.unit:
+                existing.quantity += incoming.quantity
+                return True
+        self.inventory.append(incoming)
         return True
 
-    def remove_inventory_item(self, item: str) -> bool:
-        item = item.strip()
-        if item not in self.inventory:
+    def remove_inventory_item(
+        self,
+        item_ref: str,
+        quantity: int = 1,
+        unit: str | None = None,
+    ) -> bool:
+        ok, _ = self.consume_inventory_quantity(item_ref, quantity, unit=unit)
+        return ok
+
+    def consume_inventory_quantity(
+        self,
+        item_ref: str,
+        quantity: int = 1,
+        unit: str | None = None,
+    ) -> tuple[bool, str]:
+        item_ref = item_ref.strip()
+        if not item_ref or quantity <= 0:
+            return False, "物品或数量无效。"
+
+        target = self.find_inventory_item(item_ref)
+        if target is None:
+            return False, f"背包中没有：{item_ref}"
+        if unit is not None and target.unit != unit:
+            return False, f"背包中没有：{item_ref}"
+
+        before = target.display()
+        if quantity > target.quantity:
+            return False, f"背包中 {before} 数量不足。"
+
+        if quantity == target.quantity:
+            self.inventory.remove(target)
+            return True, f"背包移除：{before}"
+
+        target.quantity -= quantity
+        return True, f"背包更新：{target.display()}（原 {before}）"
+
+    def add_inventory_stack(self, label: str, quantity: int, unit: str = "枚") -> bool:
+        label = label.strip()
+        if not label or quantity <= 0:
             return False
-        self.inventory.remove(item)
-        return True
+        return self.add_inventory_item(label, quantity=quantity, unit=unit)
 
     def armor_class(self, defending: bool = False) -> int:
         ac = 10 + self.modifier("dex")

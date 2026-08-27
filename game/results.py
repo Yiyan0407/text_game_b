@@ -30,7 +30,10 @@ class ActionRouteResult(BaseModel):
     dice_notation: str = ""
     referenced_items: list[str] = Field(default_factory=list)
     referenced_skills: list[str] = Field(default_factory=list)
-    item_usage: Literal["none", "use", "pickup", "observe"] = "none"
+    payment_items: list[str] = Field(default_factory=list)
+    payment_quantity: int = 1
+    item_usage: Literal["none", "use", "pickup", "observe", "purchase"] = "none"
+    skill_usage: Literal["none", "use", "learn"] = "none"
     action_intent: str = ""
     scope_stop: str = ""
     must_not_narrate: list[str] = Field(default_factory=list)

@@ -88,20 +88,30 @@ def create_kp_tools(
     def update_inventory(
         action: Literal["add", "remove"],
         item: str,
+        quantity: int = 1,
+        unit: str = "个",
     ) -> str:
-        """玩家获得或失去物品时调用。物品名称须符合当前世界观与模组设定。"""
+        """玩家获得或失去物品时调用。item 为物品名称或完整显示名（如 铜板（97枚））；
+        quantity 为数量，unit 为单位（枚/袋/个等）。同类物品会自动合并堆叠。"""
         cleaned = item.strip()
         if not cleaned:
             return "物品名称不能为空。"
+        if quantity <= 0:
+            return "数量必须大于 0。"
         if action == "add":
-            if character.add_inventory_item(cleaned):
-                return f"背包新增：{cleaned}。当前：{character.format_inventory()}"
-            if cleaned in character.inventory:
-                return f"背包中已有：{cleaned}"
+            if character.add_inventory_item(cleaned, quantity=quantity, unit=unit):
+                matched = character.find_inventory_item(cleaned)
+                label = matched.display() if matched else cleaned
+                return f"背包新增：{label}。当前：{character.format_inventory()}"
             return "添加失败。"
-        if character.remove_inventory_item(cleaned):
-            return f"背包移除：{cleaned}。当前：{character.format_inventory()}"
-        return f"背包中没有：{cleaned}"
+        ok, message = character.consume_inventory_quantity(
+            cleaned,
+            quantity,
+            unit=unit if unit != "个" else None,
+        )
+        if ok:
+            return f"{message}。当前：{character.format_inventory()}"
+        return message
 
     def record_memory_fact(fact: str) -> str:
         """当发生必须长期记住的事件时调用（获得关键物品、重要承诺、重大真相、NPC 秘密等）。"""
@@ -115,7 +125,8 @@ def create_kp_tools(
         action: Literal["add", "remove"],
         skill: str,
     ) -> str:
-        """玩家学会或失去技能时调用。技能名称须符合当前世界观与模组设定。"""
+        """玩家学会或失去技能时调用。学会途径：NPC 传授、训练检定成功、任务奖励、背景职业能力。
+        开局若【背景技能已同步】则勿重复 add。技能名称须符合世界观（如 潜行、急救、航海）。"""
         cleaned = skill.strip()
         if not cleaned:
             return "技能名称不能为空。"
@@ -202,9 +213,12 @@ def create_kp_tools(
             name="update_inventory",
             description=(
                 "更新玩家背包。玩家在本轮获得、拾取、被给予物品时 action=add；"
-                "失去/消耗/丢弃时 action=remove。"
+                "失去/消耗/丢弃/付款时 action=remove。"
+                "参数 item 为名称或完整显示名；quantity 为数量（默认 1）；unit 为单位（默认 个，"
+                "货币常用 枚，散装常用 袋）。同类会自动合并，如 add item=铜板 quantity=97 unit=枚。"
+                "购买找零、交易找补也须 add。"
+                "若机械结算已扣款交货，勿重复 remove/add 同一物品；只补找零。"
                 "须在写叙事之前调用，禁止只写「你获得了 X」而不调用本工具。"
-                "物品名称须符合当前世界观。"
             ),
         ),
         StructuredTool.from_function(
@@ -216,7 +230,8 @@ def create_kp_tools(
             func=update_skills,
             name="update_skills",
             description=(
-                "更新玩家技能。学会新技能时 action=add，失去/遗忘时 action=remove。"
+                "更新玩家技能。NPC 传授、训练成功、任务奖励时 action=add；"
+                "失去/遗忘时 action=remove。开局背景技能若已同步则勿重复 add。"
                 "须在写叙事之前调用。技能名称须符合当前世界观与模组设定。"
             ),
         ),

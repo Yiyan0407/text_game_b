@@ -27,6 +27,10 @@ def _fuzzy_in_list(name: str, items: list[str]) -> bool:
     return False
 
 
+def _payment_available(character: Character, payment: str) -> bool:
+    return character.has_inventory_item(payment)
+
+
 def _format_recent_history(history: list[ChatMessage], limit: int = 6) -> str:
     if not history:
         return "（无）"
@@ -196,8 +200,11 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
     if roll_type not in ("ability_check", "dice", "none"):
         roll_type = "none"
     item_usage = data.get("item_usage", "none")
-    if item_usage not in ("none", "use", "pickup", "observe"):
+    if item_usage not in ("none", "use", "pickup", "observe", "purchase"):
         item_usage = "none"
+    skill_usage = data.get("skill_usage", "none")
+    if skill_usage not in ("none", "use", "learn"):
+        skill_usage = "none"
     mode = data.get("mode", "exploration")
     if mode not in ("exploration", "combat"):
         mode = "exploration"
@@ -224,7 +231,10 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
         dice_notation=str(data.get("dice_notation", "")).strip(),
         referenced_items=_coerce_str_list(data.get("referenced_items")),
         referenced_skills=_coerce_str_list(data.get("referenced_skills")),
+        payment_items=_coerce_str_list(data.get("payment_items")),
+        payment_quantity=max(1, _coerce_int(data.get("payment_quantity"), 1)),
         item_usage=item_usage,
+        skill_usage=skill_usage,
         action_intent=str(data.get("action_intent", "")).strip(),
         scope_stop=str(data.get("scope_stop", "")).strip(),
         must_not_narrate=_coerce_str_list(data.get("must_not_narrate")),
@@ -459,22 +469,50 @@ class ActionRouter:
                     )
                     return route
 
-        for skill in route.referenced_skills:
-            if not _fuzzy_in_list(skill, character.skills):
-                route.approved = False
-                route.rejection_reason = f"你没有「{skill}」这项技能，无法执行该行动。"
-                route.needs_roll = False
-                route.roll_type = "none"
-                return route
+        if route.skill_usage == "use" or (
+            route.skill_usage == "none" and route.referenced_skills
+        ):
+            for skill in route.referenced_skills:
+                if not _fuzzy_in_list(skill, character.skills):
+                    route.approved = False
+                    route.rejection_reason = f"你没有「{skill}」这项技能，无法执行该行动。"
+                    route.needs_roll = False
+                    route.roll_type = "none"
+                    return route
+
+        if route.skill_usage == "learn":
+            for skill in route.referenced_skills:
+                if _fuzzy_in_list(skill, character.skills):
+                    route.approved = False
+                    route.rejection_reason = f"你已经掌握「{skill}」，无需再学习。"
+                    route.needs_roll = False
+                    route.roll_type = "none"
+                    return route
 
         if route.item_usage == "use":
             for item in route.referenced_items:
-                if not _fuzzy_in_list(item, character.inventory):
+                if not character.has_inventory_item(item):
                     route.approved = False
                     route.rejection_reason = f"你的背包中没有「{item}」，无法使用该物品。"
                     route.needs_roll = False
                     route.roll_type = "none"
                     return route
+
+        if route.item_usage == "purchase":
+            if not route.referenced_items:
+                route.approved = False
+                route.rejection_reason = "购买行动须指明获得的物品（referenced_items）。"
+                return route
+            if route.payment_items:
+                for payment in route.payment_items:
+                    if not _payment_available(character, payment):
+                        route.approved = False
+                        route.rejection_reason = (
+                            f"你的背包中没有可用于支付的「{payment}」。"
+                        )
+                        route.needs_roll = False
+                        route.roll_type = "none"
+                        return route
 
         if in_combat and route.approved and route.needs_roll:
             if route.roll_type == "ability_check":

@@ -8,6 +8,7 @@ class OpeningBrief(BaseModel):
     public_setup: str = ""
     secrets_from_npcs: list[str] = Field(default_factory=list)
     narrative_constraints: list[str] = Field(default_factory=list)
+    starter_skills: list[str] = Field(default_factory=list)
 
     def format_for_kp(self) -> str:
         lines = [
@@ -26,6 +27,10 @@ class OpeningBrief(BaseModel):
             lines.append("叙事禁止（不可违背）：")
             for item in self.narrative_constraints:
                 lines.append(f"- {item}")
+        if self.starter_skills:
+            lines.append(
+                f"背景隐含技能（系统将在开局同步，KP 勿重复 add）：{'、'.join(self.starter_skills)}"
+            )
         return "\n".join(lines)
 
     @classmethod

@@ -24,7 +24,7 @@ def render_character_sheet(character: Character) -> None:
     if character.inventory:
         with st.expander("背包", expanded=False):
             for item in character.inventory:
-                st.markdown(f"- {item}")
+                st.markdown(f"- {item.display()}")
     else:
         with st.expander("背包", expanded=False):
             st.caption("空空如也——物品会在冒险中获得")
@@ -35,4 +35,8 @@ def render_character_sheet(character: Character) -> None:
                 st.markdown(f"- {skill}")
     else:
         with st.expander("技能", expanded=False):
-            st.caption("尚未掌握任何技能——会在冒险中习得")
+            st.caption(
+                "开局会根据角色背景同步基础技能。"
+                "冒险中可向 NPC 请教（如「向某某学潜行」）、完成训练检定后习得，"
+                "或由 KP 在任务奖励时授予。"
+            )

@@ -29,6 +29,7 @@ from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
 from game.rules import ability_check, format_check_for_kp
 from game.scenario import Scenario
+from game.skills import infer_starter_skills, merge_starter_skill_candidates, sync_starter_skills
 
 START_GAME_INSTRUCTION = """\
 游戏刚刚开始。请根据下方【模组信息】做开场，并全程担任引导型 KP。
@@ -40,6 +41,7 @@ START_GAME_INSTRUCTION = """\
 4. 引导：用 1–2 句自然语言提示「你可以尝试做什么方向」，例如调查、交谈、移动、检查物品——但不要替玩家做决定。
 
 工具：开场须 update_scene；出场或提及的有名人物须 record_npc（含任务相关失踪者，attitude 可用 unknown）；若有任务尚未入库则 update_quest。
+若输入含【背景技能已同步】：这些技能已写入【游戏状态】，开场叙事可自然提及，**勿重复** update_skills(add)。
 篇幅 200–400 字，结尾留明确的行动入口，让玩家知道第一句话该说什么。
 
 若输入含【长期角色履历】：这是老角色进入新模组。尊重其过往战役、技能与背包；开场可自然提及来历，但剧情仍从新模组 initial_quests 起步，不要复述全部履历。
@@ -67,6 +69,8 @@ _ROUTE_PREAMBLE_PREFIXES = (
     "本轮禁止叙事：",
     "【状态同步】",
     "【NPC 同步】",
+    "【交易同步】",
+    "【技能同步】",
     "机械结算结果：",
     "该行动无需掷骰",
     "请根据预掷骰",
@@ -102,6 +106,7 @@ def _build_start_instruction(
     career_context: str = "",
     integrator: OpeningIntegrator | None = None,
     brief: OpeningBrief | None = None,
+    synced_starter_skills: list[str] | None = None,
 ) -> str:
     if brief is None:
         brief = (integrator or OpeningIntegrator()).generate(character, scenario)
@@ -113,6 +118,12 @@ def _build_start_instruction(
             "不要假设玩家已知道该做什么。"
         )
     lines.append(brief.format_for_kp())
+    if synced_starter_skills:
+        lines.append(
+            "【背景技能已同步】"
+            + "、".join(synced_starter_skills)
+            + " — 已写入【游戏状态】，开场勿重复 update_skills(add)。"
+        )
     lines.append(START_GAME_INSTRUCTION)
     lines.append(_OPENING_CONSISTENCY_RULE)
     return "\n\n".join(lines)
@@ -150,6 +161,13 @@ class GameOrchestrator:
         scenario.apply_to_game_state(game_state)
         game_state.started = True
         brief = self.opening_integrator.generate(character, scenario)
+        synced_starter_skills: list[str] = []
+        if not character.skills:
+            candidates = merge_starter_skill_candidates(
+                brief.starter_skills,
+                infer_starter_skills(character.background, world_id=scenario.world_id),
+            )
+            synced_starter_skills = sync_starter_skills(character, candidates)
 
         turn = self.kp.invoke(
             character=character,
@@ -157,7 +175,12 @@ class GameOrchestrator:
             scenario_context=scenario.format_for_prompt(),
             world_id=scenario.world_id,
             user_input=_build_start_instruction(
-                character, scenario, career_context, self.opening_integrator, brief=brief
+                character,
+                scenario,
+                career_context,
+                self.opening_integrator,
+                brief=brief,
+                synced_starter_skills=synced_starter_skills,
             ),
             history=[],
         )
@@ -180,8 +203,20 @@ class GameOrchestrator:
         scenario.apply_to_game_state(game_state)
         game_state.started = True
         brief = self.opening_integrator.generate(character, scenario)
+        synced_starter_skills: list[str] = []
+        if not character.skills:
+            candidates = merge_starter_skill_candidates(
+                brief.starter_skills,
+                infer_starter_skills(character.background, world_id=scenario.world_id),
+            )
+            synced_starter_skills = sync_starter_skills(character, candidates)
         user_input = _build_start_instruction(
-            character, scenario, career_context, self.opening_integrator, brief=brief
+            character,
+            scenario,
+            career_context,
+            self.opening_integrator,
+            brief=brief,
+            synced_starter_skills=synced_starter_skills,
         )
         return self._stream_turn(
             character=character,
@@ -352,15 +387,34 @@ class GameOrchestrator:
                     pre_tool_events.append(
                         f"背包新增：{item}。当前：{character.format_inventory()}"
                     )
+        elif route.item_usage == "purchase":
+            pre_tool_events.extend(self._execute_purchase(route, character))
 
         end_msg, _defeated = maybe_end_combat(game_state, character)
         if end_msg:
             pre_tool_events.append(end_msg)
 
         kp_input = self._build_kp_input(
-            enriched_input, route, pre_tool_events, game_state
+            enriched_input, route, pre_tool_events, game_state, character
         )
         return kp_input, pre_tool_events, route
+
+    @staticmethod
+    def _execute_purchase(route: ActionRouteResult, character: Character) -> list[str]:
+        events: list[str] = []
+        quantity = max(1, route.payment_quantity or 1)
+        for payment in route.payment_items:
+            ok, message = character.consume_inventory_quantity(payment, quantity)
+            if ok:
+                events.append(f"{message}。当前：{character.format_inventory()}")
+            else:
+                events.append(f"支付失败：{message}")
+        for goods in route.referenced_items:
+            if character.add_inventory_item(goods):
+                events.append(
+                    f"背包新增：{goods}。当前：{character.format_inventory()}"
+                )
+        return events
 
     @staticmethod
     def _execute_combat_action(
@@ -438,6 +492,7 @@ class GameOrchestrator:
         route: ActionRouteResult,
         mechanical_events: list[str],
         game_state: GameState | None = None,
+        character: Character | None = None,
     ) -> str:
         in_combat = route.mode == "combat" or route.trigger_combat
         tag = "[行动裁定 — 战斗]" if in_combat else "[行动裁定 — 探索]"
@@ -484,6 +539,25 @@ class GameOrchestrator:
             "尚未见过面用 attitude=unknown，notes 写一句关键身份或线索；"
             "叙事中的已知 NPC 不得与【游戏状态】矛盾。"
         )
+        if route.item_usage == "purchase" and character is not None:
+            lines.append(
+                "【交易同步】系统已在上方机械结算中扣款并交付商品（若有）。"
+                "叙事中若出现找零/找补，须在叙事前 update_inventory(add) 记录零钱；"
+                "勿重复 add 已交付商品，勿重复 remove 已扣款项。"
+                f"当前背包：{character.format_inventory()}"
+            )
+        if route.skill_usage == "learn" and route.referenced_skills:
+            skills_text = "、".join(route.referenced_skills)
+            lines.append(
+                f"【技能同步】玩家正在学习/请教：{skills_text}。"
+                "若检定成功、NPC 同意传授或训练完成，须在叙事前 update_skills(add) 写入技能；"
+                "若失败或遭拒，勿添加。"
+                f"当前技能：{character.format_skills()}"
+            )
+        elif route.skill_usage == "use" and route.referenced_skills:
+            lines.append(
+                f"当前技能：{character.format_skills()} — 叙事须与【游戏状态】一致。"
+            )
         lines.append(
             "仍需按需调用 update_scene / update_quest 等 tools。"
         )

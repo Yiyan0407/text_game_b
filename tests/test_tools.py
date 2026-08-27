@@ -1,3 +1,4 @@
+from game.inventory import InventoryItem
 from game.models import Character, GameState
 from chain.tools import create_kp_tools
 
@@ -111,11 +112,27 @@ def test_update_inventory_tool():
 
     add_result = inv_tool.invoke({"action": "add", "item": "手机"})
     assert "手机" in add_result
-    assert character.inventory == ["手机"]
+    assert character.inventory == [InventoryItem(name="手机", quantity=1, unit="个")]
 
     remove_result = inv_tool.invoke({"action": "remove", "item": "手机"})
     assert "移除" in remove_result
     assert character.inventory == []
+
+
+def test_update_inventory_tool_with_quantity():
+    character = Character(name="测试")
+    game_state = GameState()
+    tools = create_kp_tools(character, game_state)
+    inv_tool = next(t for t in tools if t.name == "update_inventory")
+
+    inv_tool.invoke({"action": "add", "item": "铜板", "quantity": 5, "unit": "枚"})
+    assert character.inventory == [InventoryItem(name="铜板", quantity=5, unit="枚")]
+
+    inv_tool.invoke({"action": "add", "item": "铜板", "quantity": 2, "unit": "枚"})
+    assert character.inventory == [InventoryItem(name="铜板", quantity=7, unit="枚")]
+
+    inv_tool.invoke({"action": "remove", "item": "铜板", "quantity": 3, "unit": "枚"})
+    assert character.inventory == [InventoryItem(name="铜板", quantity=4, unit="枚")]
 
 
 def test_character_starts_with_empty_inventory():

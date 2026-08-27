@@ -26,8 +26,30 @@ def _approved_route(**overrides) -> ActionRouteResult:
     return ActionRouteResult(**data)
 
 
+def test_validate_allows_learn_skill_without_having_it():
+    route = _approved_route(
+        referenced_skills=["潜行"],
+        skill_usage="learn",
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="dex",
+        dc=14,
+    )
+    character = Character(name="测试", skills=[])
+    result = ActionRouter.validate(route, character, GameState())
+    assert result.approved is True
+
+
+def test_validate_rejects_learn_when_already_has_skill():
+    route = _approved_route(referenced_skills=["潜行"], skill_usage="learn")
+    character = Character(name="测试", skills=["潜行"])
+    result = ActionRouter.validate(route, character, GameState())
+    assert result.approved is False
+    assert "已经掌握" in result.rejection_reason
+
+
 def test_validate_rejects_missing_skill():
-    route = _approved_route(referenced_skills=["潜行"])
+    route = _approved_route(referenced_skills=["潜行"], skill_usage="use")
     character = Character(name="测试", skills=["观察"])
     result = ActionRouter.validate(route, character, GameState())
     assert result.approved is False
@@ -479,16 +501,22 @@ def test_build_kp_input_includes_narrative_scope():
         action_intent="向瘦小摊主购买破禁符",
         scope_stop="破禁符到手、仍停留在摊位前",
         must_not_narrate=["返回后院", "与沈渊对话"],
+        item_usage="purchase",
+        payment_items=["定金币"],
+        referenced_items=["破禁符"],
     )
+    character = Character(name="测试", inventory=["定金币（15枚）"])
     kp_input = GameOrchestrator._build_kp_input(
         "前往瘦小摊主处购买破禁符",
         route,
-        [],
+        ["背包新增：破禁符。当前：定金币（14枚）、破禁符"],
         GameState(),
+        character,
     )
     assert "叙事边界" in kp_input
     assert "本轮禁止叙事" in kp_input
     assert "不要链式推进" in kp_input
     assert "【NPC 同步】" in kp_input
+    assert "【交易同步】" in kp_input
     assert "record_npc" in kp_input
     assert "返回后院" in kp_input

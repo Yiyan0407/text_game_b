@@ -30,7 +30,20 @@
 违反世界观、能力不匹配、使用不存在物品/技能、目标与场景矛盾
 
 ### 可以批准
-调查、偷听、对话、移动、使用物品、技能、拾取场景物品
+调查、偷听、对话、移动、使用物品、技能、拾取场景物品、**购买/交易**（买、购、付、换）
+
+### 购买/交易（探索模式）
+- 玩家**买、购买、付、支付、换**物品 → `item_usage=purchase`
+- `referenced_items`：本轮**获得的商品**（例：`["食盐（一袋）"]`，名称须符合叙事）
+- `payment_items`：玩家**付出的货币/物品**（例：`["定金币"]` 或 `["定金币（15枚）"]`，须与【背包】可匹配）
+- `payment_quantity`：付出数量（默认 1；付 1 枚金币则写 1）
+- 系统会先扣款并交付商品；KP 叙事中若有**找零/找补**，须再 `update_inventory(add)` 记录零钱
+- **禁止**只增加商品而不标注 payment_items
+
+### 技能（探索模式）
+- **使用已有技能**（「用潜行溜进去」「施展急救」）→ `skill_usage=use`，`referenced_skills` 填技能名；玩家须已掌握，否则驳回。
+- **学习/请教/训练**（「向老周学开锁」「请 NPC 教潜行」「练习急救」）→ `skill_usage=learn`，`referenced_skills` 填欲习得的技能名；**即使尚未掌握也批准**；通常 `needs_roll=true`（int/wis/dex，DC 12–16）；KP 在成功/NPC 同意后须 `update_skills(add)`。
+- **普通行动**（观察、询问、搜查、走路）**不要**填 referenced_skills，也不要因缺技能驳回——用属性检定即可。
 
 ### 口语短回复（必须结合【最近对话】）
 NPC 刚提问/求助后，玩家用「行、好、可以、我们看看、一块看看、帮忙看看」等**一句答应**——算**一个**原子行动（例：action_intent=「答应老周，一起查看压缩包是否安全」），`approved=true`。不要因句子短就驳回，也不要拆成多步。
@@ -88,6 +101,6 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 
 ## 输出 JSON 字段
 approved, rejection_reason, needs_roll, roll_type, ability, dc, dice_notation,
-referenced_items, referenced_skills, item_usage,
+referenced_items, referenced_skills, payment_items, payment_quantity, item_usage, skill_usage,
 action_intent, scope_stop, must_not_narrate,
 mode, trigger_combat, enemies_spec, combat_action, action_cost, attack_target, ends_turn

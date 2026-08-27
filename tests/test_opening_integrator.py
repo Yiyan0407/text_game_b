@@ -56,10 +56,12 @@ def test_opening_integrator_parse():
         "public_setup": "octopus 渠道送来压缩包，来源不明",
         "secrets_from_npcs": ["陈薇不知道玩家就是 octopus"],
         "narrative_constraints": ["不要写成普通记者"],
+        "starter_skills": ["计算机渗透", "网络侦查"],
     }
     brief = OpeningIntegrator._parse_response(json.dumps(payload))
     assert "IT" in brief.role_in_story
     assert brief.secrets_from_npcs == ["陈薇不知道玩家就是 octopus"]
+    assert brief.starter_skills == ["计算机渗透", "网络侦查"]
 
 
 def test_build_start_instruction_includes_brief(monkeypatch):
