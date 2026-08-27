@@ -3,6 +3,7 @@ import streamlit as st
 from config.worlds import WORLD_OPTIONS
 from game.models import ABILITY_ORDER
 from game.profile import CharacterCard, ProfileManager
+from ui.loading import run_with_spinner
 
 
 def _render_card_stats(card: CharacterCard) -> None:
@@ -75,10 +76,11 @@ def render_character_library(profile_manager: ProfileManager) -> None:
         )
         c1, c2 = st.columns(2)
         if c1.button("确认删除", type="primary", use_container_width=True):
-            save_manager = profile_manager.get_save_manager(profile_id)
-            deleted_ids = save_manager.list_save_ids_for_character(confirm_card.card_id)
-            profile_manager.delete_character_card(profile_id, confirm_card.card_id)
-            _clear_active_game_if_deleted_card(confirm_card.card_id, deleted_ids)
+            with st.spinner("正在删除角色与存档……"):
+                save_manager = profile_manager.get_save_manager(profile_id)
+                deleted_ids = save_manager.list_save_ids_for_character(confirm_card.card_id)
+                profile_manager.delete_character_card(profile_id, confirm_card.card_id)
+                _clear_active_game_if_deleted_card(confirm_card.card_id, deleted_ids)
             st.session_state.pop("confirm_delete_card", None)
             st.session_state.pop("confirm_delete_save_count", None)
             st.rerun()

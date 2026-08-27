@@ -1,6 +1,7 @@
 import streamlit as st
 
 from chain.scenario_generator import ScenarioGenerationError, ScenarioGenerator
+from ui.loading import run_with_spinner
 from config.settings import get_settings
 from config.worlds import GENERATION_MODES, THEME_HINTS, WORLD_OPTIONS
 from game.scenario import Scenario
@@ -96,17 +97,17 @@ def _render_custom_generator(settings) -> None:
 
 def _run_generation(generate_fn) -> None:
     generator = ScenarioGenerator()
-    with st.spinner("AI 正在撰写剧本……"):
-        try:
-            scenario = generate_fn(generator)
-        except ScenarioGenerationError as exc:
-            st.error(str(exc))
-            return
-        except Exception as exc:
-            st.error(f"生成失败：{exc}")
-            return
+    try:
+        scenario = run_with_spinner("AI 正在撰写剧本……", lambda: generate_fn(generator))
+    except ScenarioGenerationError as exc:
+        st.error(str(exc))
+        return
+    except Exception as exc:
+        st.error(f"生成失败：{exc}")
+        return
 
-    save_scenario(scenario, generated=True)
+    with st.spinner("保存剧本中……"):
+        save_scenario(scenario, generated=True)
     st.session_state.generated_scenario = scenario
     st.session_state.page = "preview_scenario"
     st.rerun()

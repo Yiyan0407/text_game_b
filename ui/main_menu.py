@@ -8,6 +8,7 @@ from game.save import SaveManager
 from game.scenario import Scenario
 from game.scenario_loader import list_scenarios
 from ui.chat import render_tool_events_live
+from ui.loading import LoadingPlaceholder, run_with_spinner
 from ui.profile_menu import render_profile_switcher
 from ui.streaming import render_streaming_markdown
 
@@ -52,7 +53,10 @@ def render_main_menu(save_manager: SaveManager) -> None:
                 key=f"quick_load_{meta.save_id}",
                 use_container_width=True,
             ):
-                load_save_into_session(save_manager, meta.save_id)
+                run_with_spinner(
+                    "读取存档中……",
+                    lambda save_id=meta.save_id: load_save_into_session(save_manager, save_id),
+                )
                 st.rerun()
             if c2.button("🗑️", key=f"quick_del_{meta.save_id}", help="删除存档"):
                 save_manager.delete(meta.save_id)
@@ -80,7 +84,7 @@ def render_load_save(save_manager: SaveManager) -> None:
             )
             c1, c2 = st.columns(2)
             if c1.button("读取", key=f"load_{meta.save_id}", use_container_width=True):
-                load_save_into_session(save_manager, meta.save_id)
+                run_with_spinner("读取存档中……", lambda: load_save_into_session(save_manager, meta.save_id))
                 st.rerun()
             if c2.button("删除", key=f"del_{meta.save_id}", use_container_width=True):
                 save_manager.delete(meta.save_id)
@@ -232,10 +236,11 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
             character,
             preferred_world_id=selected_world,
         )
-        st.session_state.profile_manager.save_character_card(
-            st.session_state.current_profile_id,
-            saved_card,
-        )
+        with st.spinner("保存角色卡……"):
+            st.session_state.profile_manager.save_character_card(
+                st.session_state.current_profile_id,
+                saved_card,
+            )
         st.session_state.pop("selected_character_card", None)
         start_new_game(active_scenario, character, character_card=saved_card)
 
@@ -305,6 +310,8 @@ def start_new_game(
     st.session_state.page = "game"
 
     if settings.enable_streaming:
+        progress = LoadingPlaceholder()
+        progress.show("编织入场逻辑……")
         tool_events, text_stream, finish = orchestrator.start_game_stream(
             character, game_state, scenario, career_context=career_context
         )
@@ -314,8 +321,14 @@ def start_new_game(
         render_tool_events_live(tool_events)
 
         with st.chat_message("assistant"):
-            full = render_streaming_markdown(text_stream)
-        turn = finish(full or "")
+            full = render_streaming_markdown(
+                text_stream,
+                loading=progress,
+                loading_message="KP 撰写开场……",
+            )
+        with st.spinner("生成行动建议中……"):
+            turn = finish(full or "")
+        progress.clear()
         st.session_state.messages.append(
             ChatMessage(role="assistant", content=full or turn.response)
         )

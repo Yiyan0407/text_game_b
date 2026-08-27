@@ -1,6 +1,7 @@
 import streamlit as st
 
 from game.profile import ProfileManager, PlayerProfile
+from ui.loading import run_with_spinner
 
 
 def sync_profile_context() -> None:
@@ -25,7 +26,8 @@ def render_profile_selection(profile_manager: ProfileManager) -> None:
 
     profiles = profile_manager.list_profiles()
     if not profiles and not st.session_state.get("legacy_migrated"):
-        migrated = profile_manager.migrate_legacy_saves()
+        with st.spinner("正在迁移旧版存档……"):
+            migrated = profile_manager.migrate_legacy_saves()
         if migrated:
             st.session_state.legacy_migrated = True
             profiles = profile_manager.list_profiles()
@@ -64,7 +66,8 @@ def render_profile_selection(profile_manager: ProfileManager) -> None:
         )
         c1, c2 = st.columns(2)
         if c1.button("确认删除", type="primary", use_container_width=True):
-            profile_manager.delete_profile(confirm_id)
+            with st.spinner("正在删除档案……"):
+                profile_manager.delete_profile(confirm_id)
             if st.session_state.get("current_profile_id") == confirm_id:
                 st.session_state.current_profile_id = None
                 st.session_state.current_profile = None

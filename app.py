@@ -12,6 +12,7 @@ from ui.chat import render_chat_history, render_chat_input, render_tool_events_l
 from ui.game_state_panel import render_game_state_panel
 from ui.combat_panel import render_combat_panel
 from ui.action_suggestions import render_action_suggestions
+from ui.loading import LoadingPlaceholder, run_with_spinner
 from ui.streaming import render_streaming_markdown
 from ui.game_export import render_game_pdf_download
 from ui.main_menu import (
@@ -69,6 +70,8 @@ def handle_player_message(user_input: str) -> None:
     summary_before = game_state.story_summary
 
     if settings.enable_streaming:
+        progress = LoadingPlaceholder()
+        progress.show("裁定行动中……")
         rejection_turn, pre_tool_events, text_stream, finish = orchestrator.player_turn_stream(
             character=character,
             game_state=game_state,
@@ -77,6 +80,7 @@ def handle_player_message(user_input: str) -> None:
             history=history,
         )
         if rejection_turn is not None:
+            progress.clear()
             st.session_state.messages.append(
                 ChatMessage(
                     role="system",
@@ -92,8 +96,14 @@ def handle_player_message(user_input: str) -> None:
         render_tool_events_live(pre_tool_events)
 
         with st.chat_message("assistant"):
-            full_response = render_streaming_markdown(text_stream)
-        turn = finish(full_response or "")
+            full_response = render_streaming_markdown(
+                text_stream,
+                loading=progress,
+                loading_message="KP 撰写叙事中……",
+            )
+        with st.spinner("生成行动建议中……"):
+            turn = finish(full_response or "")
+        progress.clear()
     else:
         with st.spinner("KP 思考中……"):
             turn = orchestrator.player_turn(
@@ -195,7 +205,7 @@ def render_game() -> None:
         if st.session_state.get("current_character_id"):
             st.caption("长期角色：进度会自动同步到角色卡")
         if st.button("💾 保存游戏", use_container_width=True):
-            persist_save()
+            run_with_spinner("保存中……", persist_save)
             st.success("已保存")
         render_game_pdf_download(
             scenario,
