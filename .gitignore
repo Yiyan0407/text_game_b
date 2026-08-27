@@ -194,6 +194,8 @@ data/scenarios/generated/*
 
 # Streamlit 本地密钥（勿提交）
 .streamlit/secrets.toml
+logs/
+.run/
 
 # 操作系统杂项
 .DS_Store
