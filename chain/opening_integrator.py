@@ -74,5 +74,16 @@ def _coerce_skill_list(value) -> list[str]:
         stripped = value.strip()
         return [stripped] if stripped else []
     if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
+        skills: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                name = str(item.get("name", "")).strip()
+                desc = str(item.get("description", "")).strip()
+                if name:
+                    skills.append(f"{name}（{desc}）" if desc else name)
+            else:
+                stripped = str(item).strip()
+                if stripped:
+                    skills.append(stripped)
+        return skills
     return []

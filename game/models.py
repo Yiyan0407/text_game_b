@@ -6,7 +6,7 @@ from game.inventory import (
     normalize_inventory_list,
     _merge_description,
 )
-from game.skills import Skill, normalize_skills_list
+from game.skills import Skill, normalize_skills_list, parse_skill_text, split_skill_description
 from game.text_match import fuzzy_match_name
 
 ABILITY_ORDER: tuple[tuple[str, str, str], ...] = (
@@ -104,12 +104,12 @@ class Character(BaseModel):
 
     def add_skill(self, skill: str | Skill, description: str = "") -> bool:
         if isinstance(skill, Skill):
-            incoming = skill.model_copy()
+            incoming = split_skill_description(skill.model_copy())
         else:
-            name = skill.strip()
-            if not name:
+            text = skill.strip()
+            if not text:
                 return False
-            incoming = Skill(name=name, description=description.strip())
+            incoming = parse_skill_text(text, description=description)
 
         existing = self.find_skill(incoming.name)
         if existing:

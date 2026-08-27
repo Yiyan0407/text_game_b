@@ -31,6 +31,36 @@ _WORLD_SKILL_RULES: dict[str, list[tuple[tuple[str, ...], list[str]]]] = {
 }
 
 
+_SKILL_DESC_RE = re.compile(r"^(.+?)（(.+?)）$")
+
+
+def parse_skill_text(text: str, description: str = "") -> Skill:
+    """解析「技能名（说明）」或纯技能名；显式 description 优先于括号内说明。"""
+    raw = text.strip()
+    explicit = description.strip()
+    if not raw:
+        raise ValueError("技能名称不能为空")
+
+    match = _SKILL_DESC_RE.match(raw)
+    if match:
+        name = match.group(1).strip()
+        embedded = match.group(2).strip()
+        if not name:
+            raise ValueError("技能名称不能为空")
+        return Skill(name=name, description=explicit or embedded)
+
+    return Skill(name=raw, description=explicit)
+
+
+def split_skill_description(skill: Skill) -> Skill:
+    if skill.description.strip():
+        return skill
+    try:
+        return parse_skill_text(skill.name)
+    except ValueError:
+        return skill
+
+
 class Skill(BaseModel):
     name: str
     description: str = ""
@@ -54,13 +84,13 @@ def normalize_skills_list(value) -> list[Skill]:
     skills: list[Skill] = []
     for entry in value:
         if isinstance(entry, Skill):
-            skills.append(entry)
+            skills.append(split_skill_description(entry))
         elif isinstance(entry, str):
             cleaned = entry.strip()
             if cleaned:
-                skills.append(Skill(name=cleaned))
+                skills.append(parse_skill_text(cleaned))
         elif isinstance(entry, dict):
-            skills.append(Skill.model_validate(entry))
+            skills.append(split_skill_description(Skill.model_validate(entry)))
         else:
             raise TypeError(f"unsupported skill entry: {entry!r}")
     return skills
@@ -120,9 +150,12 @@ def merge_starter_skill_candidates(
             continue
         for skill in source:
             cleaned = skill.strip()
-            if not cleaned or cleaned in seen:
+            if not cleaned:
                 continue
-            seen.add(cleaned)
+            key = parse_skill_text(cleaned).name
+            if key in seen:
+                continue
+            seen.add(key)
             merged.append(cleaned)
             if len(merged) >= limit:
                 return merged

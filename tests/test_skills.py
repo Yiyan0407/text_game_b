@@ -4,6 +4,7 @@ from game.skills import (
     Skill,
     infer_starter_skills,
     merge_starter_skill_candidates,
+    parse_skill_text,
     sync_starter_skills,
 )
 
@@ -44,3 +45,41 @@ def test_opening_brief_includes_starter_skills_hint():
 def test_skill_format_detail():
     skill = Skill(name="潜行", description="在阴影中移动不易被察觉。")
     assert skill.format_detail() == "潜行 — 在阴影中移动不易被察觉。"
+
+
+def test_parse_skill_text_splits_parenthetical_description():
+    skill = parse_skill_text("计算机渗透（漏洞捕捉与利用）")
+    assert skill.name == "计算机渗透"
+    assert skill.description == "漏洞捕捉与利用"
+
+
+def test_parse_skill_text_explicit_description_overrides_embedded():
+    skill = parse_skill_text("潜行（旧说明）", description="新说明")
+    assert skill.name == "潜行"
+    assert skill.description == "新说明"
+
+
+def test_normalize_skills_splits_legacy_embedded_description():
+    character = Character(name="测试", skills=["基础潜行（生存本能）"])
+    assert character.skills[0].name == "基础潜行"
+    assert character.skills[0].description == "生存本能"
+
+
+def test_sync_starter_skills_splits_parenthetical_description():
+    character = Character(name="测试")
+    sync_starter_skills(
+        character,
+        ["计算机渗透（漏洞捕捉与利用）", "电子设备改装与维护（制作骇入装置）"],
+    )
+    assert character.skills[0].name == "计算机渗透"
+    assert character.skills[0].description == "漏洞捕捉与利用"
+    assert character.skills[1].name == "电子设备改装与维护"
+
+
+def test_merge_starter_skill_candidates_dedups_by_skill_name():
+    merged = merge_starter_skill_candidates(
+        ["计算机渗透（说明A）"],
+        ["计算机渗透"],
+        limit=3,
+    )
+    assert merged == ["计算机渗透（说明A）"]
