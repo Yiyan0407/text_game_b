@@ -6,8 +6,7 @@ from game.combat import end_combat, player_attack, start_combat
 from game.dice import roll
 from game.models import ABILITY_FIELDS, Character, GameState
 from game.rules import ability_check, format_check_for_kp
-from game.inventory import item_name_from_ref
-from game.text_match import fuzzy_match_name
+from game.state_patch import apply_inventory_change
 
 AbilityKey = Literal["str", "dex", "con", "int", "wis", "cha"]
 _ABILITY_HINT = " / ".join(ABILITY_FIELDS)
@@ -100,44 +99,20 @@ def create_kp_tools(
         """玩家获得或失去物品时调用。item 为物品名称或完整显示名（如 铜板（97枚））；
         quantity 为数量，unit 为单位（枚/袋/个/把等）；description 为物品说明（用途、特性等）。
         同类物品会自动合并堆叠。"""
-        cleaned = item.strip()
-        if not cleaned:
-            return "物品名称不能为空。"
-        if quantity <= 0:
-            return "数量必须大于 0。"
-        item_name = item_name_from_ref(cleaned) or cleaned
-        if action == "add":
-            if delivered and any(
-                fuzzy_match_name(item_name, delivered_name)
-                for delivered_name in delivered
-            ):
-                return f"跳过重复添加：{item_name}（已在交易结算中交付）。"
-            if item_name in added_this_turn:
-                existing = character.find_inventory_item(cleaned)
-                if existing and description.strip() and not existing.description.strip():
-                    existing.description = description.strip()
-                    return f"已补充描述：{existing.format_detail()}"
-                if quantity == 1 and (not unit or unit == "个"):
-                    return f"跳过重复添加：{item_name}（本轮已入库）。"
-            if character.add_inventory_item(
-                cleaned,
+        from game.results import InventoryPatch
+
+        return apply_inventory_change(
+            character,
+            InventoryPatch(
+                action=action,
+                item=item,
                 quantity=quantity,
                 unit=unit,
                 description=description,
-            ):
-                added_this_turn.add(item_name)
-                matched = character.find_inventory_item(cleaned)
-                label = matched.format_detail() if matched else cleaned
-                return f"获得：{label}"
-            return "添加失败。"
-        ok, message = character.consume_inventory_quantity(
-            cleaned,
-            quantity,
-            unit=unit if unit != "个" else None,
+            ),
+            delivered_items=delivered,
+            added_this_turn=added_this_turn,
         )
-        if ok:
-            return message
-        return message
 
     def record_memory_fact(fact: str) -> str:
         """当发生必须长期记住的事件时调用（获得关键物品、重要承诺、重大真相、NPC 秘密等）。"""

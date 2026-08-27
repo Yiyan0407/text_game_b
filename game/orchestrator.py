@@ -1,8 +1,10 @@
 from chain.action_router import ActionRouter
+from chain.async_utils import gather_best_effort, run_async
 from chain.opening_integrator import OpeningIntegrator
 from chain.kp_chain import KPChain
 from chain.memory import ConversationWindowMemory
 from chain.memory_manager import LongTermMemoryManager
+from chain.state_agent import StateAgent
 from chain.suggestions import ActionSuggester
 from chain.summarizer import StorySummarizer
 from config.settings import get_settings
@@ -27,11 +29,16 @@ from game.combat import (
 from game.dice import roll
 from game.inventory import item_name_from_ref
 from game.models import Character, ChatMessage, GameState
+from game.narrative_brief import (
+    build_narrative_brief_static,
+    merge_narrative_brief_with_state,
+)
 from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
 from game.rules import ability_check, format_check_for_kp
 from game.scenario import Scenario
 from game.skills import infer_starter_skills, merge_starter_skill_candidates, sync_starter_skills
+from game.state_patch import apply_state_patch
 
 START_GAME_INSTRUCTION = """\
 游戏刚刚开始。请根据下方【模组信息】做开场，并全程担任引导型 KP。
@@ -42,8 +49,7 @@ START_GAME_INSTRUCTION = """\
 3. 目标：当前最重要的一件事是什么（与 initial_quests 一致）；
 4. 引导：用 1–2 句自然语言提示「你可以尝试做什么方向」，例如调查、交谈、移动、检查物品——但不要替玩家做决定。
 
-工具：开场须 update_scene；出场或提及的有名人物须 record_npc（含任务相关失踪者，attitude 可用 unknown）；若有任务尚未入库则 update_quest。
-若输入含【背景技能已同步】：这些技能已写入【游戏状态】，开场叙事可自然提及，**勿重复** update_skills(add)。
+工具：开场场景/NPC/任务由系统自动同步；你只需写开场叙事。
 篇幅 200–400 字，结尾留明确的行动入口，让玩家知道第一句话该说什么。
 
 若输入含【长期角色履历】：这是老角色进入新模组。尊重其过往战役、技能与背包；开场可自然提及来历，但剧情仍从新模组 initial_quests 起步，不要复述全部履历。
@@ -61,45 +67,6 @@ _OPENING_CONSISTENCY_RULE = (
     "禁止出现与玩家背景矛盾的身份或经历（除非入场逻辑已明确伪装、隐姓埋名、职务视察或委托关系，且开篇点明）。"
     "严格遵守「NPC 此时还不应知道」：匿名投递者身份在未暴露前，NPC 不能确指玩家就是发信人。"
 )
-
-_ROUTE_PREAMBLE_PREFIXES = (
-    "[行动裁定",
-    "行动意图：",
-    "叙事边界：",
-    "合理性：",
-    "叙事要求：",
-    "本轮禁止叙事：",
-    "【状态同步】",
-    "【NPC 同步】",
-    "【交易同步】",
-    "【技能同步】",
-    "机械结算结果：",
-    "该行动无需掷骰",
-    "请根据预掷骰",
-    "请根据上述机械",
-    "仍需按需调用",
-)
-
-
-def _strip_leaked_route_preamble(text: str) -> str:
-    lines = text.splitlines()
-    if not lines or not lines[0].strip().startswith("[行动裁定"):
-        return text.strip()
-    index = 1
-    while index < len(lines):
-        stripped = lines[index].strip()
-        if not stripped:
-            index += 1
-            continue
-        if any(stripped.startswith(prefix) for prefix in _ROUTE_PREAMBLE_PREFIXES):
-            index += 1
-            continue
-        if stripped.startswith("- "):
-            index += 1
-            continue
-        break
-    cleaned = "\n".join(lines[index:]).strip()
-    return cleaned or text.strip()
 
 
 def _build_start_instruction(
@@ -140,12 +107,14 @@ class GameOrchestrator:
         memory_manager: LongTermMemoryManager | None = None,
         action_router: ActionRouter | None = None,
         opening_integrator: OpeningIntegrator | None = None,
+        state_agent: StateAgent | None = None,
     ):
         self.kp = kp_chain if kp_chain is not None else KPChain()
         self.summarizer = summarizer if summarizer is not None else StorySummarizer()
         self.suggester = suggester if suggester is not None else ActionSuggester()
         self.memory = LongTermMemoryManager(self.summarizer) if memory_manager is None else memory_manager
         self.router = action_router if action_router is not None else ActionRouter()
+        self.state_agent = state_agent if state_agent is not None else StateAgent()
         self.opening_integrator = (
             opening_integrator if opening_integrator is not None else OpeningIntegrator()
         )
@@ -153,6 +122,18 @@ class GameOrchestrator:
         self.window_memory = ConversationWindowMemory(window_size=settings.max_history_messages)
 
     def start_game(
+        self,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        *,
+        career_context: str = "",
+    ) -> TurnResult:
+        return run_async(
+            self.astart_game(character, game_state, scenario, career_context=career_context)
+        )
+
+    async def astart_game(
         self,
         character: Character,
         game_state: GameState,
@@ -171,27 +152,26 @@ class GameOrchestrator:
             )
             synced_starter_skills = sync_starter_skills(character, candidates)
 
-        turn = self.kp.invoke(
-            character=character,
-            game_state=game_state,
-            scenario_context=scenario.format_for_prompt(),
-            world_id=scenario.world_id,
-            user_input=_build_start_instruction(
-                character,
-                scenario,
-                career_context,
-                self.opening_integrator,
-                brief=brief,
-                synced_starter_skills=synced_starter_skills,
-            ),
-            history=[],
+        user_input = _build_start_instruction(
+            character,
+            scenario,
+            career_context,
+            self.opening_integrator,
+            brief=brief,
+            synced_starter_skills=synced_starter_skills,
         )
-        return self._finalize_turn(
-            turn,
+        turn = await self._run_kp_turn_async(
             character=character,
             game_state=game_state,
             scenario=scenario,
+            user_input=user_input,
             history=[],
+            route=None,
+            mechanical_events=[],
+            enriched_input=user_input,
+        )
+        return await self._afinalize_turn(
+            turn, character, game_state, scenario, []
         )
 
     def start_game_stream(
@@ -220,13 +200,18 @@ class GameOrchestrator:
             brief=brief,
             synced_starter_skills=synced_starter_skills,
         )
-        return self._stream_turn(
+        return self._stream_turn_phased(
             character=character,
             game_state=game_state,
             scenario=scenario,
             user_input=user_input,
             history=[],
             increment_turn=False,
+            full_history=[],
+            pre_tool_events=[],
+            route=None,
+            enriched_input=user_input,
+            mechanical_events=[],
         )
 
     def player_turn(
@@ -237,8 +222,20 @@ class GameOrchestrator:
         user_input: str,
         history: list[ChatMessage],
     ) -> TurnResult:
+        return run_async(
+            self.aplayer_turn(character, game_state, scenario, user_input, history)
+        )
+
+    async def aplayer_turn(
+        self,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        user_input: str,
+        history: list[ChatMessage],
+    ) -> TurnResult:
         windowed = self.window_memory.get_history(history)
-        kp_input, pre_tool_events, route = self._prepare_player_input(
+        enriched_input, pre_tool_events, route = await self._aprepare_player_input(
             user_input, character, game_state, scenario, history, windowed
         )
         if not route.approved:
@@ -248,23 +245,20 @@ class GameOrchestrator:
                 rejection_reason=route.rejection_reason,
             )
 
-        skip_combat_tools = game_state.is_in_combat()
-        delivered_items = GameOrchestrator._delivered_item_names(route, pre_tool_events)
-        turn = self.kp.invoke(
+        turn = await self._run_kp_turn_async(
             character=character,
             game_state=game_state,
-            scenario_context=scenario.format_for_prompt(),
-            world_id=scenario.world_id,
-            user_input=kp_input,
+            scenario=scenario,
+            user_input=user_input,
             history=windowed,
-            skip_roll_tools=True,
-            skip_combat_tools=skip_combat_tools,
-            delivered_items=delivered_items,
+            route=route,
+            mechanical_events=pre_tool_events,
+            enriched_input=enriched_input,
         )
         turn.tool_events = pre_tool_events + turn.tool_events
         game_state.turn_count += 1
-        self.memory.process_after_turn(game_state, history)
-        return self._finalize_turn(turn, character, game_state, scenario, history)
+        await self._afinalize_turn(turn, character, game_state, scenario, history)
+        return turn
 
     def player_turn_stream(
         self,
@@ -275,7 +269,7 @@ class GameOrchestrator:
         history: list[ChatMessage],
     ):
         windowed = self.window_memory.get_history(history)
-        kp_input, pre_tool_events, route = self._prepare_player_input(
+        enriched_input, pre_tool_events, route = self._prepare_player_input(
             user_input, character, game_state, scenario, history, windowed
         )
         if not route.approved:
@@ -288,25 +282,23 @@ class GameOrchestrator:
             def finish_rejected(_response: str) -> TurnResult:
                 return rejected_turn
 
-            return rejected_turn, pre_tool_events, iter([]), finish_rejected
+            return rejected_turn, pre_tool_events, [], iter([]), finish_rejected
 
-        skip_combat_tools = game_state.is_in_combat()
-        delivered_items = GameOrchestrator._delivered_item_names(route, pre_tool_events)
-        return None, *self._stream_turn(
+        return self._stream_turn_phased(
             character=character,
             game_state=game_state,
             scenario=scenario,
-            user_input=kp_input,
+            user_input=user_input,
             history=windowed,
             increment_turn=True,
             full_history=history,
             pre_tool_events=pre_tool_events,
-            skip_roll_tools=True,
-            skip_combat_tools=skip_combat_tools,
-            delivered_items=delivered_items,
+            route=route,
+            enriched_input=enriched_input,
+            mechanical_events=pre_tool_events,
         )
 
-    def _stream_turn(
+    def _stream_turn_phased(
         self,
         character: Character,
         game_state: GameState,
@@ -314,39 +306,172 @@ class GameOrchestrator:
         user_input: str,
         history: list[ChatMessage],
         increment_turn: bool,
-        full_history: list[ChatMessage] | None = None,
-        pre_tool_events: list[str] | None = None,
-        skip_roll_tools: bool = False,
-        skip_combat_tools: bool = False,
-        delivered_items: frozenset[str] | None = None,
+        full_history: list[ChatMessage] | None,
+        pre_tool_events: list[str],
+        route: ActionRouteResult | None,
+        enriched_input: str,
+        mechanical_events: list[str],
     ):
-        tool_events = list(pre_tool_events or [])
-        kp_tool_events, text_stream = self.kp.stream(
+        """分阶段流式回合：返回 (rejection, pre_tool_events, state_events, text_stream, finish)。"""
+        tool_events = list(pre_tool_events)
+        finalized_turn: list[TurnResult] = []
+
+        async def _state_phase():
+            patch = await self.state_agent.apropose(
+                enriched_input,
+                character,
+                game_state,
+                mechanical_events,
+                history,
+                route=route,
+            )
+            delivered = (
+                GameOrchestrator._delivered_item_names(route, mechanical_events)
+                if route
+                else frozenset()
+            )
+            brief_static = build_narrative_brief_static(
+                enriched_input, route, mechanical_events
+            )
+            state_events = apply_state_patch(
+                patch,
+                character,
+                game_state,
+                route=route,
+                delivered_items=delivered,
+                mechanical_events=mechanical_events,
+            )
+            brief = merge_narrative_brief_with_state(
+                brief_static, character, game_state, state_events
+            )
+            return state_events, brief
+
+        state_events, brief = run_async(_state_phase())
+        tool_events.extend(state_events)
+
+        if increment_turn:
+            game_state.turn_count += 1
+
+        def text_stream():
+            import asyncio
+
+            loop = asyncio.new_event_loop()
+            try:
+                async def _consume():
+                    parts: list[str] = []
+                    async for chunk in self.kp.anarrate_stream(
+                        character=character,
+                        game_state=game_state,
+                        scenario_context=scenario.format_for_prompt(),
+                        world_id=scenario.world_id,
+                        user_input=brief,
+                        history=history,
+                    ):
+                        parts.append(chunk)
+                        yield chunk
+                    full = "".join(parts)
+                    turn = TurnResult(response=full, tool_events=tool_events)
+                    finalized_turn.append(
+                        await self._afinalize_turn(
+                            turn,
+                            character,
+                            game_state,
+                            scenario,
+                            full_history or history,
+                        )
+                    )
+
+                gen = _consume().__aiter__()
+                while True:
+                    try:
+                        yield loop.run_until_complete(gen.__anext__())
+                    except StopAsyncIteration:
+                        break
+            finally:
+                loop.close()
+
+        def finish(response: str) -> TurnResult:
+            if finalized_turn:
+                turn = finalized_turn[0]
+                if response.strip():
+                    turn.response = response.strip()
+                return turn
+            return TurnResult(response=response.strip(), tool_events=tool_events)
+
+        return None, list(pre_tool_events), state_events, text_stream(), finish
+
+    async def _run_kp_turn_async(
+        self,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        user_input: str,
+        history: list[ChatMessage],
+        route: ActionRouteResult | None,
+        mechanical_events: list[str],
+        enriched_input: str,
+    ) -> TurnResult:
+        brief_static = build_narrative_brief_static(
+            enriched_input, route, mechanical_events
+        )
+        patch = await self.state_agent.apropose(
+            enriched_input,
+            character,
+            game_state,
+            mechanical_events,
+            history,
+            route=route,
+        )
+        delivered = (
+            GameOrchestrator._delivered_item_names(route, mechanical_events)
+            if route
+            else frozenset()
+        )
+        state_events = apply_state_patch(
+            patch,
+            character,
+            game_state,
+            route=route,
+            delivered_items=delivered,
+            mechanical_events=mechanical_events,
+        )
+        brief = merge_narrative_brief_with_state(
+            brief_static, character, game_state, state_events
+        )
+        turn = await self.kp.anarrate(
             character=character,
             game_state=game_state,
             scenario_context=scenario.format_for_prompt(),
             world_id=scenario.world_id,
-            user_input=user_input,
+            user_input=brief,
             history=history,
-            skip_roll_tools=skip_roll_tools,
-            skip_combat_tools=skip_combat_tools,
-            delivered_items=delivered_items,
         )
+        turn.tool_events = state_events + turn.tool_events
+        return turn
 
-        if increment_turn:
-            game_state.turn_count += 1
-            self.memory.process_after_turn(game_state, full_history or history)
-
-        def finish(response: str) -> TurnResult:
-            turn = TurnResult(
-                response=response.strip(),
-                tool_events=tool_events + kp_tool_events,
+    async def _aprepare_player_input(
+        self,
+        user_input: str,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        history: list[ChatMessage],
+        windowed: list[ChatMessage],
+    ) -> tuple[str, list[str], ActionRouteResult]:
+        enriched_input = self._maybe_add_guidance_hint(user_input, game_state.turn_count)
+        route = await self.router.aevaluate(
+            enriched_input, character, game_state, scenario, windowed or history
+        )
+        if not route.approved:
+            return enriched_input, [], route
+        try:
+            pre_tool_events = self._resolve_mechanics(route, character, game_state)
+        except ValueError as exc:
+            return enriched_input, [], ActionRouteResult(
+                approved=False,
+                rejection_reason=str(exc),
             )
-            return self._finalize_turn(
-                turn, character, game_state, scenario, full_history or history
-            )
-
-        return tool_events, text_stream, finish
+        return enriched_input, pre_tool_events, route
 
     def _prepare_player_input(
         self,
@@ -363,19 +488,27 @@ class GameOrchestrator:
         )
         if not route.approved:
             return enriched_input, [], route
+        try:
+            pre_tool_events = self._resolve_mechanics(route, character, game_state)
+        except ValueError as exc:
+            return enriched_input, [], ActionRouteResult(
+                approved=False,
+                rejection_reason=str(exc),
+            )
+        return enriched_input, pre_tool_events, route
 
+    def _resolve_mechanics(
+        self,
+        route: ActionRouteResult,
+        character: Character,
+        game_state: GameState,
+    ) -> list[str]:
         pre_tool_events: list[str] = []
 
         if route.trigger_combat:
-            try:
-                pre_tool_events.append(
-                    start_combat(character, game_state, route.enemies_spec)
-                )
-            except ValueError as exc:
-                return enriched_input, [], ActionRouteResult(
-                    approved=False,
-                    rejection_reason=str(exc),
-                )
+            pre_tool_events.append(
+                start_combat(character, game_state, route.enemies_spec)
+            )
             pre_tool_events.extend(resolve_until_player_turn(character, game_state))
 
         if game_state.is_in_combat() and route.combat_action != "none":
@@ -410,10 +543,7 @@ class GameOrchestrator:
         if end_msg:
             pre_tool_events.append(end_msg)
 
-        kp_input = self._build_kp_input(
-            enriched_input, route, pre_tool_events, game_state, character
-        )
-        return kp_input, pre_tool_events, route
+        return pre_tool_events
 
     @staticmethod
     def _execute_purchase(route: ActionRouteResult, character: Character) -> list[str]:
@@ -556,91 +686,7 @@ class GameOrchestrator:
             return roll(route.dice_notation).describe()
         return ""
 
-    @staticmethod
-    def _build_kp_input(
-        user_input: str,
-        route: ActionRouteResult,
-        mechanical_events: list[str],
-        game_state: GameState | None = None,
-        character: Character | None = None,
-    ) -> str:
-        in_combat = route.mode == "combat" or route.trigger_combat
-        tag = "[行动裁定 — 战斗]" if in_combat else "[行动裁定 — 探索]"
-        lines = [
-            tag,
-            f"行动意图：{route.action_intent}",
-            f"叙事边界：{route.scope_stop}",
-            "合理性：已通过路由检验。",
-        ]
-        if route.must_not_narrate:
-            lines.append("本轮禁止叙事：")
-            for item in route.must_not_narrate:
-                lines.append(f"- {item}")
-        lines.append(
-            "叙事要求：回应玩家本句中的全部需求，写到叙事边界后收笔；"
-            "勿擅自推进玩家未提及的换场景、见他人或新任务。"
-        )
-        if in_combat and game_state and game_state.combat and game_state.combat.is_player_turn():
-            lines.append(f"回合资源：{game_state.combat.format_action_economy()}")
-            if game_state.combat.has_main_action() or game_state.combat.has_bonus_action():
-                lines.append(
-                    "玩家仍可继续本回合行动；勿提前描写回合结束，除非资源已尽或玩家结束回合。"
-                )
-        if mechanical_events:
-            lines.append("机械结算结果：")
-            for event in mechanical_events:
-                lines.append(f"- {event}")
-        if in_combat:
-            lines.append(
-                "请根据上述机械结果叙事；禁止调用 ability_check/roll_dice/"
-                "start_combat/player_attack。"
-            )
-        elif mechanical_events:
-            lines.append("请根据预掷骰结果叙事；勿再次调用 ability_check/roll_dice。")
-        else:
-            lines.append("该行动无需掷骰；直接叙事即可。")
-        lines.append(
-            "【状态同步】若本行动使玩家获得/失去/消耗物品或学会/失去技能，"
-            "须在输出叙事之前调用 update_inventory / update_skills；叙事不得与【游戏状态】背包矛盾。"
-        )
-        lines.append(
-            "【NPC 同步】若本行动会向玩家交代有姓名人物的情报（含当面互动、他人转述、"
-            "介绍失踪者/嫌疑人/证人/目标人物），须在叙事之前为**每人**调用 record_npc；"
-            "尚未见过面用 attitude=unknown，notes 写一句关键身份或线索；"
-            "叙事中的已知 NPC 不得与【游戏状态】矛盾。"
-        )
-        if GameOrchestrator._purchase_settled(route, mechanical_events) and character is not None:
-            lines.append(
-                "【交易同步】系统已在上方机械结算中扣款并交付商品。"
-                "叙事中若出现找零/找补，须在叙事前 update_inventory(add) 记录零钱；"
-                "**禁止**重复 add 已交付商品，**禁止**重复 remove 已扣款项。"
-                f"当前背包：{character.format_inventory()}"
-            )
-        elif route.item_usage == "purchase":
-            lines.append(
-                "【交易同步】本次购买未成功结算（见机械结算结果）。"
-                "勿在叙事中假定已获得商品或已完成付款。"
-            )
-        if route.skill_usage == "learn" and route.referenced_skills:
-            skills_text = "、".join(route.referenced_skills)
-            lines.append(
-                f"【技能同步】玩家正在学习/请教：{skills_text}。"
-                "若检定成功、NPC 同意传授或训练完成，须在叙事前 update_skills(add) 写入技能；"
-                "若失败或遭拒，勿添加。"
-                f"当前技能：{character.format_skills()}"
-            )
-        elif route.skill_usage == "use" and route.referenced_skills:
-            lines.append(
-                f"当前技能：{character.format_skills()} — 叙事须与【游戏状态】一致。"
-            )
-        lines.append(
-            "仍需按需调用 update_scene / update_quest 等 tools。"
-        )
-        lines.append("")
-        lines.append(user_input)
-        return "\n".join(lines)
-
-    def _finalize_turn(
+    async def _afinalize_turn(
         self,
         turn: TurnResult,
         character: Character,
@@ -648,22 +694,32 @@ class GameOrchestrator:
         scenario: Scenario,
         history: list[ChatMessage],
     ) -> TurnResult:
-        if turn.response and not turn.rejected:
-            turn.response = _strip_leaked_route_preamble(turn.response)
         settings = get_settings()
-        if settings.enable_action_suggestions and turn.response and not turn.rejected:
+        summary_before = game_state.story_summary
+
+        async def _suggestions():
+            if not settings.enable_action_suggestions or not turn.response or turn.rejected:
+                return []
             combat = game_state.combat
-            turn.action_suggestions = self.suggester.suggest(
+            suggestions = await self.suggester.asuggest(
                 game_state.current_scene,
                 turn.response,
                 turn_count=game_state.turn_count,
                 in_combat=game_state.is_in_combat(),
                 enemy_names=combat.living_enemy_names() if combat else [],
             )
-            if not turn.action_suggestions and game_state.turn_count == 0:
-                turn.action_suggestions = self._default_opening_suggestions(
-                    scenario, game_state
-                )
+            if not suggestions and game_state.turn_count == 0:
+                return self._default_opening_suggestions(scenario, game_state)
+            return suggestions
+
+        async def _memory():
+            await self.memory.process_after_turn_async(game_state, history)
+
+        suggestions, _ = await gather_best_effort(_suggestions(), _memory())
+        if suggestions:
+            turn.action_suggestions = suggestions
+        if game_state.story_summary != summary_before:
+            turn.summary_updated = True
         return turn
 
     @staticmethod

@@ -80,6 +80,23 @@ class ActionSuggester:
         lines = [line.strip("-•* ").strip() for line in text.splitlines() if line.strip()]
         return lines[:3]
 
+    async def asuggest(
+        self,
+        scene: str,
+        narrative: str,
+        turn_count: int = 0,
+        *,
+        in_combat: bool = False,
+        enemy_names: list[str] | None = None,
+    ) -> list[str]:
+        return self.suggest(
+            scene,
+            narrative,
+            turn_count=turn_count,
+            in_combat=in_combat,
+            enemy_names=enemy_names,
+        )
+
     @staticmethod
     def _fallback_opening_suggestions(scene: str) -> list[str]:
         label = scene or "周围"

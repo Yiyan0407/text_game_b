@@ -333,19 +333,23 @@ def start_new_game(
     if settings.enable_streaming:
         progress = LoadingPlaceholder()
         progress.show("编织入场逻辑……")
-        tool_events, text_stream, finish = orchestrator.start_game_stream(
-            character, game_state, scenario, career_context=career_context
+        tool_events, pre_tool_events, state_events, text_stream, finish = (
+            orchestrator.start_game_stream(
+                character, game_state, scenario, career_context=career_context
+            )
         )
         from game.session import append_tool_events
+        from ui.streaming import render_phased_turn
 
-        append_tool_events(tool_events)
-        render_tool_events_live(tool_events)
+        append_tool_events(pre_tool_events)
+        append_tool_events(state_events)
 
         with st.chat_message("assistant"):
-            full = render_streaming_markdown(
+            full = render_phased_turn(
+                pre_tool_events,
+                state_events,
                 text_stream,
                 loading=progress,
-                loading_message="KP 撰写开场……",
             )
         with st.spinner("生成行动建议中……"):
             turn = finish(full or "")

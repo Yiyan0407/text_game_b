@@ -1,11 +1,26 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from chain.action_router import ActionRouter
 from game.models import Character, ChatMessage, GameState
-from game.orchestrator import GameOrchestrator, _strip_leaked_route_preamble
-from game.results import ActionRouteResult, TurnResult
+from game.orchestrator import GameOrchestrator
+from game.narrative_brief import build_narrative_brief_static
+from game.results import ActionRouteResult, StatePatch, TurnResult
 from game.scenario import Scenario
+
+
+def _setup_async_mocks(router, kp, state_agent=None):
+    router.aevaluate = AsyncMock(side_effect=lambda *args, **kwargs: router.evaluate(*args, **kwargs))
+    if state_agent is None:
+        state_agent = MagicMock()
+    state_agent.apropose = AsyncMock(return_value=StatePatch())
+    turn_result = TurnResult(response="好的。", tool_events=[])
+    if getattr(kp, "narrate", None) and kp.narrate.return_value:
+        turn_result = kp.narrate.return_value
+    kp.anarrate = AsyncMock(return_value=turn_result)
+    return state_agent
 
 
 def _approved_route(**overrides) -> ActionRouteResult:
@@ -201,6 +216,7 @@ def test_orchestrator_reject_does_not_increment_turn(mock_settings):
         approved=False,
         rejection_reason="现代都市中无法召唤齐天大圣。",
     )
+    router.aevaluate = AsyncMock(return_value=router.evaluate.return_value)
     orchestrator = GameOrchestrator(kp_chain=MagicMock(), action_router=router)
     character = Character(name="测试")
     game_state = GameState(turn_count=3)
@@ -216,7 +232,7 @@ def test_orchestrator_reject_does_not_increment_turn(mock_settings):
 
     assert turn.rejected is True
     assert game_state.turn_count == 3
-    orchestrator.kp.invoke.assert_not_called()
+    orchestrator.kp.anarrate.assert_not_called()
 
 
 def test_validate_defaults_roll_when_needs_roll_without_roll_type():
@@ -249,18 +265,6 @@ def test_require_infiltration_roll_for_continue_deeper():
     assert result.dc >= 14
 
 
-def test_strip_leaked_route_preamble():
-    raw = (
-        "[行动裁定 — 探索]\n\n"
-        "行动意图：沿消防通道继续深入\n"
-        "叙事边界：抵达楼梯口\n\n"
-        "你穿过走廊，朝消防通道的门走去。"
-    )
-    cleaned = _strip_leaked_route_preamble(raw)
-    assert cleaned.startswith("你穿过走廊")
-    assert "[行动裁定" not in cleaned
-
-
 @patch("game.orchestrator.get_settings")
 def test_orchestrator_pre_roll_before_kp(mock_settings):
     mock_settings.return_value = MagicMock(
@@ -276,8 +280,11 @@ def test_orchestrator_pre_roll_before_kp(mock_settings):
         action_intent="悄悄偷听对话",
     )
     kp = MagicMock()
-    kp.invoke.return_value = TurnResult(response="你成功听到了对话。", tool_events=[])
-    orchestrator = GameOrchestrator(kp_chain=kp, action_router=router)
+    kp.narrate.return_value = TurnResult(response="你成功听到了对话。", tool_events=[])
+    state_agent = _setup_async_mocks(router, kp)
+    orchestrator = GameOrchestrator(
+        kp_chain=kp, action_router=router, state_agent=state_agent
+    )
     character = Character(name="测试", dex=14)
     game_state = GameState()
     scenario = Scenario(id="test", title="测试", world_id="modern")
@@ -293,11 +300,10 @@ def test_orchestrator_pre_roll_before_kp(mock_settings):
     assert turn.rejected is False
     assert len(turn.tool_events) == 1
     assert "敏捷检定" in turn.tool_events[0]
-    kp.invoke.assert_called_once()
-    assert kp.invoke.call_args.kwargs["skip_roll_tools"] is True
-    kp_input = kp.invoke.call_args.kwargs["user_input"]
-    assert "[行动裁定 — 探索]" in kp_input
-    assert "机械结算结果" in kp_input
+    kp.anarrate.assert_called_once()
+    kp_input = kp.anarrate.call_args.kwargs["user_input"]
+    assert "【叙事简报】" in kp_input
+    assert "悄悄偷听对话" in kp_input
 
 
 @patch("game.orchestrator.get_settings")
@@ -309,8 +315,9 @@ def test_orchestrator_always_routes_player_input(mock_settings):
     router = MagicMock()
     router.evaluate.return_value = _approved_route(action_intent="观察四周")
     kp = MagicMock()
-    kp.invoke.return_value = TurnResult(response="好的。", tool_events=[])
-    orchestrator = GameOrchestrator(kp_chain=kp, action_router=router)
+    kp.narrate.return_value = TurnResult(response="好的。", tool_events=[])
+    state_agent = _setup_async_mocks(router, kp)
+    orchestrator = GameOrchestrator(kp_chain=kp, action_router=router, state_agent=state_agent)
     character = Character(name="测试")
     game_state = GameState()
     scenario = Scenario(id="test", title="测试", world_id="modern")
@@ -324,8 +331,7 @@ def test_orchestrator_always_routes_player_input(mock_settings):
     )
 
     router.evaluate.assert_called_once()
-    assert kp.invoke.call_args.kwargs["skip_roll_tools"] is True
-    assert "[行动裁定" in kp.invoke.call_args.kwargs["user_input"]
+    assert "【叙事简报】" in kp.anarrate.call_args.kwargs["user_input"]
 
 
 @patch("game.orchestrator.get_settings")
@@ -345,8 +351,9 @@ def test_orchestrator_combat_attack_does_not_advance_until_actions_spent(mock_se
         action_intent="攻击哥布林",
     )
     kp = MagicMock()
-    kp.invoke.return_value = TurnResult(response="你挥剑砍去。", tool_events=[])
-    orchestrator = GameOrchestrator(kp_chain=kp, action_router=router)
+    kp.narrate.return_value = TurnResult(response="你挥剑砍去。", tool_events=[])
+    state_agent = _setup_async_mocks(router, kp)
+    orchestrator = GameOrchestrator(kp_chain=kp, action_router=router, state_agent=state_agent)
     character = Character(name="测试", strength=16)
     game_state = GameState()
     game_state.combat = CombatState(
@@ -367,9 +374,10 @@ def test_orchestrator_combat_attack_does_not_advance_until_actions_spent(mock_se
     assert game_state.combat.is_player_turn()
     assert not game_state.combat.has_main_action()
     assert game_state.combat.has_bonus_action()
-    assert kp.invoke.call_args.kwargs["skip_combat_tools"] is True
-    kp_input = kp.invoke.call_args.kwargs["user_input"]
-    assert "仍可继续本回合行动" in kp_input
+    kp.anarrate.assert_called_once()
+    kp_input = kp.anarrate.call_args.kwargs["user_input"]
+    assert "攻击哥布林" in kp_input
+    assert "【模式】战斗" in kp_input
 
 
 def test_validate_rejects_non_player_turn_in_combat():
@@ -482,7 +490,7 @@ def test_apply_granularity_allows_single_purchase_action():
     assert route.must_not_narrate
 
 
-def test_build_kp_input_includes_narrative_scope():
+def test_narrative_brief_includes_scope_and_mechanical_events():
     route = _approved_route(
         action_intent="向瘦小摊主购买破禁符",
         scope_stop="破禁符到手、仍停留在摊位前",
@@ -491,21 +499,17 @@ def test_build_kp_input_includes_narrative_scope():
         payment_items=["定金币"],
         referenced_items=["破禁符"],
     )
-    character = Character(name="测试", inventory=["定金币（15枚）"])
-    kp_input = GameOrchestrator._build_kp_input(
+    brief = build_narrative_brief_static(
         "前往瘦小摊主处购买破禁符",
         route,
         ["背包新增：破禁符。当前：定金币（14枚）、破禁符"],
-        GameState(),
-        character,
     )
-    assert "叙事边界" in kp_input
-    assert "本轮禁止叙事" in kp_input
-    assert "叙事要求" in kp_input
-    assert "【NPC 同步】" in kp_input
-    assert "【交易同步】" in kp_input
-    assert "record_npc" in kp_input
-    assert "返回后院" in kp_input
+    assert "【叙事简报】" in brief
+    assert "破禁符到手" in brief
+    assert "【禁止推进】" in brief
+    assert "返回后院" in brief
+    assert "背包新增：破禁符" in brief
+    assert "前往瘦小摊主处购买破禁符" in brief
 
 
 def test_validate_rejects_empty_attack_target():
@@ -626,19 +630,17 @@ def test_fallback_route_allows_compound_action():
     assert route.approved is True
 
 
-def test_build_kp_input_notes_failed_purchase():
+def test_narrative_brief_includes_failed_purchase_event():
     route = _approved_route(
         item_usage="purchase",
         payment_items=["定金币"],
         referenced_items=["破禁符"],
         action_intent="购买破禁符",
     )
-    kp_input = GameOrchestrator._build_kp_input(
+    brief = build_narrative_brief_static(
         "买破禁符",
         route,
         ["支付失败：背包中 定金币（0枚） 数量不足。"],
-        GameState(),
-        Character(name="测试", inventory=[]),
     )
-    assert "未成功结算" in kp_input
-    assert "勿在叙事中假定" in kp_input
+    assert "支付失败" in brief
+    assert "买破禁符" in brief

@@ -32,6 +32,24 @@ class LongTermMemoryManager:
                 self.max_story_summary_chars,
             )
 
+    async def process_after_turn_async(
+        self, game_state: GameState, history: list[ChatMessage]
+    ) -> None:
+        if game_state.turn_count <= 0:
+            return
+
+        if self._should_summarize(game_state):
+            await self._run_periodic_summary_async(game_state, history)
+
+        if self._should_chapter(game_state):
+            await self._run_chapter_summary_async(game_state, history)
+
+        if len(game_state.story_summary) > self.max_story_summary_chars:
+            game_state.story_summary = await self.summarizer.acompress_summary(
+                game_state.story_summary,
+                self.max_story_summary_chars,
+            )
+
     def _should_summarize(self, game_state: GameState) -> bool:
         return (
             game_state.turn_count - game_state.last_summarized_turn
@@ -62,6 +80,24 @@ class LongTermMemoryManager:
         game_state.add_memory_facts(new_facts, self.max_memory_facts)
         game_state.last_summarized_turn = game_state.turn_count
 
+    async def _run_periodic_summary_async(
+        self,
+        game_state: GameState,
+        history: list[ChatMessage],
+    ) -> None:
+        recent = ConversationWindowMemory.format_for_summary(
+            history,
+            max_messages=self.summary_interval * 4,
+        )
+        game_state.story_summary = await self.summarizer.amerge_summary(
+            game_state.story_summary,
+            recent,
+            self.max_story_summary_chars,
+        )
+        new_facts = await self.summarizer.aextract_facts(game_state.memory_facts, recent)
+        game_state.add_memory_facts(new_facts, self.max_memory_facts)
+        game_state.last_summarized_turn = game_state.turn_count
+
     def _run_chapter_summary(
         self,
         game_state: GameState,
@@ -86,6 +122,36 @@ class LongTermMemoryManager:
             ]
             merged = "\n".join(overflow)
             game_state.story_summary = self.summarizer.merge_summary(
+                game_state.story_summary,
+                f"【较早章节归档】\n{merged}",
+                self.max_story_summary_chars,
+            )
+        game_state.last_chapter_turn = game_state.turn_count
+
+    async def _run_chapter_summary_async(
+        self,
+        game_state: GameState,
+        history: list[ChatMessage],
+    ) -> None:
+        chapter_num = len(game_state.chapter_summaries) + 1
+        recent = ConversationWindowMemory.format_for_summary(
+            history,
+            max_messages=self.chapter_interval * 3,
+        )
+        chapter_text = await self.summarizer.asummarize_chapter(
+            chapter_num=chapter_num,
+            scene=game_state.current_scene,
+            summary=game_state.story_summary,
+            recent_dialogue=recent,
+        )
+        game_state.chapter_summaries.append(chapter_text)
+        if len(game_state.chapter_summaries) > self.max_chapters_kept:
+            overflow = game_state.chapter_summaries[: -self.max_chapters_kept]
+            game_state.chapter_summaries = game_state.chapter_summaries[
+                -self.max_chapters_kept :
+            ]
+            merged = "\n".join(overflow)
+            game_state.story_summary = await self.summarizer.amerge_summary(
                 game_state.story_summary,
                 f"【较早章节归档】\n{merged}",
                 self.max_story_summary_chars,

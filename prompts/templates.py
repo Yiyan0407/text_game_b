@@ -49,3 +49,8 @@ def build_kp_prompt(world_id: str = DEFAULT_WORLD_ID) -> ChatPromptTemplate:
             ("human", "{input}"),
         ]
     )
+
+
+def build_narrative_prompt(world_id: str = DEFAULT_WORLD_ID) -> ChatPromptTemplate:
+    """纯叙事 KP 使用的 Prompt。"""
+    return build_kp_prompt(world_id)

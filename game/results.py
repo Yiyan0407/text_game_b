@@ -64,6 +64,56 @@ class ActionRouteResult(BaseModel):
     proficiency_bonus: bool = False
 
 
+class ScenePatch(BaseModel):
+    scene_id: str = ""
+    scene_name: str = ""
+
+
+class NpcPatch(BaseModel):
+    name: str = ""
+    attitude: Literal["friendly", "neutral", "hostile", "unknown"] = "unknown"
+    notes: str = ""
+
+
+class QuestPatch(BaseModel):
+    quest_id: str = ""
+    title: str = ""
+    status: Literal["active", "completed", "failed"] = "active"
+    description: str = ""
+
+
+class InventoryPatch(BaseModel):
+    action: Literal["add", "remove"] = "add"
+    item: str = ""
+    quantity: int = 1
+    unit: str = "个"
+    description: str = ""
+
+
+class SkillPatch(BaseModel):
+    action: Literal["add", "remove"] = "add"
+    skill: str = ""
+    description: str = ""
+
+
+class StatePatch(BaseModel):
+    scene: ScenePatch | None = None
+    npcs: list[NpcPatch] = Field(default_factory=list)
+    quests: list[QuestPatch] = Field(default_factory=list)
+    inventory: list[InventoryPatch] = Field(default_factory=list)
+    skills: list[SkillPatch] = Field(default_factory=list)
+    memory_facts: list[str] = Field(default_factory=list)
+    end_combat: bool = False
+
+
+class StreamPhase(BaseModel):
+    """流式回合的一个阶段输出。"""
+
+    kind: Literal["mechanical", "state", "narrative", "done"] = "narrative"
+    events: list[str] = Field(default_factory=list)
+    chunk: str = ""
+
+
 class TurnResult(BaseModel):
     response: str
     tool_events: list[str] = Field(default_factory=list)

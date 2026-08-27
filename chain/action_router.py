@@ -206,6 +206,45 @@ class ActionRouter:
             ]
         )
 
+    def _build_inputs(
+        self,
+        user_input: str,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        history: list[ChatMessage],
+    ) -> dict:
+        return {
+            "world_rules": load_world_prompt(scenario.world_id),
+            "scenario_context": scenario.format_for_prompt(),
+            "game_state_context": game_state.format_for_prompt(),
+            "character_name": character.name,
+            "character_background": character.background,
+            "character_abilities": character.format_abilities(),
+            "hp": character.hp,
+            "max_hp": character.max_hp,
+            "character_inventory": character.format_inventory(),
+            "character_skills": character.format_skills(),
+            "recent_history": _format_recent_history(history),
+            "user_input": user_input.strip(),
+        }
+
+    def _finalize_route(
+        self,
+        text: str,
+        user_input: str,
+        character: Character,
+        game_state: GameState,
+        history: list[ChatMessage],
+    ) -> ActionRouteResult:
+        route = self._parse_route(text)
+        if not route.approved and route.rejection_reason == _PARSE_FAILURE_REASON:
+            route = self._fallback_route(user_input.strip(), game_state)
+        route = self.validate(route, character, game_state)
+        route = self._maybe_require_infiltration_roll(route, user_input.strip(), history)
+        ActionRouter._finalize_scope(route)
+        return route
+
     def evaluate(
         self,
         user_input: str,
@@ -216,31 +255,35 @@ class ActionRouter:
     ) -> ActionRouteResult:
         chain = self.prompt | self.llm
         response = chain.invoke(
-            {
-                "world_rules": load_world_prompt(scenario.world_id),
-                "scenario_context": scenario.format_for_prompt(),
-                "game_state_context": game_state.format_for_prompt(),
-                "character_name": character.name,
-                "character_background": character.background,
-                "character_abilities": character.format_abilities(),
-                "hp": character.hp,
-                "max_hp": character.max_hp,
-                "character_inventory": character.format_inventory(),
-                "character_skills": character.format_skills(),
-                "recent_history": _format_recent_history(history),
-                "user_input": user_input.strip(),
-            }
+            self._build_inputs(user_input, character, game_state, scenario, history)
         )
-        text = (response.content or "").strip()
-        route = self._parse_route(text)
-        if not route.approved and route.rejection_reason == _PARSE_FAILURE_REASON:
-            route = self._fallback_route(user_input.strip(), game_state)
-        route = self.validate(route, character, game_state)
-        route = self._maybe_require_infiltration_roll(
-            route, user_input.strip(), history
+        return self._finalize_route(
+            (response.content or "").strip(),
+            user_input,
+            character,
+            game_state,
+            history,
         )
-        ActionRouter._finalize_scope(route)
-        return route
+
+    async def aevaluate(
+        self,
+        user_input: str,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        history: list[ChatMessage],
+    ) -> ActionRouteResult:
+        chain = self.prompt | self.llm
+        response = await chain.ainvoke(
+            self._build_inputs(user_input, character, game_state, scenario, history)
+        )
+        return self._finalize_route(
+            (response.content or "").strip(),
+            user_input,
+            character,
+            game_state,
+            history,
+        )
 
     @staticmethod
     def _maybe_require_infiltration_roll(

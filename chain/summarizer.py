@@ -115,6 +115,52 @@ class StorySummarizer:
         )
         return _parse_fact_lines(response.content or "")
 
+    async def amerge_summary(self, existing_summary: str, recent_dialogue: str, max_chars: int) -> str:
+        chain = self.merge_prompt | self.llm
+        response = await chain.ainvoke(
+            {
+                "existing": existing_summary or "（尚无摘要）",
+                "recent": recent_dialogue,
+                "max_chars": max_chars,
+            }
+        )
+        return response.content.strip()
+
+    async def asummarize_chapter(
+        self,
+        chapter_num: int,
+        scene: str,
+        summary: str,
+        recent_dialogue: str,
+    ) -> str:
+        chain = self.chapter_prompt | self.llm
+        response = await chain.ainvoke(
+            {
+                "chapter_num": chapter_num,
+                "scene": scene,
+                "summary": summary or "（尚无）",
+                "recent": recent_dialogue,
+            }
+        )
+        return response.content.strip()
+
+    async def acompress_summary(self, text: str, max_chars: int) -> str:
+        chain = self.compress_prompt | self.llm
+        response = await chain.ainvoke({"text": text, "max_chars": max_chars})
+        return response.content.strip()
+
+    async def aextract_facts(self, existing_facts: list[str], recent_dialogue: str) -> list[str]:
+        if not recent_dialogue.strip():
+            return []
+        chain = self.facts_prompt | self.llm
+        response = await chain.ainvoke(
+            {
+                "existing_facts": "\n".join(f"- {f}" for f in existing_facts) or "（无）",
+                "recent": recent_dialogue,
+            }
+        )
+        return _parse_fact_lines(response.content or "")
+
 
 def _parse_fact_lines(text: str) -> list[str]:
     facts: list[str] = []

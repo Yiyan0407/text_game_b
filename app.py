@@ -13,7 +13,7 @@ from ui.game_state_panel import render_game_state_panel
 from ui.combat_panel import render_combat_panel
 from ui.action_suggestions import render_action_suggestions
 from ui.loading import LoadingPlaceholder, run_with_spinner
-from ui.streaming import render_streaming_markdown
+from ui.streaming import render_phased_turn, render_streaming_markdown
 from ui.game_export import render_game_pdf_download
 from ui.main_menu import (
     load_save_into_session,
@@ -73,12 +73,14 @@ def handle_player_message(user_input: str) -> None:
         if settings.enable_streaming:
             progress = LoadingPlaceholder()
             progress.show("裁定行动中……")
-            rejection_turn, pre_tool_events, text_stream, finish = orchestrator.player_turn_stream(
-                character=character,
-                game_state=game_state,
-                scenario=scenario,
-                user_input=user_input,
-                history=history,
+            rejection_turn, pre_tool_events, state_events, text_stream, finish = (
+                orchestrator.player_turn_stream(
+                    character=character,
+                    game_state=game_state,
+                    scenario=scenario,
+                    user_input=user_input,
+                    history=history,
+                )
             )
             if rejection_turn is not None:
                 progress.clear()
@@ -94,13 +96,13 @@ def handle_player_message(user_input: str) -> None:
                 return
 
             append_tool_events(pre_tool_events)
-            render_tool_events_live(pre_tool_events)
 
             with st.chat_message("assistant"):
-                full_response = render_streaming_markdown(
+                full_response = render_phased_turn(
+                    pre_tool_events,
+                    state_events,
                     text_stream,
                     loading=progress,
-                    loading_message="KP 撰写叙事中……",
                 )
             with st.spinner("生成行动建议中……"):
                 turn = finish(full_response or "")
@@ -140,7 +142,7 @@ def handle_player_message(user_input: str) -> None:
             kp_tool_events = [
                 event
                 for event in turn.tool_events
-                if event not in pre_tool_events
+                if event not in pre_tool_events and event not in state_events
             ]
             append_tool_events(kp_tool_events)
             st.session_state.messages.append(
