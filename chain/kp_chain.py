@@ -51,6 +51,7 @@ class KPChain:
         *,
         skip_roll_tools: bool = False,
         skip_combat_tools: bool = False,
+        delivered_items: frozenset[str] | None = None,
     ) -> TurnResult:
         tool_events, messages = self._run_tool_phase(
             character=character,
@@ -61,6 +62,7 @@ class KPChain:
             history=history,
             skip_roll_tools=skip_roll_tools,
             skip_combat_tools=skip_combat_tools,
+            delivered_items=delivered_items,
         )
         narrative_messages = list(messages)
         narrative_messages.append(HumanMessage(content=_NARRATIVE_NUDGE))
@@ -79,6 +81,7 @@ class KPChain:
         *,
         skip_roll_tools: bool = False,
         skip_combat_tools: bool = False,
+        delivered_items: frozenset[str] | None = None,
     ) -> tuple[list[str], Iterator[str]]:
         tool_events, messages = self._run_tool_phase(
             character=character,
@@ -89,6 +92,7 @@ class KPChain:
             history=history,
             skip_roll_tools=skip_roll_tools,
             skip_combat_tools=skip_combat_tools,
+            delivered_items=delivered_items,
         )
         narrative_messages = list(messages)
         narrative_messages.append(HumanMessage(content=_NARRATIVE_NUDGE))
@@ -128,6 +132,7 @@ class KPChain:
         *,
         skip_roll_tools: bool = False,
         skip_combat_tools: bool = False,
+        delivered_items: frozenset[str] | None = None,
     ) -> tuple[list[str], list[BaseMessage]]:
         messages, llm_with_tools, tool_map = self._build_prompt_messages(
             character,
@@ -138,6 +143,7 @@ class KPChain:
             history,
             skip_roll_tools=skip_roll_tools,
             skip_combat_tools=skip_combat_tools,
+            delivered_items=delivered_items,
         )
         tool_events: list[str] = []
 
@@ -195,6 +201,7 @@ class KPChain:
         *,
         skip_roll_tools: bool = False,
         skip_combat_tools: bool = False,
+        delivered_items: frozenset[str] | None = None,
     ) -> tuple[list[BaseMessage], object, dict]:
         prompt = build_kp_prompt(world_id)
         tools = create_kp_tools(
@@ -202,6 +209,7 @@ class KPChain:
             game_state,
             exclude_roll_tools=skip_roll_tools,
             exclude_combat_tools=skip_combat_tools,
+            delivered_items=delivered_items,
         )
         llm_with_tools = self.llm.bind_tools(tools, tool_choice="required")
         tool_map = {tool.name: tool for tool in tools}

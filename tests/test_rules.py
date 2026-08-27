@@ -10,8 +10,23 @@ def test_ability_check_returns_result():
     assert result.ability == "str"
     assert result.dc == 10
     assert len(result.roll.rolls) == 1
-    assert result.roll.total == result.roll.rolls[0] + character.modifier("str")
-    assert result.success == (result.roll.total >= 10)
+    assert result.check_total == result.roll.rolls[0] + character.modifier("str")
+    assert result.success == (result.check_total >= 10)
+
+
+def test_ability_check_proficiency_bonus():
+    character = Character(name="测试", dex=14)
+    result = ability_check(character, "dex", dc=15, proficiency_bonus=True)
+    assert result.proficiency_bonus == 2
+    assert result.check_total == result.roll.total + 2
+    assert result.success == (result.check_total >= 15)
+
+
+def test_format_check_for_kp_shows_proficiency_bonus():
+    character = Character(name="测试", dex=14)
+    result = ability_check(character, "dex", dc=14, proficiency_bonus=True)
+    text = format_check_for_kp(result, character)
+    assert "+2专业" in text
 
 
 def test_ability_check_invalid_ability():

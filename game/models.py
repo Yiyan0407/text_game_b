@@ -4,6 +4,7 @@ from game.inventory import (
     InventoryItem,
     merge_item_stacks,
     normalize_inventory_list,
+    normalize_item_quantity_unit,
     _merge_description,
 )
 from game.skills import Skill, normalize_skills_list, parse_skill_text, split_skill_description
@@ -146,12 +147,19 @@ class Character(BaseModel):
                 if description.strip():
                     incoming.description = description.strip()
             else:
+                qty, normalized_unit = normalize_item_quantity_unit(quantity, unit)
                 incoming = InventoryItem(
                     name=text,
-                    quantity=max(1, quantity),
-                    unit=unit.strip() or "个",
+                    quantity=qty,
+                    unit=normalized_unit,
                     description=description.strip(),
                 )
+
+        qty, normalized_unit = normalize_item_quantity_unit(
+            incoming.quantity, incoming.unit
+        )
+        incoming.quantity = qty
+        incoming.unit = normalized_unit
 
         for existing in self.inventory:
             if existing.name == incoming.name and existing.unit == incoming.unit:

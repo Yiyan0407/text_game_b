@@ -6,6 +6,8 @@ from game.combat import end_combat, player_attack, start_combat
 from game.dice import roll
 from game.models import ABILITY_FIELDS, Character, GameState
 from game.rules import ability_check, format_check_for_kp
+from game.inventory import item_name_from_ref
+from game.text_match import fuzzy_match_name
 
 AbilityKey = Literal["str", "dex", "con", "int", "wis", "cha"]
 _ABILITY_HINT = " / ".join(ABILITY_FIELDS)
@@ -20,8 +22,11 @@ def create_kp_tools(
     *,
     exclude_roll_tools: bool = False,
     exclude_combat_tools: bool = False,
+    delivered_items: frozenset[str] | None = None,
 ) -> list[BaseTool]:
     """为当前角色与游戏状态创建 KP 可用的 LangChain Tools。"""
+    delivered = delivered_items or frozenset()
+    added_this_turn: set[str] = set()
 
     def roll_dice(notation: str) -> str:
         """掷骰子。用于伤害、随机事件、非战斗掷骰。notation 示例: d20, d100, 2d6, 1d20+3"""
@@ -100,16 +105,30 @@ def create_kp_tools(
             return "物品名称不能为空。"
         if quantity <= 0:
             return "数量必须大于 0。"
+        item_name = item_name_from_ref(cleaned) or cleaned
         if action == "add":
+            if delivered and any(
+                fuzzy_match_name(item_name, delivered_name)
+                for delivered_name in delivered
+            ):
+                return f"跳过重复添加：{item_name}（已在交易结算中交付）。"
+            if item_name in added_this_turn:
+                existing = character.find_inventory_item(cleaned)
+                if existing and description.strip() and not existing.description.strip():
+                    existing.description = description.strip()
+                    return f"已补充描述：{existing.format_detail()}"
+                if quantity == 1 and (not unit or unit == "个"):
+                    return f"跳过重复添加：{item_name}（本轮已入库）。"
             if character.add_inventory_item(
                 cleaned,
                 quantity=quantity,
                 unit=unit,
                 description=description,
             ):
+                added_this_turn.add(item_name)
                 matched = character.find_inventory_item(cleaned)
                 label = matched.format_detail() if matched else cleaned
-                return f"背包新增：{label}。当前：{character.format_inventory()}"
+                return f"获得：{label}"
             return "添加失败。"
         ok, message = character.consume_inventory_quantity(
             cleaned,
@@ -117,7 +136,7 @@ def create_kp_tools(
             unit=unit if unit != "个" else None,
         )
         if ok:
-            return f"{message}。当前：{character.format_inventory()}"
+            return message
         return message
 
     def record_memory_fact(fact: str) -> str:
@@ -141,12 +160,12 @@ def create_kp_tools(
             if character.add_skill(cleaned, description=description):
                 matched = character.find_skill(cleaned)
                 label = matched.format_detail() if matched else cleaned
-                return f"技能新增：{label}。当前：{character.format_skills()}"
+                return f"习得技能：{label}"
             if character.has_skill(cleaned):
                 return f"已拥有技能：{cleaned}"
             return "添加失败。"
         if character.remove_skill(cleaned):
-            return f"技能移除：{cleaned}。当前：{character.format_skills()}"
+            return f"失去技能：{cleaned}"
         return f"你没有这项技能：{cleaned}"
 
     def no_tool_needed(reason: str = "") -> str:

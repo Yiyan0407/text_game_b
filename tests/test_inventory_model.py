@@ -1,5 +1,8 @@
+from chain.action_router import ActionRouter
 from game.inventory import InventoryItem, normalize_inventory_list
-from game.models import Character
+from game.models import Character, GameState
+from game.orchestrator import GameOrchestrator
+from game.results import ActionRouteResult
 
 
 def test_parse_numeric_stack():
@@ -76,6 +79,52 @@ def test_merge_preserves_description():
     character.add_inventory_item("短剑", description="精钢打造，锋利耐用。")
     character.add_inventory_item("短剑", quantity=1, unit="把")
     assert character.inventory[0].description == "精钢打造，锋利耐用。"
+
+
+def test_parse_vague_quantity_renwu():
+    item = InventoryItem.parse("止血凝胶（若干）")
+    assert item.name == "止血凝胶"
+    assert item.quantity == 3
+    assert item.unit == "个"
+
+
+def test_parse_ji_ping_quantity():
+    item = InventoryItem.parse("止血凝胶（几瓶）")
+    assert item.quantity == 3
+    assert item.unit == "瓶"
+
+
+def test_parse_bank_card_with_wan_credits():
+    item = InventoryItem.parse("银行卡（19万信用点）")
+    assert item.name == "银行卡"
+    assert item.quantity == 190_000
+    assert item.unit == "信用点"
+
+
+def test_normalize_repairs_malformed_wan_unit():
+    items = normalize_inventory_list(
+        [InventoryItem(name="银行卡", quantity=1, unit="19万信用点")]
+    )
+    assert len(items) == 1
+    assert items[0].quantity == 190_000
+    assert items[0].unit == "信用点"
+
+
+def test_purchase_with_credit_card_balance():
+    character = Character(name="测试", inventory=["银行卡（19万信用点）"])
+    route = ActionRouteResult(
+        approved=True,
+        item_usage="purchase",
+        payment_items=["银行卡"],
+        payment_quantity=2500,
+        referenced_items=["信号干扰器", "EMP脉冲器"],
+    )
+    result = ActionRouter.validate(route, character, GameState())
+    assert result.approved is True
+
+    events = GameOrchestrator._execute_purchase(route, character)
+    assert not any("支付失败" in event for event in events)
+    assert character.inventory[0].quantity == 187_500
 
 
 def test_matches_fuzzy_name():

@@ -148,7 +148,6 @@ def handle_player_message(user_input: str) -> None:
             )
 
         st.session_state.action_suggestions = turn.action_suggestions
-        persist_save()
     except Exception as exc:
         st.session_state.messages.append(
             ChatMessage(
@@ -160,6 +159,9 @@ def handle_player_message(user_input: str) -> None:
             )
         )
         st.error(f"处理失败：{exc}")
+    finally:
+        if st.session_state.get("game_started") and st.session_state.get("character"):
+            persist_save()
 
 
 def _render_scene_image(game_state: GameState, scenario: Scenario) -> None:
@@ -216,7 +218,8 @@ def render_game() -> None:
         st.caption(f"📍 {game_state.current_scene}")
         if st.session_state.get("current_character_id"):
             st.caption("长期角色：进度会自动同步到角色卡")
-        if st.button("💾 保存游戏", use_container_width=True):
+        st.caption("每回合结束后自动存档")
+        if st.button("💾 立即存档", use_container_width=True):
             run_with_spinner("保存中……", persist_save)
             st.success("已保存")
         render_game_pdf_download(

@@ -161,6 +161,20 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
     st.subheader("属性掷骰")
     st.caption("每项属性均为 4d6 去掉最低一颗（经典创角规则），点数不可手动调整。")
 
+    total = rolled.total_score()
+    prev_total = st.session_state.get("rolled_abilities_prev_total")
+    total_cols = st.columns([1, 2])
+    with total_cols[0]:
+        st.metric(
+            "属性总和",
+            total,
+            delta=f"{total - prev_total:+d}" if prev_total is not None else None,
+            delta_color="normal",
+            help="六项属性点数之和；重骰后箭头表示与上一组相比增减",
+        )
+    with total_cols[1]:
+        st.caption("经典参考区间约 **72–78**；重骰后可看总和箭头判断高了还是低了。")
+
     row1 = st.columns(3)
     row2 = st.columns(3)
     for col, detail in zip((*row1, *row2), rolled.details):
@@ -185,6 +199,7 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
     st.info(f"根据体质 CON，初始 HP 为 **{preview_hp}**（10 + 体质修正，最低 8）")
 
     if st.button("🎲 重新掷骰", use_container_width=True):
+        st.session_state.rolled_abilities_prev_total = rolled.total_score()
         st.session_state.rolled_abilities = roll_ability_scores()
         st.rerun()
 
@@ -236,6 +251,7 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
         )
         active_scenario = scenario.model_copy(update={"world_id": selected_world})
         st.session_state.pop("rolled_abilities", None)
+        st.session_state.pop("rolled_abilities_prev_total", None)
 
         saved_card = CharacterCard.from_character(
             character,

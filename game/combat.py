@@ -277,13 +277,24 @@ def resolve_combat_ability_check(
     ability: str,
     dc: int,
     label: str,
+    *,
+    proficiency_bonus: bool = False,
 ) -> str:
-    result = ability_check(character, ability, dc)
+    result = ability_check(
+        character, ability, dc, proficiency_bonus=proficiency_bonus
+    )
     outcome = "成功" if result.success else "失败"
     return f"{label}：{format_check_for_kp(result, character)} → {outcome}"
 
 
-def resolve_interact(character: Character, game_state: GameState, ability: str, dc: int) -> str:
+def resolve_interact(
+    character: Character,
+    game_state: GameState,
+    ability: str,
+    dc: int,
+    *,
+    proficiency_bonus: bool = False,
+) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
         return "还没轮到你行动。"
@@ -291,10 +302,23 @@ def resolve_interact(character: Character, game_state: GameState, ability: str, 
     if err:
         return err
     ability = ability if ability in ("str", "dex", "int", "wis", "cha") else "str"
-    return resolve_combat_ability_check(character, ability, dc or 14, "场景互动")
+    return resolve_combat_ability_check(
+        character,
+        ability,
+        dc or 14,
+        "场景互动",
+        proficiency_bonus=proficiency_bonus,
+    )
 
 
-def resolve_talk(character: Character, game_state: GameState, target: str, dc: int) -> str:
+def resolve_talk(
+    character: Character,
+    game_state: GameState,
+    target: str,
+    dc: int,
+    *,
+    proficiency_bonus: bool = False,
+) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
         return "还没轮到你行动。"
@@ -302,7 +326,13 @@ def resolve_talk(character: Character, game_state: GameState, target: str, dc: i
     if err:
         return err
     label = f"对 {target} 交涉" if target else "战斗交涉"
-    return resolve_combat_ability_check(character, "cha", dc or 14, label)
+    return resolve_combat_ability_check(
+        character,
+        "cha",
+        dc or 14,
+        label,
+        proficiency_bonus=proficiency_bonus,
+    )
 
 
 def resolve_grapple(character: Character, game_state: GameState, target: str) -> str:
@@ -367,7 +397,7 @@ def resolve_pickup_in_combat(
     events: list[str] = []
     for item in items:
         if character.add_inventory_item(item):
-            events.append(f"背包新增：{item}。当前：{character.format_inventory()}")
+            events.append(f"获得：{item}")
     if not events:
         return ["没有可拾取的物品。"]
     return events

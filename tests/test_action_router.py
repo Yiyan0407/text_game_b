@@ -26,6 +26,27 @@ def _approved_route(**overrides) -> ActionRouteResult:
     return ActionRouteResult(**data)
 
 
+def test_validate_skill_use_forces_proficiency_bonus():
+    route = _approved_route(
+        referenced_skills=["潜行"],
+        skill_usage="use",
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="dex",
+        dc=14,
+    )
+    character = Character(name="测试", skills=["潜行"])
+    result = ActionRouter.validate(route, character, GameState())
+    assert result.proficiency_bonus is True
+
+
+def test_validate_clears_proficiency_bonus_when_no_roll():
+    route = _approved_route(proficiency_bonus=True)
+    character = Character(name="测试")
+    result = ActionRouter.validate(route, character, GameState())
+    assert result.proficiency_bonus is False
+
+
 def test_validate_allows_learn_skill_without_having_it():
     route = _approved_route(
         referenced_skills=["潜行"],

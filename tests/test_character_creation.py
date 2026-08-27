@@ -17,6 +17,12 @@ def test_roll_4d6_drop_lowest_range():
 def test_roll_ability_scores_has_six_attributes():
     rolled = roll_ability_scores()
     assert len(rolled.details) == 6
+    assert rolled.total_score() == sum(d.score for d in rolled.details)
+
+
+def test_rolled_abilities_total_score():
+    rolled = roll_ability_scores()
+    assert 18 <= rolled.total_score() <= 108
     fields = rolled.to_character_fields()
     assert set(fields) == {
         "strength",

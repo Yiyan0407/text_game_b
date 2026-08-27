@@ -25,6 +25,7 @@ from game.combat import (
     start_combat,
 )
 from game.dice import roll
+from game.inventory import item_name_from_ref
 from game.models import Character, ChatMessage, GameState
 from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
@@ -248,6 +249,7 @@ class GameOrchestrator:
             )
 
         skip_combat_tools = game_state.is_in_combat()
+        delivered_items = GameOrchestrator._delivered_item_names(route, pre_tool_events)
         turn = self.kp.invoke(
             character=character,
             game_state=game_state,
@@ -257,6 +259,7 @@ class GameOrchestrator:
             history=windowed,
             skip_roll_tools=True,
             skip_combat_tools=skip_combat_tools,
+            delivered_items=delivered_items,
         )
         turn.tool_events = pre_tool_events + turn.tool_events
         game_state.turn_count += 1
@@ -288,6 +291,7 @@ class GameOrchestrator:
             return rejected_turn, pre_tool_events, iter([]), finish_rejected
 
         skip_combat_tools = game_state.is_in_combat()
+        delivered_items = GameOrchestrator._delivered_item_names(route, pre_tool_events)
         return None, *self._stream_turn(
             character=character,
             game_state=game_state,
@@ -299,6 +303,7 @@ class GameOrchestrator:
             pre_tool_events=pre_tool_events,
             skip_roll_tools=True,
             skip_combat_tools=skip_combat_tools,
+            delivered_items=delivered_items,
         )
 
     def _stream_turn(
@@ -313,6 +318,7 @@ class GameOrchestrator:
         pre_tool_events: list[str] | None = None,
         skip_roll_tools: bool = False,
         skip_combat_tools: bool = False,
+        delivered_items: frozenset[str] | None = None,
     ):
         tool_events = list(pre_tool_events or [])
         kp_tool_events, text_stream = self.kp.stream(
@@ -324,6 +330,7 @@ class GameOrchestrator:
             history=history,
             skip_roll_tools=skip_roll_tools,
             skip_combat_tools=skip_combat_tools,
+            delivered_items=delivered_items,
         )
 
         if increment_turn:
@@ -395,9 +402,7 @@ class GameOrchestrator:
             else:
                 for item in route.referenced_items:
                     if character.add_inventory_item(item):
-                        pre_tool_events.append(
-                            f"背包新增：{item}。当前：{character.format_inventory()}"
-                        )
+                        pre_tool_events.append(f"获得：{item}")
         elif route.item_usage == "purchase" and not game_state.is_in_combat():
             pre_tool_events.extend(self._execute_purchase(route, character))
 
@@ -431,17 +436,30 @@ class GameOrchestrator:
         for payment in route.payment_items:
             ok, message = character.consume_inventory_quantity(payment, quantity)
             if ok:
-                events.append(f"{message}。当前：{character.format_inventory()}")
+                events.append(message)
             else:
                 events.append(f"支付失败：{message}")
                 return events
 
         for goods in route.referenced_items:
             if character.add_inventory_item(goods):
-                events.append(
-                    f"背包新增：{goods}。当前：{character.format_inventory()}"
-                )
+                matched = character.find_inventory_item(goods)
+                label = matched.format_detail() if matched else goods
+                events.append(f"获得：{label}")
         return events
+
+    @staticmethod
+    def _delivered_item_names(
+        route: ActionRouteResult,
+        mechanical_events: list[str],
+    ) -> frozenset[str]:
+        if not GameOrchestrator._purchase_settled(route, mechanical_events):
+            return frozenset()
+        return frozenset(
+            item_name_from_ref(item)
+            for item in route.referenced_items
+            if item.strip()
+        )
 
     @staticmethod
     def _purchase_settled(route: ActionRouteResult, mechanical_events: list[str]) -> bool:
@@ -449,7 +467,7 @@ class GameOrchestrator:
             return False
         if any("支付失败" in event for event in mechanical_events):
             return False
-        return any("背包新增" in event for event in mechanical_events)
+        return any("获得：" in event or "背包新增" in event for event in mechanical_events)
 
     @staticmethod
     def _execute_combat_action(
@@ -477,10 +495,22 @@ class GameOrchestrator:
                 )
             ],
             "interact": lambda: [
-                resolve_interact(character, game_state, route.ability, route.dc)
+                resolve_interact(
+                    character,
+                    game_state,
+                    route.ability,
+                    route.dc,
+                    proficiency_bonus=route.proficiency_bonus,
+                )
             ],
             "talk": lambda: [
-                resolve_talk(character, game_state, route.attack_target, route.dc)
+                resolve_talk(
+                    character,
+                    game_state,
+                    route.attack_target,
+                    route.dc,
+                    proficiency_bonus=route.proficiency_bonus,
+                )
             ],
             "grapple": lambda: [
                 resolve_grapple(character, game_state, route.attack_target)
@@ -515,7 +545,12 @@ class GameOrchestrator:
     @staticmethod
     def _execute_pre_roll(route: ActionRouteResult, character: Character) -> str:
         if route.roll_type == "ability_check":
-            result = ability_check(character, route.ability, route.dc)
+            result = ability_check(
+                character,
+                route.ability,
+                route.dc,
+                proficiency_bonus=route.proficiency_bonus,
+            )
             return format_check_for_kp(result, character)
         if route.roll_type == "dice":
             return roll(route.dice_notation).describe()

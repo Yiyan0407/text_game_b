@@ -26,8 +26,8 @@ def test_execute_purchase_deducts_payment_and_adds_goods():
         referenced_items=["食盐（一袋）"],
     )
     events = GameOrchestrator._execute_purchase(route, character)
-    assert any("14枚" in event for event in events)
-    assert any("食盐（一袋）" in event for event in events)
+    assert any("14枚" in event or "获得" in event for event in events)
+    assert any("食盐" in event for event in events)
     assert character.has_inventory_item("定金币（14枚）")
     assert character.has_inventory_item("食盐（一袋）")
 

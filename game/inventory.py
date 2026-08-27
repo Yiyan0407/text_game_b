@@ -32,6 +32,8 @@ _CN_DIGITS = {
     "玖": 9,
 }
 _CN_TEN_MARKERS = ("十", "拾")
+_VAGUE_COUNT_MARKERS = frozenset({"若干", "一些", "数个", "少量", "适量"})
+_JI_UNIT_RE = re.compile(r"^几(.+)$")
 
 
 class InventoryItem(BaseModel):
@@ -67,7 +69,7 @@ class InventoryItem(BaseModel):
             raise ValueError("物品名称不能为空")
 
         match = _STACK_ITEM_RE.match(raw)
-        if match:
+        if match and "万" not in match.group(3):
             return cls(
                 name=match.group(1).strip(),
                 quantity=int(match.group(2)),
@@ -82,6 +84,18 @@ class InventoryItem(BaseModel):
             return cls(name=name, quantity=quantity, unit=unit or "个")
 
         return cls(name=raw, quantity=1, unit="个")
+
+    @classmethod
+    def name_from_ref(cls, text: str) -> str:
+        raw = text.strip()
+        if not raw:
+            return ""
+        if "（" in raw and raw.endswith("）"):
+            try:
+                return cls.parse(raw).name
+            except ValueError:
+                return raw.split("（", 1)[0].strip()
+        return raw
 
     def matches(self, item_ref: str) -> bool:
         ref = item_ref.strip()
@@ -106,6 +120,21 @@ class InventoryItem(BaseModel):
         return False
 
 
+def normalize_item_quantity_unit(quantity: int, unit: str) -> tuple[int, str]:
+    cleaned = unit.strip()
+    if not cleaned or cleaned in _VAGUE_COUNT_MARKERS:
+        return max(1, quantity), "个" if not cleaned else "个"
+    ji_match = _JI_UNIT_RE.match(cleaned)
+    if ji_match:
+        unit_part = ji_match.group(1).strip() or "个"
+        return max(1, quantity if quantity > 1 else 3), unit_part
+    return max(1, quantity), cleaned
+
+
+def item_name_from_ref(text: str) -> str:
+    return InventoryItem.name_from_ref(text)
+
+
 def _normalize_name(name: str) -> str:
     return re.sub(r"\s+", "", name.strip().lower())
 
@@ -116,6 +145,16 @@ def _parse_chinese_quantity(text: str) -> int | None:
         return None
     if cleaned.isdigit():
         return int(cleaned)
+
+    if "万" in cleaned:
+        left, _, right = cleaned.partition("万")
+        high = _parse_chinese_quantity(left) if left else 1
+        if high is None:
+            return None
+        low = _parse_chinese_quantity(right) if right else 0
+        if right and low is None:
+            return None
+        return high * 10000 + low
 
     for ten_marker in _CN_TEN_MARKERS:
         if ten_marker in cleaned:
@@ -140,6 +179,21 @@ def _parse_unit_qualifier(unit_part: str) -> tuple[int, str]:
     if cleaned.isdigit():
         return int(cleaned), "个"
 
+    if cleaned in _VAGUE_COUNT_MARKERS:
+        return max(1, 3), "个"
+
+    ji_match = _JI_UNIT_RE.match(cleaned)
+    if ji_match:
+        unit = ji_match.group(1).strip() or "个"
+        return 3, unit
+
+    wan_match = re.match(r"^(.+万)(.+)$", cleaned)
+    if wan_match:
+        quantity = _parse_chinese_quantity(wan_match.group(1))
+        unit = wan_match.group(2).strip()
+        if quantity is not None and unit:
+            return max(1, quantity), unit
+
     for index in range(len(cleaned), 0, -1):
         num_part = cleaned[:index]
         unit = cleaned[index:].strip()
@@ -156,11 +210,33 @@ def _parse_unit_qualifier(unit_part: str) -> tuple[int, str]:
 
 
 def _repair_inventory_item(item: InventoryItem) -> InventoryItem:
-    if item.quantity != 1 or not item.unit:
+    if item.unit in _VAGUE_COUNT_MARKERS or _JI_UNIT_RE.match(item.unit or ""):
+        quantity, unit = _parse_unit_qualifier(item.unit)
+        return InventoryItem(
+            name=item.name,
+            quantity=max(item.quantity, quantity),
+            unit=unit,
+            description=item.description,
+        )
+    if item.unit.startswith("万") and len(item.unit) > 1:
+        quantity, unit = _parse_unit_qualifier(f"{item.quantity}{item.unit}")
+        if quantity > item.quantity and unit != item.unit:
+            return InventoryItem(
+                name=item.name,
+                quantity=quantity,
+                unit=unit,
+                description=item.description,
+            )
+    if item.quantity != 1 or not item.unit or item.unit == "个":
         return item
     quantity, unit = _parse_unit_qualifier(item.unit)
     if quantity > 1 and unit and unit != item.unit:
-        return InventoryItem(name=item.name, quantity=quantity, unit=unit)
+        return InventoryItem(
+            name=item.name,
+            quantity=quantity,
+            unit=unit,
+            description=item.description,
+        )
     return item
 
 

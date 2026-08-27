@@ -9,14 +9,18 @@ class AbilityCheckResult(BaseModel):
     ability: str
     dc: int
     roll: DiceRoll
+    proficiency_bonus: int = 0
+    check_total: int = 0
     success: bool
 
     def describe(self) -> str:
         ability_label = self.ability.upper()
         outcome = "成功 ✓" if self.success else "失败 ✗"
+        prof_part = f"+{self.proficiency_bonus}专业 " if self.proficiency_bonus else ""
+        total = self.check_total if self.check_total else self.roll.total
         return (
-            f"{ability_label} 检定 {self.roll.describe()} "
-            f"vs DC {self.dc} → {outcome}"
+            f"{ability_label} 检定 {self.roll.describe()} {prof_part}"
+            f"= {total} vs DC {self.dc} → {outcome}"
         )
 
 
@@ -57,6 +61,7 @@ class ActionRouteResult(BaseModel):
     action_cost: Literal["main", "bonus", "free"] = "main"
     attack_target: str = ""
     ends_turn: bool = False
+    proficiency_bonus: bool = False
 
 
 class TurnResult(BaseModel):

@@ -154,7 +154,7 @@ def test_update_skills_tool():
     assert character.skills == [Skill(name="观察")]
 
     remove_result = skills_tool.invoke({"action": "remove", "skill": "观察"})
-    assert "移除" in remove_result
+    assert "失去技能" in remove_result
     assert character.skills == []
 
 
@@ -164,7 +164,39 @@ def test_character_starts_with_empty_skills():
     assert "无" in character.format_skills()
 
 
-def test_update_inventory_tool_with_description():
+def test_update_inventory_skips_duplicate_add_same_turn():
+    character = Character(name="测试")
+    game_state = GameState()
+    tools = create_kp_tools(character, game_state)
+    inv_tool = next(t for t in tools if t.name == "update_inventory")
+
+    first = inv_tool.invoke({"action": "add", "item": "止血凝胶", "quantity": 3, "unit": "瓶"})
+    second = inv_tool.invoke(
+        {
+            "action": "add",
+            "item": "止血凝胶",
+            "quantity": 1,
+            "unit": "瓶",
+            "description": "军用急救凝胶。",
+        }
+    )
+    assert "获得" in first
+    assert "跳过重复添加" in second or "已补充描述" in second
+    assert character.inventory[0].quantity == 3
+
+
+def test_update_inventory_skips_delivered_purchase_items():
+    character = Character(name="测试", inventory=["定金币（15枚）"])
+    game_state = GameState()
+    tools = create_kp_tools(
+        character,
+        game_state,
+        delivered_items=frozenset({"破禁符"}),
+    )
+    inv_tool = next(t for t in tools if t.name == "update_inventory")
+    result = inv_tool.invoke({"action": "add", "item": "破禁符"})
+    assert "跳过重复添加" in result
+    assert character.inventory == [InventoryItem(name="定金币", quantity=15, unit="枚")]
     character = Character(name="测试")
     game_state = GameState()
     tools = create_kp_tools(character, game_state)

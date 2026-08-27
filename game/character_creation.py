@@ -21,6 +21,9 @@ class RolledAbilities:
     def to_character_fields(self) -> dict[str, int]:
         return {detail.field: detail.score for detail in self.details}
 
+    def total_score(self) -> int:
+        return sum(detail.score for detail in self.details)
+
 
 def roll_ability_scores() -> RolledAbilities:
     """六项属性各掷 4d6 去掉最低一颗，经典 D&D 创角方式。"""

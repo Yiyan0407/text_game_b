@@ -81,6 +81,22 @@ logger = logging.getLogger(__name__)
 _PARSE_FAILURE_REASON = "行动裁定解析失败，请重新描述你的行动。"
 
 
+def _coerce_bool(value, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        if stripped in ("true", "1", "yes", "是"):
+            return True
+        if stripped in ("false", "0", "no", "否"):
+            return False
+    return default
+
+
 def _coerce_int(value, default: int = 0) -> int:
     if value is None or value == "":
         return default
@@ -160,6 +176,7 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
         action_cost=action_cost,
         attack_target=str(data.get("attack_target", "")).strip(),
         ends_turn=bool(data.get("ends_turn", False)),
+        proficiency_bonus=_coerce_bool(data.get("proficiency_bonus"), False),
     )
 
 
@@ -377,6 +394,8 @@ class ActionRouter:
                     route.needs_roll = False
                     route.roll_type = "none"
                     return route
+            if route.skill_usage == "use":
+                route.proficiency_bonus = True
 
         if route.skill_usage == "learn":
             for skill in route.referenced_skills:
@@ -463,6 +482,9 @@ class ActionRouter:
                     route.ability = "cha"
                 if route.dc < 1:
                     route.dc = 14
+
+        if not route.needs_roll:
+            route.proficiency_bonus = False
 
         if not route.action_intent:
             route.action_intent = "执行玩家描述的行动"
