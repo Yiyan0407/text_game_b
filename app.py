@@ -13,7 +13,7 @@ from ui.game_state_panel import render_game_state_panel
 from ui.combat_panel import render_combat_panel
 from ui.action_suggestions import render_action_suggestions
 from ui.loading import LoadingPlaceholder, run_with_spinner
-from ui.streaming import render_phased_turn, render_streaming_markdown
+from ui.streaming import finalize_streaming_turn, render_phased_turn, render_streaming_markdown
 from ui.game_export import render_game_pdf_download
 from ui.main_menu import (
     load_save_into_session,
@@ -73,7 +73,7 @@ def handle_player_message(user_input: str) -> None:
         if settings.enable_streaming:
             progress = LoadingPlaceholder()
             progress.show("裁定行动中……")
-            rejection_turn, pre_tool_events, state_events, text_stream, finish = (
+            rejection_turn, pre_tool_events, run_state_phase, text_stream, run_memory_finalize, finish_turn = (
                 orchestrator.player_turn_stream(
                     character=character,
                     game_state=game_state,
@@ -96,17 +96,20 @@ def handle_player_message(user_input: str) -> None:
                 return
 
             append_tool_events(pre_tool_events)
-            append_tool_events(state_events)
 
             with st.chat_message("assistant"):
-                full_response = render_phased_turn(
+                state_events, full_response = render_phased_turn(
                     pre_tool_events,
-                    state_events,
+                    run_state_phase,
                     text_stream,
                     loading=progress,
                 )
-            with st.spinner("生成行动建议中……"):
-                turn = finish(full_response or "")
+            append_tool_events(state_events)
+            turn = finalize_streaming_turn(
+                full_response,
+                run_memory_finalize=run_memory_finalize,
+                finish_turn=finish_turn,
+            )
             progress.clear()
         else:
             with st.spinner("KP 思考中……"):

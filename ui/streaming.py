@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 
 import streamlit as st
 
+from game.results import TurnResult
 from ui.loading import LoadingPlaceholder
 
 
@@ -51,28 +52,47 @@ def render_streaming_markdown(
 
 def render_phased_turn(
     pre_tool_events: list[str],
-    state_events: list[str],
+    run_state_phase: Callable[[], list[str]],
     text_stream: Iterator[str],
     *,
     loading: LoadingPlaceholder | None = None,
-) -> str:
+) -> tuple[list[str], str]:
     """分阶段展示：机械事件 → 状态同步 → 叙事流。"""
     if pre_tool_events:
         from ui.chat import render_tool_events_live
 
         render_tool_events_live(pre_tool_events)
 
+    if loading:
+        loading.show("同步世界状态中……")
+    state_events = run_state_phase()
+    if loading:
+        loading.clear()
+
     if state_events:
-        if loading:
-            loading.show("同步世界状态中……")
         from ui.chat import render_tool_events_live
 
         render_tool_events_live(state_events)
-        if loading:
-            loading.clear()
 
-    return render_streaming_markdown(
+    full = render_streaming_markdown(
         text_stream,
         loading=loading,
         loading_message="KP 撰写叙事中……",
     )
+    return state_events, full
+
+
+def finalize_streaming_turn(
+    full_response: str,
+    *,
+    run_memory_finalize: Callable[[], bool],
+    finish_turn: Callable[[str], TurnResult],
+) -> TurnResult:
+    """流式回合收尾：记忆整理 → 行动建议。"""
+    with st.spinner("整理冒险记忆中……"):
+        summary_updated = run_memory_finalize()
+    with st.spinner("生成行动建议中……"):
+        turn = finish_turn(full_response or "")
+    if summary_updated:
+        turn.summary_updated = True
+    return turn

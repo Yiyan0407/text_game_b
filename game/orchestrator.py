@@ -282,7 +282,20 @@ class GameOrchestrator:
             def finish_rejected(_response: str) -> TurnResult:
                 return rejected_turn
 
-            return rejected_turn, pre_tool_events, [], iter([]), finish_rejected
+            def run_state_phase_rejected() -> list[str]:
+                return []
+
+            def run_memory_finalize_rejected() -> bool:
+                return False
+
+            return (
+                rejected_turn,
+                pre_tool_events,
+                run_state_phase_rejected,
+                iter([]),
+                run_memory_finalize_rejected,
+                finish_rejected,
+            )
 
         return self._stream_turn_phased(
             character=character,
@@ -312,9 +325,9 @@ class GameOrchestrator:
         enriched_input: str,
         mechanical_events: list[str],
     ):
-        """分阶段流式回合：返回 (rejection, pre_tool_events, state_events, text_stream, finish)。"""
+        """分阶段流式回合：返回 (rejection, pre_tool_events, run_state_phase, text_stream, run_memory_finalize, finish)。"""
         tool_events = list(pre_tool_events)
-        finalized_turn: list[TurnResult] = []
+        state_result: dict[str, object] = {}
 
         async def _state_phase():
             patch = await self.state_agent.apropose(
@@ -346,19 +359,24 @@ class GameOrchestrator:
             )
             return state_events, brief
 
-        state_events, brief = run_async(_state_phase())
-        tool_events.extend(state_events)
-
-        if increment_turn:
-            game_state.turn_count += 1
+        def run_state_phase() -> list[str]:
+            state_events, brief = run_async(_state_phase())
+            tool_events.extend(state_events)
+            if increment_turn:
+                game_state.turn_count += 1
+            state_result["brief"] = brief
+            return state_events
 
         def text_stream():
             import asyncio
 
+            brief = state_result.get("brief")
+            if brief is None:
+                raise RuntimeError("run_state_phase must be called before consuming text_stream")
+
             loop = asyncio.new_event_loop()
             try:
                 async def _consume():
-                    parts: list[str] = []
                     async for chunk in self.kp.anarrate_stream(
                         character=character,
                         game_state=game_state,
@@ -367,19 +385,7 @@ class GameOrchestrator:
                         user_input=brief,
                         history=history,
                     ):
-                        parts.append(chunk)
                         yield chunk
-                    full = "".join(parts)
-                    turn = TurnResult(response=full, tool_events=tool_events)
-                    finalized_turn.append(
-                        await self._afinalize_turn(
-                            turn,
-                            character,
-                            game_state,
-                            scenario,
-                            full_history or history,
-                        )
-                    )
 
                 gen = _consume().__aiter__()
                 while True:
@@ -390,15 +396,25 @@ class GameOrchestrator:
             finally:
                 loop.close()
 
-        def finish(response: str) -> TurnResult:
-            if finalized_turn:
-                turn = finalized_turn[0]
-                if response.strip():
-                    turn.response = response.strip()
-                return turn
-            return TurnResult(response=response.strip(), tool_events=tool_events)
+        def run_memory_finalize() -> bool:
+            summary_before = game_state.story_summary
+            run_async(
+                self.memory.process_after_turn_async(
+                    game_state, full_history or history
+                )
+            )
+            return game_state.story_summary != summary_before
 
-        return None, list(pre_tool_events), state_events, text_stream(), finish
+        def finish(response: str) -> TurnResult:
+            turn = TurnResult(response=response.strip(), tool_events=tool_events)
+            suggestions = run_async(
+                self._afinalize_suggestions_async(turn, game_state, scenario)
+            )
+            if suggestions:
+                turn.action_suggestions = suggestions
+            return turn
+
+        return None, list(pre_tool_events), run_state_phase, text_stream(), run_memory_finalize, finish
 
     async def _run_kp_turn_async(
         self,
@@ -686,6 +702,27 @@ class GameOrchestrator:
             return roll(route.dice_notation).describe()
         return ""
 
+    async def _afinalize_suggestions_async(
+        self,
+        turn: TurnResult,
+        game_state: GameState,
+        scenario: Scenario,
+    ) -> list[str]:
+        settings = get_settings()
+        if not settings.enable_action_suggestions or not turn.response or turn.rejected:
+            return []
+        combat = game_state.combat
+        suggestions = await self.suggester.asuggest(
+            game_state.current_scene,
+            turn.response,
+            turn_count=game_state.turn_count,
+            in_combat=game_state.is_in_combat(),
+            enemy_names=combat.living_enemy_names() if combat else [],
+        )
+        if not suggestions and game_state.turn_count == 0:
+            return self._default_opening_suggestions(scenario, game_state)
+        return suggestions
+
     async def _afinalize_turn(
         self,
         turn: TurnResult,
@@ -694,28 +731,15 @@ class GameOrchestrator:
         scenario: Scenario,
         history: list[ChatMessage],
     ) -> TurnResult:
-        settings = get_settings()
         summary_before = game_state.story_summary
-
-        async def _suggestions():
-            if not settings.enable_action_suggestions or not turn.response or turn.rejected:
-                return []
-            combat = game_state.combat
-            suggestions = await self.suggester.asuggest(
-                game_state.current_scene,
-                turn.response,
-                turn_count=game_state.turn_count,
-                in_combat=game_state.is_in_combat(),
-                enemy_names=combat.living_enemy_names() if combat else [],
-            )
-            if not suggestions and game_state.turn_count == 0:
-                return self._default_opening_suggestions(scenario, game_state)
-            return suggestions
 
         async def _memory():
             await self.memory.process_after_turn_async(game_state, history)
 
-        suggestions, _ = await gather_best_effort(_suggestions(), _memory())
+        suggestions, _ = await gather_best_effort(
+            self._afinalize_suggestions_async(turn, game_state, scenario),
+            _memory(),
+        )
         if suggestions:
             turn.action_suggestions = suggestions
         if game_state.story_summary != summary_before:
