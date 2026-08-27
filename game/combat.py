@@ -352,6 +352,27 @@ def resolve_search_in_combat(character: Character, game_state: GameState) -> str
     return resolve_combat_ability_check(character, "wis", 13, "战斗中搜索观察")
 
 
+def resolve_pickup_in_combat(
+    character: Character,
+    game_state: GameState,
+    items: list[str],
+) -> list[str]:
+    combat = game_state.combat
+    if not combat or not combat.is_player_turn():
+        return ["还没轮到你行动。"]
+    err = spend_action_or_error(combat, "bonus")
+    if err:
+        return [err]
+
+    events: list[str] = []
+    for item in items:
+        if character.add_inventory_item(item):
+            events.append(f"背包新增：{item}。当前：{character.format_inventory()}")
+    if not events:
+        return ["没有可拾取的物品。"]
+    return events
+
+
 def resolve_use_item_in_combat(
     character: Character,
     game_state: GameState,

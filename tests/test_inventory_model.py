@@ -55,3 +55,12 @@ def test_matches_fuzzy_name():
     item = InventoryItem(name="定金币", quantity=15, unit="枚")
     assert item.matches("定金币")
     assert item.matches("定金币（15枚）")
+
+
+def test_matches_does_not_match_substring_name():
+    gold = InventoryItem(name="定金币", quantity=15, unit="枚")
+    coin = InventoryItem(name="金币", quantity=3, unit="枚")
+    assert gold.matches("定金币")
+    assert not gold.matches("金币")
+    assert coin.matches("金币")
+    assert not coin.matches("定金币")

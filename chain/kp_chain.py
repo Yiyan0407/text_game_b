@@ -151,7 +151,15 @@ class KPChain:
             messages.append(ai_msg)
 
             for tool_call in state_calls:
-                tool = tool_map[tool_call["name"]]
+                tool_name = tool_call["name"]
+                if tool_name not in tool_map:
+                    result = f"未知工具：{tool_name}。请改用已注册的工具。"
+                    tool_events.append(result)
+                    messages.append(
+                        ToolMessage(content=result, tool_call_id=tool_call["id"])
+                    )
+                    continue
+                tool = tool_map[tool_name]
                 result = tool.invoke(tool_call["args"])
                 tool_events.append(str(result))
                 messages.append(
@@ -168,6 +176,12 @@ class KPChain:
             if no_tool_calls:
                 return tool_events, messages
 
+        warning = (
+            f"工具调用已达上限（{self.MAX_TOOL_ROUNDS} 轮）。"
+            "请基于当前已更新的游戏状态直接输出叙事，勿再调用工具。"
+        )
+        tool_events.append(warning)
+        messages.append(SystemMessage(content=warning))
         return tool_events, messages
 
     def _build_prompt_messages(

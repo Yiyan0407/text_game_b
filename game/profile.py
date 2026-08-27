@@ -339,6 +339,7 @@ class ProfileManager:
 
         profile = self.create_profile("默认档案")
         save_manager = self.get_save_manager(profile.profile_id)
+        migrated_paths: list = []
 
         for legacy_path in legacy_files:
             try:
@@ -353,10 +354,11 @@ class ProfileManager:
                     payload["character_id"] = card.card_id
                 save_game = SaveGame.model_validate(payload)
                 save_manager.save(save_game)
+                migrated_paths.append(legacy_path)
             except Exception:
                 continue
 
-        for legacy_path in legacy_files:
+        for legacy_path in migrated_paths:
             try:
                 legacy_path.unlink()
             except OSError:

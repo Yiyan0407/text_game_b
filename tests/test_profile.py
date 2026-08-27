@@ -116,6 +116,38 @@ def test_format_career_context_skips_empty_new_campaign():
     assert card.format_career_context() == ""
 
 
+def test_migrate_legacy_saves_keeps_corrupt_files(tmp_path):
+    legacy_dir = tmp_path / "legacy_saves"
+    legacy_dir.mkdir()
+    (legacy_dir / "bad.json").write_text("{not json", encoding="utf-8")
+    good_payload = SaveGame.create(
+        scenario_id="missing_fishermen",
+        scenario_title="雾港失踪案",
+        character=Character(name="旧角色"),
+        game_state=GameState(turn_count=3),
+        messages=[ChatMessage(role="user", content="测试")],
+        save_id="legacy-1",
+    ).model_dump()
+    (legacy_dir / "legacy-1.json").write_text(
+        json.dumps(good_payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    import game.profile as profile_module
+
+    manager = ProfileManager(profiles_dir=tmp_path / "profiles")
+    original_saves = profile_module.SAVES_DIR
+    profile_module.SAVES_DIR = legacy_dir
+    try:
+        migrated = manager.migrate_legacy_saves()
+    finally:
+        profile_module.SAVES_DIR = original_saves
+
+    assert migrated is not None
+    assert (legacy_dir / "bad.json").exists()
+    assert not (legacy_dir / "legacy-1.json").exists()
+
+
 def test_migrate_legacy_saves(tmp_path):
     legacy_dir = tmp_path / "legacy_saves"
     legacy_dir.mkdir()

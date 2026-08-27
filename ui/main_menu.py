@@ -53,11 +53,12 @@ def render_main_menu(save_manager: SaveManager) -> None:
                 key=f"quick_load_{meta.save_id}",
                 use_container_width=True,
             ):
-                run_with_spinner(
+                ok = run_with_spinner(
                     "读取存档中……",
                     lambda save_id=meta.save_id: load_save_into_session(save_manager, save_id),
                 )
-                st.rerun()
+                if ok:
+                    st.rerun()
             if c2.button("🗑️", key=f"quick_del_{meta.save_id}", help="删除存档"):
                 save_manager.delete(meta.save_id)
                 st.rerun()
@@ -84,8 +85,12 @@ def render_load_save(save_manager: SaveManager) -> None:
             )
             c1, c2 = st.columns(2)
             if c1.button("读取", key=f"load_{meta.save_id}", use_container_width=True):
-                run_with_spinner("读取存档中……", lambda: load_save_into_session(save_manager, meta.save_id))
-                st.rerun()
+                ok = run_with_spinner(
+                    "读取存档中……",
+                    lambda save_id=meta.save_id: load_save_into_session(save_manager, meta.save_id),
+                )
+                if ok:
+                    st.rerun()
             if c2.button("删除", key=f"del_{meta.save_id}", use_container_width=True):
                 save_manager.delete(meta.save_id)
                 st.rerun()
@@ -347,12 +352,25 @@ def start_new_game(
     st.rerun()
 
 
-def load_save_into_session(save_manager: SaveManager, save_id: str) -> None:
+def load_save_into_session(save_manager: SaveManager, save_id: str) -> bool:
     from game.save import get_action_suggestions
-    from game.scenario_loader import load_scenario
+    from game.scenario_loader import ScenarioNotFoundError, load_scenario
 
-    save_game = save_manager.load(save_id)
-    scenario = load_scenario(save_game.scenario_id)
+    try:
+        save_game = save_manager.load(save_id)
+    except (FileNotFoundError, ValueError, TypeError) as exc:
+        st.error(f"存档读取失败：{exc}")
+        return False
+
+    try:
+        scenario = load_scenario(save_game.scenario_id)
+    except ScenarioNotFoundError:
+        st.error(
+            f"存档关联的模组「{save_game.scenario_id}」不存在，"
+            "可能已被删除。请重新选择模组或恢复模组文件。"
+        )
+        return False
+
     if save_game.world_id:
         scenario = scenario.model_copy(update={"world_id": save_game.world_id})
 
@@ -365,3 +383,4 @@ def load_save_into_session(save_manager: SaveManager, save_id: str) -> None:
     st.session_state.action_suggestions = get_action_suggestions(save_game)
     st.session_state.game_started = True
     st.session_state.page = "game"
+    return True

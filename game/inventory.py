@@ -78,17 +78,21 @@ class InventoryItem(BaseModel):
             return False
         if ref == self.display() or ref == self.name:
             return True
+
         ref_norm = _normalize_name(ref)
         name_norm = _normalize_name(self.name)
         display_norm = _normalize_name(self.display())
-        return (
-            ref_norm == name_norm
-            or ref_norm in name_norm
-            or name_norm in ref_norm
-            or ref_norm == display_norm
-            or ref_norm in display_norm
-            or display_norm in ref_norm
-        )
+        if ref_norm == name_norm or ref_norm == display_norm:
+            return True
+
+        if "（" in ref and ref.endswith("）"):
+            try:
+                parsed = self.parse(ref)
+            except ValueError:
+                return False
+            return parsed.name == self.name and parsed.unit == self.unit
+
+        return False
 
 
 def _normalize_name(name: str) -> str:

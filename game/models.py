@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 
 from game.inventory import InventoryItem, normalize_inventory_list
+from game.text_match import fuzzy_match_name
 
 ABILITY_ORDER: tuple[tuple[str, str, str], ...] = (
     ("str", "strength", "力量"),
@@ -68,6 +69,10 @@ class Character(BaseModel):
 
     def has_inventory_item(self, item_ref: str) -> bool:
         return self.find_inventory_item(item_ref) is not None
+
+    def has_sufficient_inventory(self, item_ref: str, quantity: int = 1) -> bool:
+        target = self.find_inventory_item(item_ref)
+        return target is not None and target.quantity >= quantity
 
     def format_skills(self) -> str:
         if not self.skills:
@@ -276,6 +281,9 @@ class CombatState(BaseModel):
     def get_enemy(self, name: str) -> CombatEnemy | None:
         for enemy in self.enemies:
             if enemy.name == name:
+                return enemy
+        for enemy in self.enemies:
+            if fuzzy_match_name(name, enemy.name):
                 return enemy
         return None
 

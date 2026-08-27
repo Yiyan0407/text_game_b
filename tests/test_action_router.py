@@ -491,3 +491,140 @@ def test_build_kp_input_includes_narrative_scope():
     assert "【交易同步】" in kp_input
     assert "record_npc" in kp_input
     assert "返回后院" in kp_input
+
+
+def test_validate_rejects_empty_attack_target():
+    from game.models import CombatEnemy, CombatState
+
+    route = _approved_route(
+        mode="combat",
+        combat_action="attack",
+        attack_target="",
+        action_intent="攻击敌人",
+    )
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
+        turn_order=["player", "守卫"],
+        turn_index=0,
+    )
+    result = ActionRouter.validate(route, Character(name="测试"), game_state)
+    assert result.approved is False
+    assert "攻击" in result.rejection_reason
+
+
+def test_validate_resolves_fuzzy_attack_target():
+    from game.models import CombatEnemy, CombatState
+
+    route = _approved_route(
+        mode="combat",
+        combat_action="attack",
+        attack_target="前面的守卫",
+        action_intent="攻击守卫",
+    )
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
+        turn_order=["player", "守卫"],
+        turn_index=0,
+    )
+    result = ActionRouter.validate(route, Character(name="测试"), game_state)
+    assert result.approved is True
+    assert result.attack_target == "守卫"
+
+
+def test_validate_allows_pickup_in_combat():
+    from game.models import CombatEnemy, CombatState
+
+    route = _approved_route(
+        mode="combat",
+        item_usage="pickup",
+        referenced_items=["药瓶"],
+        action_intent="拾取药瓶",
+    )
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
+        turn_order=["player", "守卫"],
+        turn_index=0,
+    )
+    result = ActionRouter.validate(route, Character(name="测试"), game_state)
+    assert result.approved is True
+    assert result.action_cost == "bonus"
+
+
+def test_validate_rejects_pickup_when_bonus_action_exhausted():
+    from game.models import CombatEnemy, CombatState
+
+    route = _approved_route(
+        mode="combat",
+        item_usage="pickup",
+        referenced_items=["药瓶"],
+        action_intent="拾取药瓶",
+    )
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
+        turn_order=["player", "守卫"],
+        turn_index=0,
+        bonus_action_used=True,
+    )
+    result = ActionRouter.validate(route, Character(name="测试"), game_state)
+    assert result.approved is False
+    assert "附加动作" in result.rejection_reason
+
+
+def test_validate_rejects_purchase_in_combat():
+    from game.models import CombatEnemy, CombatState
+
+    route = _approved_route(
+        mode="combat",
+        item_usage="purchase",
+        payment_items=["定金币"],
+        referenced_items=["药瓶"],
+        action_intent="购买药瓶",
+    )
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
+        turn_order=["player", "守卫"],
+        turn_index=0,
+    )
+    result = ActionRouter.validate(route, Character(name="测试"), game_state)
+    assert result.approved is False
+    assert "购买" in result.rejection_reason
+
+
+def test_fallback_route_still_rejects_compound_action():
+    route = ActionRouter._fallback_route("购买食盐然后离开", GameState())
+    result = ActionRouter._apply_granularity(route, "购买食盐然后离开")
+    assert result.approved is False
+    assert "一次只描述一个行动" in result.rejection_reason
+
+
+def test_build_kp_input_notes_failed_purchase():
+    route = _approved_route(
+        item_usage="purchase",
+        payment_items=["定金币"],
+        referenced_items=["破禁符"],
+        action_intent="购买破禁符",
+    )
+    kp_input = GameOrchestrator._build_kp_input(
+        "买破禁符",
+        route,
+        ["支付失败：背包中 定金币（0枚） 数量不足。"],
+        GameState(),
+        Character(name="测试", inventory=[]),
+    )
+    assert "未成功结算" in kp_input
+    assert "勿在叙事中假定" in kp_input

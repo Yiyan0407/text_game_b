@@ -1,4 +1,4 @@
-from game.combat import parse_enemies, player_attack, start_combat, end_combat
+from game.combat import parse_enemies, player_attack, resolve_pickup_in_combat, start_combat, end_combat
 from game.models import Character, CombatEnemy, CombatState, GameState
 
 
@@ -41,3 +41,20 @@ def test_end_combat():
     msg = end_combat(state)
     assert "战斗结束" in msg
     assert state.combat is None
+
+
+def test_resolve_pickup_in_combat_uses_bonus_action():
+    character = Character(name="测试")
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
+        turn_order=["player", "守卫"],
+        turn_index=0,
+    )
+    events = resolve_pickup_in_combat(character, state, ["药瓶"])
+    assert any("药瓶" in event for event in events)
+    assert character.has_inventory_item("药瓶")
+    assert state.combat.bonus_action_used is True
+    assert state.combat.has_main_action() is True

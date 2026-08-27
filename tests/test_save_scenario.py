@@ -119,6 +119,24 @@ def test_save_delete(tmp_path):
     assert len(manager.list_saves()) == 0
 
 
+def test_load_rebuilds_nested_models(tmp_path):
+    manager = SaveManager(saves_dir=tmp_path)
+    save_game = SaveGame.create(
+        scenario_id="midnight_archive",
+        scenario_title="午夜档案",
+        character=Character(name="姜", constitution=14),
+        game_state=GameState(turn_count=4, current_scene="测试场景"),
+        messages=[ChatMessage(role="user", content="行动")],
+        save_id="load-rebuild",
+    )
+    manager.save(save_game)
+    loaded = manager.load("load-rebuild")
+    assert loaded.character.name == "姜"
+    assert loaded.character.constitution == 14
+    assert loaded.game_state.turn_count == 4
+    assert loaded.messages[0].content == "行动"
+
+
 def test_save_create_rebuilds_nested_models(tmp_path):
     """SaveGame.create 应能通过 model_dump 重建嵌套模型（兼容 Streamlit 热重载）。"""
     manager = SaveManager(saves_dir=tmp_path)

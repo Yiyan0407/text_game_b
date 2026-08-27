@@ -1,4 +1,7 @@
 import json
+import logging
+import os
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from config.settings import SAVES_DIR
 from game.models import Character, ChatMessage, GameState
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_save_payload(raw: dict) -> dict:
@@ -101,10 +106,27 @@ class SaveManager:
         if self.profile_id and not save_game.profile_id:
             save_game.profile_id = self.profile_id
         path = self._path(save_game.save_id)
-        path.write_text(
-            save_game.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
+        content = save_game.model_dump_json(indent=2)
+        tmp_path: str | None = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(
+                dir=self.saves_dir,
+                prefix=f".{save_game.save_id}-",
+                suffix=".tmp",
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, path)
+            tmp_path = None
+        except Exception:
+            if tmp_path is not None:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            raise
         return path
 
     def load(self, save_id: str) -> SaveGame:
@@ -112,7 +134,20 @@ class SaveManager:
         if not path.exists():
             raise FileNotFoundError(f"存档不存在: {save_id}")
         raw = json.loads(path.read_text(encoding="utf-8"))
-        return SaveGame.model_validate(_normalize_save_payload(raw))
+        data = SaveGame.model_validate(_normalize_save_payload(raw))
+        return SaveGame(
+            save_id=data.save_id,
+            saved_at=data.saved_at,
+            scenario_id=data.scenario_id,
+            scenario_title=data.scenario_title,
+            profile_id=data.profile_id,
+            character_id=data.character_id,
+            world_id=data.world_id,
+            character=_fresh_model(Character, data.character),
+            game_state=_fresh_model(GameState, data.game_state),
+            messages=[_fresh_model(ChatMessage, msg) for msg in data.messages],
+            action_suggestions=list(data.action_suggestions),
+        )
 
     def delete(self, save_id: str) -> None:
         path = self._path(save_id)
@@ -129,7 +164,8 @@ class SaveManager:
                 payload = _normalize_save_payload(raw)
                 if payload.get("character_id") == character_id:
                     save_ids.append(str(payload.get("save_id", path.stem)))
-            except Exception:
+            except Exception as exc:
+                logger.warning("跳过损坏的存档 %s: %s", path.name, exc)
                 continue
         return save_ids
 
@@ -145,7 +181,8 @@ class SaveManager:
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
                 data = SaveGame.model_validate(_normalize_save_payload(raw))
-            except Exception:
+            except Exception as exc:
+                logger.warning("跳过损坏的存档 %s: %s", path.name, exc)
                 continue
             saves.append(
                 SaveMeta(

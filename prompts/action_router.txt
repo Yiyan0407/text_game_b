@@ -71,6 +71,10 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 
 ### 必须驳回（整类探索，非战斗内互动）
 - 切换场景、长途移动、搜刮整间区域、与战斗无关的长时间调查
+- **购买/交易**（`item_usage=purchase`）→ approved=false，「战斗中无法购买，请战斗结束后再交易。」
+
+### 可以批准 — 拾取
+- 拾取眼前掉落物、战场物品 → `item_usage=pickup`，`combat_action=none`，`referenced_items` 填物品名；通常 `action_cost=bonus`（快速拾取），不消耗主要动作。
 
 ### 可以批准 — 主要动作（action_cost=main）
 | combat_action | 说明 | needs_roll |

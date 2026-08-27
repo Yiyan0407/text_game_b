@@ -1,5 +1,4 @@
 import logging
-import re
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -9,26 +8,16 @@ from config.settings import PROMPTS_DIR
 from game.models import ABILITY_FIELDS, Character, ChatMessage, GameState
 from game.results import ActionRouteResult
 from game.scenario import Scenario
+from game.text_match import fuzzy_in_list, resolve_fuzzy_name
 from prompts.templates import load_world_prompt
-
-
-def _normalize_name(name: str) -> str:
-    return re.sub(r"\s+", "", name.strip().lower())
-
-
-def _fuzzy_in_list(name: str, items: list[str]) -> bool:
-    normalized = _normalize_name(name)
-    if not normalized:
-        return False
-    for item in items:
-        item_norm = _normalize_name(item)
-        if normalized == item_norm or normalized in item_norm or item_norm in normalized:
-            return True
-    return False
 
 
 def _payment_available(character: Character, payment: str) -> bool:
     return character.has_inventory_item(payment)
+
+
+def _payment_sufficient(character: Character, payment: str, quantity: int) -> bool:
+    return character.has_sufficient_inventory(payment, quantity)
 
 
 def _format_recent_history(history: list[ChatMessage], limit: int = 6) -> str:
@@ -360,7 +349,11 @@ class ActionRouter:
             route.roll_type = "none"
 
         if in_combat or route.trigger_combat:
-            if route.combat_action == "attack" and route.attack_target:
+            if route.combat_action == "attack":
+                if not route.attack_target.strip():
+                    route.approved = False
+                    route.rejection_reason = "请明确要攻击的敌人。"
+                    return route
                 living = game_state.combat.living_enemy_names() if game_state.combat else []
                 if route.trigger_combat:
                     living = [
@@ -368,19 +361,37 @@ class ActionRouter:
                         for part in route.enemies_spec.split(",")
                         if part.strip()
                     ]
-                if living and not _fuzzy_in_list(route.attack_target, living):
+                if living and not fuzzy_in_list(route.attack_target, living):
                     route.approved = False
                     route.rejection_reason = (
                         f"找不到存活的敌人「{route.attack_target}」。"
                         f"当前敌人：{'、'.join(living) or '无'}"
                     )
                     return route
+                resolved = resolve_fuzzy_name(route.attack_target, living)
+                if resolved:
+                    route.attack_target = resolved
+
+        if in_combat and route.item_usage == "purchase":
+            route.approved = False
+            route.rejection_reason = "战斗中无法进行购买，请战斗结束后再交易。"
+            route.needs_roll = False
+            route.roll_type = "none"
+            return route
+
+        if in_combat and route.item_usage == "pickup":
+            combat = game_state.combat
+            route.action_cost = "bonus"
+            if combat and route.approved and not combat.has_bonus_action():
+                route.approved = False
+                route.rejection_reason = "本回合附加动作已用尽，无法拾取。"
+                return route
 
         if route.skill_usage == "use" or (
             route.skill_usage == "none" and route.referenced_skills
         ):
             for skill in route.referenced_skills:
-                if not _fuzzy_in_list(skill, character.skills):
+                if not fuzzy_in_list(skill, character.skills):
                     route.approved = False
                     route.rejection_reason = f"你没有「{skill}」这项技能，无法执行该行动。"
                     route.needs_roll = False
@@ -389,7 +400,7 @@ class ActionRouter:
 
         if route.skill_usage == "learn":
             for skill in route.referenced_skills:
-                if _fuzzy_in_list(skill, character.skills):
+                if fuzzy_in_list(skill, character.skills):
                     route.approved = False
                     route.rejection_reason = f"你已经掌握「{skill}」，无需再学习。"
                     route.needs_roll = False
@@ -410,16 +421,32 @@ class ActionRouter:
                 route.approved = False
                 route.rejection_reason = "购买行动须指明获得的物品（referenced_items）。"
                 return route
-            if route.payment_items:
-                for payment in route.payment_items:
-                    if not _payment_available(character, payment):
-                        route.approved = False
-                        route.rejection_reason = (
-                            f"你的背包中没有可用于支付的「{payment}」。"
-                        )
-                        route.needs_roll = False
-                        route.roll_type = "none"
-                        return route
+            if not route.payment_items:
+                route.approved = False
+                route.rejection_reason = "购买行动须指明支付物品（payment_items）。"
+                route.needs_roll = False
+                route.roll_type = "none"
+                return route
+            quantity = max(1, route.payment_quantity or 1)
+            for payment in route.payment_items:
+                if not _payment_available(character, payment):
+                    route.approved = False
+                    route.rejection_reason = (
+                        f"你的背包中没有可用于支付的「{payment}」。"
+                    )
+                    route.needs_roll = False
+                    route.roll_type = "none"
+                    return route
+                if not _payment_sufficient(character, payment, quantity):
+                    target = character.find_inventory_item(payment)
+                    label = target.display() if target else payment
+                    route.approved = False
+                    route.rejection_reason = (
+                        f"支付数量不足：需要 {quantity}，背包中仅有 {label}。"
+                    )
+                    route.needs_roll = False
+                    route.roll_type = "none"
+                    return route
 
         if in_combat and route.approved and route.needs_roll:
             if route.roll_type == "ability_check":

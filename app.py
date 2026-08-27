@@ -69,85 +69,97 @@ def handle_player_message(user_input: str) -> None:
     history = st.session_state.messages[:-1]
     summary_before = game_state.story_summary
 
-    if settings.enable_streaming:
-        progress = LoadingPlaceholder()
-        progress.show("裁定行动中……")
-        rejection_turn, pre_tool_events, text_stream, finish = orchestrator.player_turn_stream(
-            character=character,
-            game_state=game_state,
-            scenario=scenario,
-            user_input=user_input,
-            history=history,
-        )
-        if rejection_turn is not None:
-            progress.clear()
-            st.session_state.messages.append(
-                ChatMessage(
-                    role="system",
-                    content=(
-                        f"⚠️ 行动无法执行：{rejection_turn.rejection_reason}。"
-                        "请重新描述你的行动。"
-                    ),
-                )
-            )
-            return
-
-        append_tool_events(pre_tool_events)
-        render_tool_events_live(pre_tool_events)
-
-        with st.chat_message("assistant"):
-            full_response = render_streaming_markdown(
-                text_stream,
-                loading=progress,
-                loading_message="KP 撰写叙事中……",
-            )
-        with st.spinner("生成行动建议中……"):
-            turn = finish(full_response or "")
-        progress.clear()
-    else:
-        with st.spinner("KP 思考中……"):
-            turn = orchestrator.player_turn(
+    try:
+        if settings.enable_streaming:
+            progress = LoadingPlaceholder()
+            progress.show("裁定行动中……")
+            rejection_turn, pre_tool_events, text_stream, finish = orchestrator.player_turn_stream(
                 character=character,
                 game_state=game_state,
                 scenario=scenario,
                 user_input=user_input,
                 history=history,
             )
-        if not turn.rejected:
-            append_tool_events(turn.tool_events)
-            st.session_state.messages.append(
-                ChatMessage(role="assistant", content=turn.response)
-            )
-        full_response = turn.response
+            if rejection_turn is not None:
+                progress.clear()
+                st.session_state.messages.append(
+                    ChatMessage(
+                        role="system",
+                        content=(
+                            f"⚠️ 行动无法执行：{rejection_turn.rejection_reason}。"
+                            "请重新描述你的行动。"
+                        ),
+                    )
+                )
+                return
 
-    if turn.rejected:
+            append_tool_events(pre_tool_events)
+            render_tool_events_live(pre_tool_events)
+
+            with st.chat_message("assistant"):
+                full_response = render_streaming_markdown(
+                    text_stream,
+                    loading=progress,
+                    loading_message="KP 撰写叙事中……",
+                )
+            with st.spinner("生成行动建议中……"):
+                turn = finish(full_response or "")
+            progress.clear()
+        else:
+            with st.spinner("KP 思考中……"):
+                turn = orchestrator.player_turn(
+                    character=character,
+                    game_state=game_state,
+                    scenario=scenario,
+                    user_input=user_input,
+                    history=history,
+                )
+            if not turn.rejected:
+                append_tool_events(turn.tool_events)
+                st.session_state.messages.append(
+                    ChatMessage(role="assistant", content=turn.response)
+                )
+            full_response = turn.response
+
+        if turn.rejected:
+            st.session_state.messages.append(
+                ChatMessage(
+                    role="system",
+                    content=(
+                        f"⚠️ 行动无法执行：{turn.rejection_reason}。"
+                        "请重新描述你的行动。"
+                    ),
+                )
+            )
+            return
+
+        if game_state.story_summary != summary_before:
+            turn.summary_updated = True
+
+        if settings.enable_streaming:
+            kp_tool_events = [
+                event
+                for event in turn.tool_events
+                if event not in pre_tool_events
+            ]
+            append_tool_events(kp_tool_events)
+            st.session_state.messages.append(
+                ChatMessage(role="assistant", content=full_response or turn.response)
+            )
+
+        st.session_state.action_suggestions = turn.action_suggestions
+        persist_save()
+    except Exception as exc:
         st.session_state.messages.append(
             ChatMessage(
                 role="system",
                 content=(
-                    f"⚠️ 行动无法执行：{turn.rejection_reason}。"
-                    "请重新描述你的行动。"
+                    f"⚠️ 本轮处理出错：{exc}。"
+                    "请稍后重试；若背包或场景已变化，可先保存再刷新页面。"
                 ),
             )
         )
-        return
-
-    if game_state.story_summary != summary_before:
-        turn.summary_updated = True
-
-    if settings.enable_streaming:
-        kp_tool_events = [
-            event
-            for event in turn.tool_events
-            if event not in pre_tool_events
-        ]
-        append_tool_events(kp_tool_events)
-        st.session_state.messages.append(
-            ChatMessage(role="assistant", content=full_response or turn.response)
-        )
-
-    st.session_state.action_suggestions = turn.action_suggestions
-    persist_save()
+        st.error(f"处理失败：{exc}")
 
 
 def _render_scene_image(game_state: GameState, scenario: Scenario) -> None:

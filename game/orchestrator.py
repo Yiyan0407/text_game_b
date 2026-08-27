@@ -19,6 +19,7 @@ from game.combat import (
     resolve_search_in_combat,
     resolve_shove,
     resolve_talk,
+    resolve_pickup_in_combat,
     resolve_until_player_turn,
     resolve_use_item_in_combat,
     start_combat,
@@ -325,10 +326,11 @@ class GameOrchestrator:
             skip_combat_tools=skip_combat_tools,
         )
 
+        if increment_turn:
+            game_state.turn_count += 1
+            self.memory.process_after_turn(game_state, full_history or history)
+
         def finish(response: str) -> TurnResult:
-            if increment_turn:
-                game_state.turn_count += 1
-                self.memory.process_after_turn(game_state, full_history or history)
             turn = TurnResult(
                 response=response.strip(),
                 tool_events=tool_events + kp_tool_events,
@@ -379,15 +381,24 @@ class GameOrchestrator:
                     pre_tool_events.extend(
                         advance_after_player_action(character, game_state)
                     )
-        elif not game_state.is_in_combat() and route.needs_roll:
+
+        if not game_state.is_in_combat() and route.needs_roll:
             pre_tool_events.append(self._execute_pre_roll(route, character))
-        elif route.item_usage == "pickup":
-            for item in route.referenced_items:
-                if character.add_inventory_item(item):
-                    pre_tool_events.append(
-                        f"背包新增：{item}。当前：{character.format_inventory()}"
+
+        if route.item_usage == "pickup":
+            if game_state.is_in_combat():
+                pre_tool_events.extend(
+                    resolve_pickup_in_combat(
+                        character, game_state, route.referenced_items
                     )
-        elif route.item_usage == "purchase":
+                )
+            else:
+                for item in route.referenced_items:
+                    if character.add_inventory_item(item):
+                        pre_tool_events.append(
+                            f"背包新增：{item}。当前：{character.format_inventory()}"
+                        )
+        elif route.item_usage == "purchase" and not game_state.is_in_combat():
             pre_tool_events.extend(self._execute_purchase(route, character))
 
         end_msg, _defeated = maybe_end_combat(game_state, character)
@@ -403,18 +414,42 @@ class GameOrchestrator:
     def _execute_purchase(route: ActionRouteResult, character: Character) -> list[str]:
         events: list[str] = []
         quantity = max(1, route.payment_quantity or 1)
+
+        if not route.payment_items:
+            events.append("支付失败：未指定支付物品。")
+            return events
+
+        for payment in route.payment_items:
+            target = character.find_inventory_item(payment)
+            if target is None:
+                events.append(f"支付失败：背包中没有：{payment}")
+                return events
+            if quantity > target.quantity:
+                events.append(f"支付失败：背包中 {target.display()} 数量不足。")
+                return events
+
         for payment in route.payment_items:
             ok, message = character.consume_inventory_quantity(payment, quantity)
             if ok:
                 events.append(f"{message}。当前：{character.format_inventory()}")
             else:
                 events.append(f"支付失败：{message}")
+                return events
+
         for goods in route.referenced_items:
             if character.add_inventory_item(goods):
                 events.append(
                     f"背包新增：{goods}。当前：{character.format_inventory()}"
                 )
         return events
+
+    @staticmethod
+    def _purchase_settled(route: ActionRouteResult, mechanical_events: list[str]) -> bool:
+        if route.item_usage != "purchase":
+            return False
+        if any("支付失败" in event for event in mechanical_events):
+            return False
+        return any("背包新增" in event for event in mechanical_events)
 
     @staticmethod
     def _execute_combat_action(
@@ -539,12 +574,17 @@ class GameOrchestrator:
             "尚未见过面用 attitude=unknown，notes 写一句关键身份或线索；"
             "叙事中的已知 NPC 不得与【游戏状态】矛盾。"
         )
-        if route.item_usage == "purchase" and character is not None:
+        if GameOrchestrator._purchase_settled(route, mechanical_events) and character is not None:
             lines.append(
-                "【交易同步】系统已在上方机械结算中扣款并交付商品（若有）。"
+                "【交易同步】系统已在上方机械结算中扣款并交付商品。"
                 "叙事中若出现找零/找补，须在叙事前 update_inventory(add) 记录零钱；"
-                "勿重复 add 已交付商品，勿重复 remove 已扣款项。"
+                "**禁止**重复 add 已交付商品，**禁止**重复 remove 已扣款项。"
                 f"当前背包：{character.format_inventory()}"
+            )
+        elif route.item_usage == "purchase":
+            lines.append(
+                "【交易同步】本次购买未成功结算（见机械结算结果）。"
+                "勿在叙事中假定已获得商品或已完成付款。"
             )
         if route.skill_usage == "learn" and route.referenced_skills:
             skills_text = "、".join(route.referenced_skills)
