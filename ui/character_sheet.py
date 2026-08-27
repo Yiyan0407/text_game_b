@@ -24,7 +24,7 @@ def render_character_sheet(character: Character) -> None:
     if character.inventory:
         with st.expander("背包", expanded=False):
             for item in character.inventory:
-                st.markdown(f"- {item.display()}")
+                st.markdown(f"- **{item.name}**　×{item.quantity}{item.unit}")
     else:
         with st.expander("背包", expanded=False):
             st.caption("空空如也——物品会在冒险中获得")

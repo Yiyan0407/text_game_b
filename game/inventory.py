@@ -49,6 +49,10 @@ class InventoryItem(BaseModel):
             return self.name
         return f"{self.name}（{self.quantity}{self.unit}）"
 
+    def display_labeled(self) -> str:
+        """UI 展示用：始终附带数量与单位。"""
+        return f"{self.name}（{self.quantity}{self.unit}）"
+
     @classmethod
     def parse(cls, text: str) -> InventoryItem:
         raw = text.strip()
@@ -172,12 +176,26 @@ def normalize_inventory_list(value) -> list[InventoryItem]:
     return merge_inventory_items(items)
 
 
+def _prefer_unit(left: str, right: str) -> str:
+    if left == right:
+        return left
+    if left == "个":
+        return right
+    if right == "个":
+        return left
+    return left
+
+
+def merge_item_stacks(existing: InventoryItem, incoming: InventoryItem) -> None:
+    existing.quantity += incoming.quantity
+    existing.unit = _prefer_unit(existing.unit, incoming.unit)
+
+
 def merge_inventory_items(items: list[InventoryItem]) -> list[InventoryItem]:
-    merged: dict[tuple[str, str], InventoryItem] = {}
+    merged: dict[str, InventoryItem] = {}
     for item in items:
-        key = (item.name, item.unit)
-        if key in merged:
-            merged[key].quantity += item.quantity
+        if item.name in merged:
+            merge_item_stacks(merged[item.name], item)
         else:
-            merged[key] = item.model_copy()
+            merged[item.name] = item.model_copy()
     return list(merged.values())

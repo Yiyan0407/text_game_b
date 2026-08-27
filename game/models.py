@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 
-from game.inventory import InventoryItem, normalize_inventory_list
+from game.inventory import InventoryItem, merge_item_stacks, normalize_inventory_list
 from game.text_match import fuzzy_match_name
 
 ABILITY_ORDER: tuple[tuple[str, str, str], ...] = (
@@ -118,6 +118,12 @@ class Character(BaseModel):
             if existing.name == incoming.name and existing.unit == incoming.unit:
                 existing.quantity += incoming.quantity
                 return True
+
+        for existing in self.inventory:
+            if existing.name == incoming.name:
+                merge_item_stacks(existing, incoming)
+                return True
+
         self.inventory.append(incoming)
         return True
 
