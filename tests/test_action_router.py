@@ -5,7 +5,7 @@ from chain.action_router import ActionRouter
 from game.models import Character, ChatMessage, GameState
 from game.orchestrator import GameOrchestrator, _strip_leaked_route_preamble
 from game.results import ActionRouteResult, TurnResult
-from game.scenario import Scenario, ScenarioNode
+from game.scenario import Scenario
 
 
 def _approved_route(**overrides) -> ActionRouteResult:
@@ -207,35 +207,6 @@ def test_validate_defaults_roll_when_needs_roll_without_roll_type():
     assert result.roll_type == "ability_check"
     assert result.ability == "cha"
     assert result.dc == 14
-
-
-def test_rescue_vague_destination_when_context_points_to_corp():
-    route = ActionRouteResult(
-        approved=False,
-        rejection_reason="「去现场看看」目标不明确。请明确具体地点（如：星辰科技公司大堂）",
-    )
-    history = [
-        ChatMessage(
-            role="assistant",
-            content="老周提到可通过星辰科技邮件服务器日志比对，确认这些邮件是否从内部发出。",
-        ),
-    ]
-    scenario = Scenario(
-        id="midnight_archive",
-        title="午夜档案",
-        world_id="modern",
-        key_nodes=[
-            ScenarioNode(id="corp_lobby", title="目标公司大堂", description="前台与安保"),
-        ],
-    )
-    result = ActionRouter._maybe_rescue_vague_destination(
-        route,
-        "我直接去现场看看吧",
-        history,
-        scenario,
-    )
-    assert result.approved is True
-    assert "目标公司大堂" in result.action_intent
 
 
 def test_require_infiltration_roll_for_continue_deeper():

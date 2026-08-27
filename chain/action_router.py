@@ -56,36 +56,6 @@ COMPOUND_ACTION_MARKERS = (
     "完成后",
 )
 
-VAGUE_DESTINATION_PHRASES = (
-    "去现场",
-    "到现场",
-    "直接去",
-    "去那边",
-    "过去看看",
-    "去一趟",
-    "实地考察",
-    "现场看看",
-)
-
-VAGUE_DESTINATION_REJECTION_MARKERS = (
-    "目标不明确",
-    "具体地点",
-    "明确具体",
-    "目的地不明确",
-)
-
-CORP_DESTINATION_SIGNALS = (
-    "星辰科技",
-    "目标公司",
-    "邮件服务器",
-    "邮件信头",
-    "信头",
-    "核实邮件",
-    "确认这些邮件",
-    "内部的人",
-    "作证",
-)
-
 INFILTRATION_ACTION_MARKERS = (
     "深入",
     "潜入",
@@ -125,29 +95,6 @@ def _looks_like_compound_action(text: str) -> bool:
     if not normalized:
         return False
     return any(marker in normalized for marker in COMPOUND_ACTION_MARKERS)
-
-
-def _looks_like_vague_destination_action(text: str) -> bool:
-    normalized = text.strip()
-    if not normalized:
-        return False
-    return any(marker in normalized for marker in VAGUE_DESTINATION_PHRASES)
-
-
-def _looks_like_vague_destination_rejection(reason: str) -> bool:
-    return any(marker in reason for marker in VAGUE_DESTINATION_REJECTION_MARKERS)
-
-
-def _corp_destination_node(scenario: Scenario):
-    for node in scenario.key_nodes:
-        if node.id == "corp_lobby" or "公司" in node.title:
-            return node
-    return None
-
-
-def _recent_context_text(history: list[ChatMessage], scenario: Scenario, limit: int = 8) -> str:
-    parts = [_format_recent_history(history, limit=limit), scenario.format_for_prompt()]
-    return "\n".join(parts)
 
 
 def _looks_like_infiltration_action(text: str) -> bool:
@@ -304,50 +251,10 @@ class ActionRouter:
         if not route.approved and route.rejection_reason == _PARSE_FAILURE_REASON:
             route = self._fallback_route(user_input.strip(), game_state)
         route = self.validate(route, character, game_state)
-        route = self._maybe_rescue_vague_destination(
-            route, user_input.strip(), history, scenario
-        )
         route = self._maybe_require_infiltration_roll(
             route, user_input.strip(), history
         )
         return self._apply_granularity(route, user_input.strip())
-
-    @staticmethod
-    def _maybe_rescue_vague_destination(
-        route: ActionRouteResult,
-        user_input: str,
-        history: list[ChatMessage],
-        scenario: Scenario,
-    ) -> ActionRouteResult:
-        if route.approved:
-            return route
-        if not _looks_like_vague_destination_action(user_input):
-            return route
-        if not _looks_like_vague_destination_rejection(route.rejection_reason):
-            return route
-
-        context = _recent_context_text(history, scenario)
-        if not any(signal in context for signal in CORP_DESTINATION_SIGNALS):
-            return route
-
-        corp_node = _corp_destination_node(scenario)
-        route.approved = True
-        route.rejection_reason = ""
-        if not route.action_intent:
-            if corp_node:
-                route.action_intent = f"前往{corp_node.title}实地核实邮件线索"
-            else:
-                route.action_intent = "前往对话中指向的目标公司现场核实线索"
-        if not route.scope_stop:
-            destination = corp_node.title if corp_node else "目标现场"
-            route.scope_stop = f"抵达{destination}或完成外围接触，尚未深入完成全部调查"
-        if not route.must_not_narrate:
-            route.must_not_narrate = [
-                "深入公司内部或完成全部取证",
-                "与其他 NPC 的会面或长段情报灌输",
-                "未在本行动范围内触发的任务奖励或系统回馈",
-            ]
-        return route
 
     @staticmethod
     def _maybe_require_infiltration_roll(
