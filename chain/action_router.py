@@ -31,20 +31,6 @@ def _format_recent_history(history: list[ChatMessage], limit: int = 6) -> str:
     return "\n".join(lines)
 
 
-COMPOUND_ACTION_MARKERS = (
-    "然后",
-    "接着",
-    "之后",
-    "再去",
-    "再回",
-    "再去找",
-    "顺便",
-    "并且还要",
-    "并且",
-    "还要",
-    "完成后",
-)
-
 INFILTRATION_ACTION_MARKERS = (
     "深入",
     "潜入",
@@ -77,13 +63,6 @@ RESTRICTED_AREA_SIGNALS = (
     "内部",
     "监控",
 )
-
-
-def _looks_like_compound_action(text: str) -> bool:
-    normalized = text.strip()
-    if not normalized:
-        return False
-    return any(marker in normalized for marker in COMPOUND_ACTION_MARKERS)
 
 
 def _looks_like_infiltration_action(text: str) -> bool:
@@ -243,7 +222,8 @@ class ActionRouter:
         route = self._maybe_require_infiltration_roll(
             route, user_input.strip(), history
         )
-        return self._apply_granularity(route, user_input.strip())
+        ActionRouter._finalize_scope(route)
+        return route
 
     @staticmethod
     def _maybe_require_infiltration_roll(
@@ -487,19 +467,6 @@ class ActionRouter:
         if not route.action_intent:
             route.action_intent = "执行玩家描述的行动"
 
-        return route
-
-    @staticmethod
-    def _apply_granularity(route: ActionRouteResult, user_input: str) -> ActionRouteResult:
-        if not route.approved:
-            return route
-        if route.mode == "exploration" and _looks_like_compound_action(user_input):
-            route.approved = False
-            route.rejection_reason = (
-                "请一次只描述一个行动。你似乎计划了多个步骤，请先输入当前这一步。"
-            )
-            return route
-        ActionRouter._finalize_scope(route)
         return route
 
     @staticmethod

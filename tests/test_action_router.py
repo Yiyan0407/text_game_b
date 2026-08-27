@@ -439,17 +439,14 @@ def test_validate_trigger_combat_requires_enemies_spec():
     assert "攻击目标" in result.rejection_reason or "无法确定" in result.rejection_reason
 
 
-def test_apply_granularity_rejects_compound_action():
+def test_apply_granularity_allows_compound_action():
     route = _approved_route(
-        action_intent="购买破禁符",
-        scope_stop="交易完成",
+        action_intent="购买连弩和短剑并询问盔甲",
+        scope_stop="交易与询价完成",
     )
-    result = ActionRouter._apply_granularity(
-        route,
-        "购买破禁符然后回去找沈渊",
-    )
-    assert result.approved is False
-    assert "一次只描述一个行动" in result.rejection_reason
+    ActionRouter._finalize_scope(route)
+    assert route.approved is True
+    assert route.scope_stop
 
 
 def test_apply_granularity_allows_single_purchase_action():
@@ -458,13 +455,10 @@ def test_apply_granularity_allows_single_purchase_action():
         scope_stop="破禁符到手、交易完成",
         must_not_narrate=["离开坊市", "与沈渊会面"],
     )
-    result = ActionRouter._apply_granularity(
-        route,
-        "前往瘦小摊主处购买破禁符",
-    )
-    assert result.approved is True
-    assert result.scope_stop
-    assert result.must_not_narrate
+    ActionRouter._finalize_scope(route)
+    assert route.approved is True
+    assert route.scope_stop
+    assert route.must_not_narrate
 
 
 def test_build_kp_input_includes_narrative_scope():
@@ -486,7 +480,7 @@ def test_build_kp_input_includes_narrative_scope():
     )
     assert "叙事边界" in kp_input
     assert "本轮禁止叙事" in kp_input
-    assert "不要链式推进" in kp_input
+    assert "叙事要求" in kp_input
     assert "【NPC 同步】" in kp_input
     assert "【交易同步】" in kp_input
     assert "record_npc" in kp_input
@@ -605,11 +599,10 @@ def test_validate_rejects_purchase_in_combat():
     assert "购买" in result.rejection_reason
 
 
-def test_fallback_route_still_rejects_compound_action():
+def test_fallback_route_allows_compound_action():
     route = ActionRouter._fallback_route("购买食盐然后离开", GameState())
-    result = ActionRouter._apply_granularity(route, "购买食盐然后离开")
-    assert result.approved is False
-    assert "一次只描述一个行动" in result.rejection_reason
+    ActionRouter._finalize_scope(route)
+    assert route.approved is True
 
 
 def test_build_kp_input_notes_failed_purchase():

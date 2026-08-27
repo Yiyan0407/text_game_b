@@ -66,7 +66,7 @@ _ROUTE_PREAMBLE_PREFIXES = (
     "行动意图：",
     "叙事边界：",
     "合理性：",
-    "粒度要求：",
+    "叙事要求：",
     "本轮禁止叙事：",
     "【状态同步】",
     "【NPC 同步】",
@@ -542,8 +542,8 @@ class GameOrchestrator:
             for item in route.must_not_narrate:
                 lines.append(f"- {item}")
         lines.append(
-            "粒度要求：只写上述行动意图的一步；到达叙事边界后立即停笔，"
-            "不要链式推进到后续场景/NPC/任务。"
+            "叙事要求：回应玩家本句中的全部需求，写到叙事边界后收笔；"
+            "勿擅自推进玩家未提及的换场景、见他人或新任务。"
         )
         if in_combat and game_state and game_state.combat and game_state.combat.is_player_turn():
             lines.append(f"回合资源：{game_state.combat.format_action_economy()}")
