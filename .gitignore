@@ -184,6 +184,10 @@ cython_debug/
 data/saves/*
 !data/saves/.gitkeep
 
+# Player profiles, character cards, per-profile saves
+data/profiles/*
+!data/profiles/.gitkeep
+
 # AI 生成的剧本（本地）
 data/scenarios/generated/*
 !data/scenarios/generated/.gitkeep

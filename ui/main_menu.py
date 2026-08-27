@@ -3,9 +3,11 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from config.worlds import DEFAULT_WORLD_ID, WORLD_OPTIONS
+from game.profile import CharacterCard
 from game.save import SaveManager
 from game.scenario import Scenario
 from game.scenario_loader import list_scenarios
+from ui.profile_menu import render_profile_switcher
 from ui.streaming import render_streaming_markdown
 
 
@@ -22,6 +24,7 @@ def _format_saved_at(saved_at: str) -> str:
 
 def render_main_menu(save_manager: SaveManager) -> None:
     st.title("🎲 AI 跑团")
+    render_profile_switcher(st.session_state.profile_manager)
     st.markdown("选择继续冒险，或开始新的模组。")
 
     saves = save_manager.list_saves()
@@ -106,7 +109,11 @@ def render_scenario_selection() -> None:
             st.caption(f"{scenario.description} · 🌍 {world_label}{tag}")
             if st.button("选择", key=f"scenario_{scenario.id}", use_container_width=True):
                 st.session_state.selected_scenario = scenario
-                st.session_state.page = "character"
+                preselected = st.session_state.get("selected_character_card")
+                if preselected:
+                    start_new_game_with_card(scenario, preselected)
+                else:
+                    st.session_state.page = "select_character"
                 st.rerun()
 
     st.divider()
@@ -119,7 +126,7 @@ def render_scenario_selection() -> None:
         st.rerun()
 
 
-def render_character_creation(scenario: Scenario) -> None:
+def render_character_creation(scenario: Scenario, *, creating_new_card: bool = False) -> None:
     from config.settings import get_settings
     from game.character_creation import build_character, roll_ability_scores
 
@@ -184,6 +191,10 @@ def render_character_creation(scenario: Scenario) -> None:
             placeholder="例如：前海军斥候，为还债来到灰港做佣兵。",
             height=100,
         )
+        st.caption(
+            "背景应描述身份与动机，不要写开局无敌、满级、神器或巨额资源。"
+            "职业不必与模组默认开场一致，开局会自动衔接你的身份。"
+        )
         submitted = st.form_submit_button("开始冒险", type="primary", use_container_width=True)
 
     if submitted:
@@ -194,32 +205,82 @@ def render_character_creation(scenario: Scenario) -> None:
             st.error("缺少 OPENAI_API_KEY，无法启动游戏。")
             return
 
+        custom_background = background.strip()
+        if custom_background:
+            from chain.background_validator import BackgroundValidator
+
+            with st.spinner("正在审核角色背景……"):
+                bg_result = BackgroundValidator().evaluate(
+                    custom_background,
+                    world_id=selected_world,
+                    scenario=scenario,
+                )
+            if not bg_result.approved:
+                st.error(f"背景无法通过审核：{bg_result.rejection_reason}")
+                return
+
         character = build_character(
             name=name.strip(),
-            background=background.strip() or "一位初到灰港的冒险者。",
+            background=custom_background or "一位初到灰港的冒险者。",
             rolled=rolled,
         )
         active_scenario = scenario.model_copy(update={"world_id": selected_world})
         st.session_state.pop("rolled_abilities", None)
-        start_new_game(active_scenario, character)
+
+        saved_card = CharacterCard.from_character(
+            character,
+            preferred_world_id=selected_world,
+        )
+        st.session_state.profile_manager.save_character_card(
+            st.session_state.current_profile_id,
+            saved_card,
+        )
+        st.session_state.pop("selected_character_card", None)
+        start_new_game(active_scenario, character, character_card=saved_card)
 
     if st.button("返回", key="back_from_character"):
         if st.session_state.get("generated_scenario"):
             st.session_state.page = "preview_scenario"
+        elif creating_new_card:
+            st.session_state.page = "select_character"
         else:
             st.session_state.page = "select_scenario"
         st.rerun()
 
 
-def start_new_game(scenario: Scenario, character) -> None:
+def start_new_game_with_card(scenario: Scenario, card: CharacterCard) -> None:
+    world_id = card.preferred_world_id or scenario.world_id
+    active_scenario = scenario.model_copy(update={"world_id": world_id})
+    character = card.to_runtime_character()
+    st.session_state.pop("selected_character_card", None)
+    start_new_game(active_scenario, character, character_card=card)
+
+
+def start_new_game(
+    scenario: Scenario,
+    character,
+    *,
+    character_card: CharacterCard | None = None,
+    career_context: str = "",
+) -> None:
     from config.settings import get_settings
     from game.models import ChatMessage, GameState
     from game.save import SaveGame
-    from game.session import persist_save
+    from game.profile import prepare_card_for_new_campaign
+    from game.session import append_tool_events, persist_save
 
     game_state = GameState()
     orchestrator = st.session_state.orchestrator
     settings = get_settings()
+
+    if character_card:
+        if not career_context:
+            career_context = character_card.format_career_context()
+        prepare_card_for_new_campaign(character_card, scenario)
+        st.session_state.profile_manager.save_character_card(
+            st.session_state.current_profile_id,
+            character_card,
+        )
 
     save_game = SaveGame.create(
         scenario_id=scenario.id,
@@ -227,12 +288,16 @@ def start_new_game(scenario: Scenario, character) -> None:
         character=character,
         game_state=game_state,
         messages=[],
+        profile_id=st.session_state.current_profile_id or "",
+        character_id=character_card.card_id if character_card else "",
+        world_id=scenario.world_id,
     )
 
     st.session_state.character = character
     st.session_state.game_state = game_state
     st.session_state.scenario = scenario
     st.session_state.current_save_id = save_game.save_id
+    st.session_state.current_character_id = character_card.card_id if character_card else None
     st.session_state.messages = []
     st.session_state.action_suggestions = []
     st.session_state.game_started = True
@@ -240,7 +305,7 @@ def start_new_game(scenario: Scenario, character) -> None:
 
     if settings.enable_streaming:
         tool_events, text_stream, finish = orchestrator.start_game_stream(
-            character, game_state, scenario
+            character, game_state, scenario, career_context=career_context
         )
         tools_appended = False
 
@@ -248,10 +313,9 @@ def start_new_game(scenario: Scenario, character) -> None:
             nonlocal tools_appended
             if tools_appended or not tool_events:
                 return
-            for event in tool_events:
-                st.session_state.messages.append(
-                    ChatMessage(role="system", content=f"🎲 {event}")
-                )
+            from game.session import append_tool_events
+
+            append_tool_events(tool_events)
             tools_appended = True
 
         with st.chat_message("assistant"):
@@ -262,8 +326,10 @@ def start_new_game(scenario: Scenario, character) -> None:
         )
         st.session_state.action_suggestions = turn.action_suggestions
     else:
-        with st.spinner("KP 正在编织开场……"):
-            turn = orchestrator.start_game(character, game_state, scenario)
+        with st.spinner("正在生成入场逻辑并编织开场……"):
+            turn = orchestrator.start_game(
+                character, game_state, scenario, career_context=career_context
+            )
         from game.session import append_turn_result
 
         append_turn_result(turn)
@@ -279,12 +345,15 @@ def load_save_into_session(save_manager: SaveManager, save_id: str) -> None:
 
     save_game = save_manager.load(save_id)
     scenario = load_scenario(save_game.scenario_id)
+    if save_game.world_id:
+        scenario = scenario.model_copy(update={"world_id": save_game.world_id})
 
     st.session_state.character = save_game.character
     st.session_state.game_state = save_game.game_state
     st.session_state.scenario = scenario
     st.session_state.messages = save_game.messages
     st.session_state.current_save_id = save_game.save_id
+    st.session_state.current_character_id = save_game.character_id or None
     st.session_state.action_suggestions = get_action_suggestions(save_game)
     st.session_state.game_started = True
     st.session_state.page = "game"

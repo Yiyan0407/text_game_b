@@ -1,9 +1,9 @@
-import json
 import re
 import uuid
 from typing import Literal
 
 from langchain_core.prompts import ChatPromptTemplate
+from chain.json_utils import extract_json
 from chain.llm import create_chat_llm
 from config.settings import get_settings
 from config.worlds import WORLD_OPTIONS
@@ -21,14 +21,10 @@ def _slugify(text: str) -> str:
 
 
 def _extract_json(text: str) -> dict:
-    text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if not match:
-            raise ScenarioGenerationError("AI 未返回有效 JSON") from None
-        return json.loads(match.group())
+    data = extract_json(text)
+    if not isinstance(data, dict):
+        raise ScenarioGenerationError("AI 未返回有效 JSON")
+    return data
 
 
 def _normalize_scenario_data(data: dict, world_id: str) -> dict:
@@ -123,7 +119,7 @@ class ScenarioGenerator:
         return (
             base
             + "生成完整剧本：含 initial_quests(1个)、key_nodes(3-4个)、endings(2-3个)；"
-            "opening_prompt 写清开场情境与委托/动机。"
+            "opening_prompt 写清开场情境与委托/动机（默认钩子，KP 会按玩家背景调整入场身份，勿写死职业）。"
         )
 
     @staticmethod

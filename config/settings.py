@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 DATA_DIR = PROJECT_ROOT / "data"
 SAVES_DIR = DATA_DIR / "saves"
+PROFILES_DIR = DATA_DIR / "profiles"
 SCENARIOS_DIR = DATA_DIR / "scenarios"
 
 

@@ -144,7 +144,7 @@ def render_scenario_preview() -> None:
     col1, col2, col3 = st.columns(3)
     if col1.button("🎮 开始创建角色", type="primary", use_container_width=True):
         st.session_state.selected_scenario = scenario
-        st.session_state.page = "character"
+        st.session_state.page = "select_character"
         st.rerun()
     if col2.button("🔄 重新生成", use_container_width=True):
         st.session_state.page = "generate_scenario"

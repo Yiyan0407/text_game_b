@@ -1,5 +1,5 @@
 from game.combat import parse_enemies, player_attack, start_combat, end_combat
-from game.models import Character, GameState
+from game.models import Character, CombatEnemy, CombatState, GameState
 
 
 def test_parse_enemies():
@@ -21,7 +21,13 @@ def test_start_combat():
 def test_player_attack():
     character = Character(name="测试", strength=16)
     state = GameState()
-    start_combat(character, state, "靶子:20:5")
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="靶子", hp=20, max_hp=20, ac=5)],
+        turn_order=["player", "靶子"],
+        turn_index=0,
+    )
     result = player_attack(character, state, "靶子")
     assert "攻击" in result
     enemy = state.combat.get_enemy("靶子")

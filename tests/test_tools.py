@@ -2,6 +2,28 @@ from game.models import Character, GameState
 from chain.tools import create_kp_tools
 
 
+def test_create_kp_tools_excludes_combat_tools_when_requested():
+    character = Character(name="测试")
+    game_state = GameState()
+    tools = create_kp_tools(
+        character, game_state, exclude_roll_tools=True, exclude_combat_tools=True
+    )
+    names = {tool.name for tool in tools}
+    assert "start_combat" not in names
+    assert "player_attack" not in names
+    assert "end_combat" in names
+
+
+def test_create_kp_tools_excludes_roll_tools_when_requested():
+    character = Character(name="测试")
+    game_state = GameState()
+    tools = create_kp_tools(character, game_state, exclude_roll_tools=True)
+    names = {tool.name for tool in tools}
+    assert "roll_dice" not in names
+    assert "ability_check" not in names
+    assert "update_inventory" in names
+
+
 def test_create_kp_tools():
     character = Character(name="测试", strength=14)
     game_state = GameState()
@@ -18,6 +40,7 @@ def test_create_kp_tools():
         "end_combat",
         "update_inventory",
         "record_memory_fact",
+        "update_skills",
     }
 
 
@@ -89,3 +112,25 @@ def test_character_starts_with_empty_inventory():
     character = Character(name="测试")
     assert character.inventory == []
     assert "空" in character.format_inventory()
+
+
+def test_update_skills_tool():
+    character = Character(name="测试")
+    game_state = GameState()
+    tools = create_kp_tools(character, game_state)
+    skills_tool = next(t for t in tools if t.name == "update_skills")
+    assert character.skills == []
+
+    add_result = skills_tool.invoke({"action": "add", "skill": "观察"})
+    assert "观察" in add_result
+    assert character.skills == ["观察"]
+
+    remove_result = skills_tool.invoke({"action": "remove", "skill": "观察"})
+    assert "移除" in remove_result
+    assert character.skills == []
+
+
+def test_character_starts_with_empty_skills():
+    character = Character(name="测试")
+    assert character.skills == []
+    assert "无" in character.format_skills()

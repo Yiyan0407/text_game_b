@@ -13,6 +13,9 @@ def _normalize_save_payload(raw: dict) -> dict:
     """补全旧版存档缺少的字段。"""
     payload = dict(raw)
     payload.setdefault("action_suggestions", [])
+    payload.setdefault("profile_id", "")
+    payload.setdefault("character_id", "")
+    payload.setdefault("world_id", "")
     return payload
 
 
@@ -37,6 +40,9 @@ class SaveGame(BaseModel):
     saved_at: str
     scenario_id: str
     scenario_title: str
+    profile_id: str = ""
+    character_id: str = ""
+    world_id: str = ""
     character: Character
     game_state: GameState
     messages: list[ChatMessage] = Field(default_factory=list)
@@ -52,12 +58,18 @@ class SaveGame(BaseModel):
         messages: list[ChatMessage],
         save_id: str | None = None,
         action_suggestions: list[str] | None = None,
+        profile_id: str = "",
+        character_id: str = "",
+        world_id: str = "",
     ) -> "SaveGame":
         return cls(
             save_id=save_id or str(uuid.uuid4()),
             saved_at=datetime.now(timezone.utc).isoformat(),
             scenario_id=scenario_id,
             scenario_title=scenario_title,
+            profile_id=profile_id,
+            character_id=character_id,
+            world_id=world_id,
             character=_fresh_model(Character, character),
             game_state=_fresh_model(GameState, game_state),
             messages=[_fresh_model(ChatMessage, msg) for msg in messages],
@@ -76,8 +88,9 @@ class SaveMeta(BaseModel):
 
 
 class SaveManager:
-    def __init__(self, saves_dir: Path | None = None):
+    def __init__(self, saves_dir: Path | None = None, profile_id: str = ""):
         self.saves_dir = saves_dir or SAVES_DIR
+        self.profile_id = profile_id
         self.saves_dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, save_id: str) -> Path:
@@ -85,6 +98,8 @@ class SaveManager:
 
     def save(self, save_game: SaveGame) -> Path:
         save_game.saved_at = datetime.now(timezone.utc).isoformat()
+        if self.profile_id and not save_game.profile_id:
+            save_game.profile_id = self.profile_id
         path = self._path(save_game.save_id)
         path.write_text(
             save_game.model_dump_json(indent=2),
@@ -103,6 +118,26 @@ class SaveManager:
         path = self._path(save_id)
         if path.exists():
             path.unlink()
+
+    def list_save_ids_for_character(self, character_id: str) -> list[str]:
+        if not character_id:
+            return []
+        save_ids: list[str] = []
+        for path in self.saves_dir.glob("*.json"):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                payload = _normalize_save_payload(raw)
+                if payload.get("character_id") == character_id:
+                    save_ids.append(str(payload.get("save_id", path.stem)))
+            except Exception:
+                continue
+        return save_ids
+
+    def delete_by_character_id(self, character_id: str) -> int:
+        save_ids = self.list_save_ids_for_character(character_id)
+        for save_id in save_ids:
+            self.delete(save_id)
+        return len(save_ids)
 
     def list_saves(self) -> list[SaveMeta]:
         saves: list[SaveMeta] = []

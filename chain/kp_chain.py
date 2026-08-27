@@ -35,6 +35,9 @@ class KPChain:
         world_id: str,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        skip_roll_tools: bool = False,
+        skip_combat_tools: bool = False,
     ) -> TurnResult:
         tool_events, messages, final_msg, _ = self._run_tool_loop(
             character=character,
@@ -43,6 +46,8 @@ class KPChain:
             world_id=world_id,
             user_input=user_input,
             history=history,
+            skip_roll_tools=skip_roll_tools,
+            skip_combat_tools=skip_combat_tools,
         )
         if final_msg.content and not final_msg.tool_calls:
             return TurnResult(response=final_msg.content.strip(), tool_events=tool_events)
@@ -58,9 +63,19 @@ class KPChain:
         world_id: str,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        skip_roll_tools: bool = False,
+        skip_combat_tools: bool = False,
     ) -> tuple[list[str], Iterator[str]]:
         messages, llm_with_tools, tool_map = self._build_prompt_messages(
-            character, game_state, scenario_context, world_id, user_input, history
+            character,
+            game_state,
+            scenario_context,
+            world_id,
+            user_input,
+            history,
+            skip_roll_tools=skip_roll_tools,
+            skip_combat_tools=skip_combat_tools,
         )
         tool_events: list[str] = []
 
@@ -113,9 +128,17 @@ class KPChain:
         world_id: str,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        skip_roll_tools: bool = False,
+        skip_combat_tools: bool = False,
     ) -> tuple[list[BaseMessage], object, dict]:
         prompt = build_kp_prompt(world_id)
-        tools = create_kp_tools(character, game_state)
+        tools = create_kp_tools(
+            character,
+            game_state,
+            exclude_roll_tools=skip_roll_tools,
+            exclude_combat_tools=skip_combat_tools,
+        )
         llm_with_tools = self.llm.bind_tools(tools)
         tool_map = {tool.name: tool for tool in tools}
 
@@ -127,6 +150,7 @@ class KPChain:
                 "hp": character.hp,
                 "max_hp": character.max_hp,
                 "character_inventory": character.format_inventory(),
+                "character_skills": character.format_skills(),
                 "game_state_context": game_state.format_for_prompt(),
                 "scenario_context": scenario_context,
                 "history": self._build_messages(history),
@@ -143,9 +167,19 @@ class KPChain:
         world_id: str,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        skip_roll_tools: bool = False,
+        skip_combat_tools: bool = False,
     ) -> tuple[list[str], list[BaseMessage], AIMessage, object]:
         messages, llm_with_tools, tool_map = self._build_prompt_messages(
-            character, game_state, scenario_context, world_id, user_input, history
+            character,
+            game_state,
+            scenario_context,
+            world_id,
+            user_input,
+            history,
+            skip_roll_tools=skip_roll_tools,
+            skip_combat_tools=skip_combat_tools,
         )
         tool_events: list[str] = []
 

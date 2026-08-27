@@ -28,3 +28,11 @@ def render_character_sheet(character: Character) -> None:
     else:
         with st.expander("背包", expanded=False):
             st.caption("空空如也——物品会在冒险中获得")
+
+    if character.skills:
+        with st.expander("技能", expanded=False):
+            for skill in character.skills:
+                st.markdown(f"- {skill}")
+    else:
+        with st.expander("技能", expanded=False):
+            st.caption("尚未掌握任何技能——会在冒险中习得")

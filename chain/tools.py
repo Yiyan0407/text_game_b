@@ -11,7 +11,13 @@ AbilityKey = Literal["str", "dex", "con", "int", "wis", "cha"]
 _ABILITY_HINT = " / ".join(ABILITY_FIELDS)
 
 
-def create_kp_tools(character: Character, game_state: GameState) -> list[BaseTool]:
+def create_kp_tools(
+    character: Character,
+    game_state: GameState,
+    *,
+    exclude_roll_tools: bool = False,
+    exclude_combat_tools: bool = False,
+) -> list[BaseTool]:
     """为当前角色与游戏状态创建 KP 可用的 LangChain Tools。"""
 
     def roll_dice(notation: str) -> str:
@@ -101,7 +107,25 @@ def create_kp_tools(character: Character, game_state: GameState) -> list[BaseToo
         game_state.add_memory_facts([fact.strip()], settings.max_memory_facts)
         return f"已记录关键事实：{fact.strip()}"
 
-    return [
+    def update_skills(
+        action: Literal["add", "remove"],
+        skill: str,
+    ) -> str:
+        """玩家学会或失去技能时调用。技能名称须符合当前世界观与模组设定。"""
+        cleaned = skill.strip()
+        if not cleaned:
+            return "技能名称不能为空。"
+        if action == "add":
+            if character.add_skill(cleaned):
+                return f"技能新增：{cleaned}。当前：{character.format_skills()}"
+            if cleaned in character.skills:
+                return f"已拥有技能：{cleaned}"
+            return "添加失败。"
+        if character.remove_skill(cleaned):
+            return f"技能移除：{cleaned}。当前：{character.format_skills()}"
+        return f"你没有这项技能：{cleaned}"
+
+    tools = [
         StructuredTool.from_function(
             func=roll_dice,
             name="roll_dice",
@@ -164,4 +188,17 @@ def create_kp_tools(character: Character, game_state: GameState) -> list[BaseToo
             name="record_memory_fact",
             description="记录必须长期记住的事实：关键物品、承诺、真相、NPC 秘密、玩家目标等。",
         ),
+        StructuredTool.from_function(
+            func=update_skills,
+            name="update_skills",
+            description=(
+                "更新玩家技能。学会新技能时 action=add，失去/遗忘技能时 action=remove。"
+                "技能名称须符合当前世界观与模组设定。"
+            ),
+        ),
     ]
+    if exclude_roll_tools:
+        tools = [tool for tool in tools if tool.name not in {"roll_dice", "ability_check"}]
+    if exclude_combat_tools:
+        tools = [tool for tool in tools if tool.name not in {"start_combat", "player_attack"}]
+    return tools

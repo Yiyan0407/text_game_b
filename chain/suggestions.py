@@ -1,7 +1,6 @@
-import json
-import re
-
 from langchain_core.prompts import ChatPromptTemplate
+
+from chain.json_utils import extract_json_list
 from chain.llm import create_chat_llm
 
 
@@ -19,12 +18,36 @@ class ActionSuggester:
                 ),
                 (
                     "human",
-                    "场景：{scene}\n\nKP 叙事：\n{narrative}\n\n补充要求：{guidance}\n\n请输出 3 个行动建议 JSON 数组：",
+                    "场景：{scene}\n\n"
+                    "模式：{mode_label}\n"
+                    "存活敌人：{enemies}\n\n"
+                    "KP 叙事：\n{narrative}\n\n"
+                    "补充要求：{guidance}\n\n"
+                    "请输出 3 个行动建议 JSON 数组：",
                 ),
             ]
         )
 
-    def suggest(self, scene: str, narrative: str, turn_count: int = 0) -> list[str]:
+    def suggest(
+        self,
+        scene: str,
+        narrative: str,
+        turn_count: int = 0,
+        *,
+        in_combat: bool = False,
+        enemy_names: list[str] | None = None,
+    ) -> list[str]:
+        if in_combat:
+            enemies = enemy_names or []
+            if enemies:
+                target = enemies[0]
+                return [
+                    f"攻击{target}",
+                    f"推撞{target}",
+                    "结束回合",
+                ][:3]
+            return ["举盾防御", "观察弱点", "结束回合"]
+
         guidance = ""
         if turn_count <= 3:
             guidance = (
@@ -33,20 +56,35 @@ class ActionSuggester:
             )
         chain = self.prompt | self.llm
         response = chain.invoke(
-            {"scene": scene, "narrative": narrative, "guidance": guidance or "无特殊要求。"}
+            {
+                "scene": scene,
+                "mode_label": "战斗" if in_combat else "探索",
+                "enemies": "、".join(enemy_names) if enemy_names else "无",
+                "narrative": narrative,
+                "guidance": guidance or "无特殊要求。",
+            }
         )
         text = (response.content or "").strip()
-        return self._parse_suggestions(text)
+        parsed = self._parse_suggestions(text)
+        if parsed:
+            return parsed
+        if turn_count <= 1:
+            return ActionSuggester._fallback_opening_suggestions(scene)
+        return []
 
     @staticmethod
     def _parse_suggestions(text: str) -> list[str]:
-        try:
-            match = re.search(r"\[.*\]", text, re.DOTALL)
-            if match:
-                items = json.loads(match.group())
-                if isinstance(items, list):
-                    return [str(item).strip() for item in items[:3] if str(item).strip()]
-        except json.JSONDecodeError:
-            pass
+        items = extract_json_list(text)
+        if isinstance(items, list):
+            return [str(item).strip() for item in items[:3] if str(item).strip()]
         lines = [line.strip("-•* ").strip() for line in text.splitlines() if line.strip()]
         return lines[:3]
+
+    @staticmethod
+    def _fallback_opening_suggestions(scene: str) -> list[str]:
+        label = scene or "周围"
+        return [
+            f"观察{label}",
+            "和在场的人交谈",
+            "检查随身物品",
+        ]

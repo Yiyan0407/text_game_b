@@ -30,6 +30,7 @@ class Character(BaseModel):
     hp: int = Field(default=20, ge=1)
     max_hp: int = Field(default=20, ge=1)
     inventory: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
 
     def modifier(self, attr: str) -> int:
         field = ABILITY_FIELDS.get(attr.lower(), attr.lower())
@@ -49,6 +50,25 @@ class Character(BaseModel):
             return "（空，尚未获得任何物品）"
         return "、".join(self.inventory)
 
+    def format_skills(self) -> str:
+        if not self.skills:
+            return "（无）"
+        return "、".join(self.skills)
+
+    def add_skill(self, skill: str) -> bool:
+        skill = skill.strip()
+        if not skill or skill in self.skills:
+            return False
+        self.skills.append(skill)
+        return True
+
+    def remove_skill(self, skill: str) -> bool:
+        skill = skill.strip()
+        if skill not in self.skills:
+            return False
+        self.skills.remove(skill)
+        return True
+
     def add_inventory_item(self, item: str) -> bool:
         item = item.strip()
         if not item or item in self.inventory:
@@ -62,6 +82,12 @@ class Character(BaseModel):
             return False
         self.inventory.remove(item)
         return True
+
+    def armor_class(self, defending: bool = False) -> int:
+        ac = 10 + self.modifier("dex")
+        if defending:
+            ac += 2
+        return ac
 
     def summary(self) -> str:
         attrs = " ".join(
@@ -90,6 +116,8 @@ class CombatEnemy(BaseModel):
     max_hp: int
     ac: int = 12
     initiative: int = 0
+    attack_bonus: int = 3
+    damage_notation: str = "1d6"
 
 
 class CombatState(BaseModel):
@@ -98,12 +126,70 @@ class CombatState(BaseModel):
     enemies: list[CombatEnemy] = Field(default_factory=list)
     player_initiative: int = 0
     turn_order: list[str] = Field(default_factory=list)
+    turn_index: int = 0
+    defending: bool = False
+    action_used: bool = False
+    bonus_action_used: bool = False
+
+    def current_actor(self) -> str:
+        if not self.turn_order:
+            return "player"
+        return self.turn_order[self.turn_index % len(self.turn_order)]
+
+    def is_player_turn(self) -> bool:
+        return self.current_actor() == "player"
+
+    def advance_turn(self) -> None:
+        if not self.turn_order:
+            return
+        self.turn_index = (self.turn_index + 1) % len(self.turn_order)
+        if self.turn_index == 0:
+            self.round += 1
+        self.defending = False
+        if self.is_player_turn():
+            self.action_used = False
+            self.bonus_action_used = False
+
+    def has_main_action(self) -> bool:
+        return not self.action_used
+
+    def has_bonus_action(self) -> bool:
+        return not self.bonus_action_used
+
+    def spend_action(self, cost: str) -> bool:
+        if cost == "free":
+            return True
+        if cost == "main":
+            if self.action_used:
+                return False
+            self.action_used = True
+            return True
+        if cost == "bonus":
+            if self.bonus_action_used:
+                return False
+            self.bonus_action_used = True
+            return True
+        return False
+
+    def format_action_economy(self) -> str:
+        main = "可用" if self.has_main_action() else "已用"
+        bonus = "可用" if self.has_bonus_action() else "已用"
+        return f"主要动作：{main} | 附加动作：{bonus}"
 
     def format_for_prompt(self) -> str:
         if not self.active:
             return "战斗：未进行"
-        lines = [f"战斗进行中 — 第 {self.round} 回合"]
-        lines.append(f"先攻顺序：{' → '.join(self.turn_order)}")
+        actor = self.current_actor()
+        actor_label = "玩家" if actor == "player" else actor
+        lines = [
+            f"战斗进行中 — 第 {self.round} 回合",
+            f"当前行动者：{actor_label}",
+            f"先攻顺序：{' → '.join(self.turn_order)}",
+        ]
+        if self.is_player_turn():
+            lines.append(self.format_action_economy())
+        if self.defending:
+            lines.append("玩家处于防御姿态（AC+2）")
         for enemy in self.enemies:
             status = "已倒" if enemy.hp <= 0 else f"HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}"
             lines.append(f"- {enemy.name}：{status}")
@@ -117,6 +203,9 @@ class CombatState(BaseModel):
             if enemy.name == name:
                 return enemy
         return None
+
+    def living_enemy_names(self) -> list[str]:
+        return [e.name for e in self.living_enemies()]
 
 
 def _default_quests() -> list[Quest]:
@@ -222,6 +311,9 @@ class GameState(BaseModel):
         self.active_quests.append(
             Quest(id=quest_id, title=title, status=status, description=description)
         )
+
+    def is_in_combat(self) -> bool:
+        return bool(self.combat and self.combat.active)
 
 
 class ChatMessage(BaseModel):
