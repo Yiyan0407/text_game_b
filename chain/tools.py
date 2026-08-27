@@ -53,7 +53,8 @@ def create_kp_tools(
         attitude: Literal["friendly", "neutral", "hostile", "unknown"],
         notes: str = "",
     ) -> str:
-        """记录或更新 NPC 信息。遇到新 NPC 或关系变化时调用。"""
+        """记录或更新 NPC 信息。遇到新 NPC、失踪者/嫌疑人被介绍、或关系/情报变化时调用。
+        尚未见过面用 attitude=unknown；notes 写一句关键身份或线索。"""
         game_state.upsert_npc(name=name, attitude=attitude, notes=notes)
         return f"已记录 NPC：{name}（{attitude}）"
 
@@ -170,7 +171,11 @@ def create_kp_tools(
         StructuredTool.from_function(
             func=record_npc,
             name="record_npc",
-            description="遇到新 NPC 或 NPC 关系/信息变化时调用，记录姓名、态度与备注。",
+            description=(
+                "记录或更新 NPC。玩家本回合获知某有姓名人物的情报时须调用（含当面出场、"
+                "他人转述的失踪者/嫌疑人/证人）。尚未见过面用 attitude=unknown；"
+                "notes 写一句关键身份或线索。须在写叙事之前调用，每人一次。"
+            ),
         ),
         StructuredTool.from_function(
             func=update_quest,

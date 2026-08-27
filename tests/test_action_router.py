@@ -489,4 +489,6 @@ def test_build_kp_input_includes_narrative_scope():
     assert "叙事边界" in kp_input
     assert "本轮禁止叙事" in kp_input
     assert "不要链式推进" in kp_input
+    assert "【NPC 同步】" in kp_input
+    assert "record_npc" in kp_input
     assert "返回后院" in kp_input

@@ -39,7 +39,7 @@ START_GAME_INSTRUCTION = """\
 3. 目标：当前最重要的一件事是什么（与 initial_quests 一致）；
 4. 引导：用 1–2 句自然语言提示「你可以尝试做什么方向」，例如调查、交谈、移动、检查物品——但不要替玩家做决定。
 
-工具：开场须 update_scene；出现 NPC 时 record_npc；若有任务尚未入库则 update_quest。
+工具：开场须 update_scene；出场或提及的有名人物须 record_npc（含任务相关失踪者，attitude 可用 unknown）；若有任务尚未入库则 update_quest。
 篇幅 200–400 字，结尾留明确的行动入口，让玩家知道第一句话该说什么。
 
 若输入含【长期角色履历】：这是老角色进入新模组。尊重其过往战役、技能与背包；开场可自然提及来历，但剧情仍从新模组 initial_quests 起步，不要复述全部履历。
@@ -66,6 +66,7 @@ _ROUTE_PREAMBLE_PREFIXES = (
     "粒度要求：",
     "本轮禁止叙事：",
     "【状态同步】",
+    "【NPC 同步】",
     "机械结算结果：",
     "该行动无需掷骰",
     "请根据预掷骰",
@@ -478,7 +479,13 @@ class GameOrchestrator:
             "须在输出叙事之前调用 update_inventory / update_skills；叙事不得与【游戏状态】背包矛盾。"
         )
         lines.append(
-            "仍需按需调用 update_scene/record_npc/update_quest 等 tools。"
+            "【NPC 同步】若本行动会向玩家交代有姓名人物的情报（含当面互动、他人转述、"
+            "介绍失踪者/嫌疑人/证人/目标人物），须在叙事之前为**每人**调用 record_npc；"
+            "尚未见过面用 attitude=unknown，notes 写一句关键身份或线索；"
+            "叙事中的已知 NPC 不得与【游戏状态】矛盾。"
+        )
+        lines.append(
+            "仍需按需调用 update_scene / update_quest 等 tools。"
         )
         lines.append("")
         lines.append(user_input)
