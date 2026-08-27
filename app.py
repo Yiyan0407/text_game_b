@@ -96,6 +96,7 @@ def handle_player_message(user_input: str) -> None:
                 return
 
             append_tool_events(pre_tool_events)
+            append_tool_events(state_events)
 
             with st.chat_message("assistant"):
                 full_response = render_phased_turn(
