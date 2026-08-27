@@ -199,3 +199,6 @@ data/scenarios/generated/*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 本地 pip --target 安装的第三方包（勿提交，用 requirements.txt 安装）
+.vendor/

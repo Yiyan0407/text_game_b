@@ -13,6 +13,7 @@ from ui.game_state_panel import render_game_state_panel
 from ui.combat_panel import render_combat_panel
 from ui.action_suggestions import render_action_suggestions
 from ui.streaming import render_streaming_markdown
+from ui.game_export import render_game_pdf_download
 from ui.main_menu import (
     load_save_into_session,
     render_character_creation,
@@ -196,6 +197,12 @@ def render_game() -> None:
         if st.button("💾 保存游戏", use_container_width=True):
             persist_save()
             st.success("已保存")
+        render_game_pdf_download(
+            scenario,
+            character,
+            game_state,
+            st.session_state.messages,
+        )
         if st.button("返回主菜单", use_container_width=True):
             persist_save()
             sync_character_card_to_library(finalize=True)
