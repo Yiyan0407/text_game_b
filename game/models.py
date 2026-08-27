@@ -1,6 +1,12 @@
 from pydantic import BaseModel, Field, field_validator
 
-from game.inventory import InventoryItem, merge_item_stacks, normalize_inventory_list
+from game.inventory import (
+    InventoryItem,
+    merge_item_stacks,
+    normalize_inventory_list,
+    _merge_description,
+)
+from game.skills import Skill, normalize_skills_list
 from game.text_match import fuzzy_match_name
 
 ABILITY_ORDER: tuple[tuple[str, str, str], ...] = (
@@ -33,12 +39,17 @@ class Character(BaseModel):
     hp: int = Field(default=20, ge=1)
     max_hp: int = Field(default=20, ge=1)
     inventory: list[InventoryItem] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
+    skills: list[Skill] = Field(default_factory=list)
 
     @field_validator("inventory", mode="before")
     @classmethod
     def _coerce_inventory(cls, value):
         return normalize_inventory_list(value)
+
+    @field_validator("skills", mode="before")
+    @classmethod
+    def _coerce_skills(cls, value):
+        return normalize_skills_list(value)
 
     def modifier(self, attr: str) -> int:
         field = ABILITY_FIELDS.get(attr.lower(), attr.lower())
@@ -56,10 +67,10 @@ class Character(BaseModel):
     def format_inventory(self) -> str:
         if not self.inventory:
             return "（空，尚未获得任何物品）"
-        return "、".join(item.display() for item in self.inventory)
+        return "；".join(item.format_detail() for item in self.inventory)
 
     def inventory_displays(self) -> list[str]:
-        return [item.display() for item in self.inventory]
+        return [item.format_detail() for item in self.inventory]
 
     def find_inventory_item(self, item_ref: str) -> InventoryItem | None:
         for item in self.inventory:
@@ -77,20 +88,44 @@ class Character(BaseModel):
     def format_skills(self) -> str:
         if not self.skills:
             return "（无）"
-        return "、".join(self.skills)
+        return "；".join(skill.format_detail() for skill in self.skills)
 
-    def add_skill(self, skill: str) -> bool:
-        skill = skill.strip()
-        if not skill or skill in self.skills:
+    def skill_names(self) -> list[str]:
+        return [skill.name for skill in self.skills]
+
+    def find_skill(self, skill_ref: str) -> Skill | None:
+        for skill in self.skills:
+            if fuzzy_match_name(skill_ref, skill.name):
+                return skill
+        return None
+
+    def has_skill(self, skill_ref: str) -> bool:
+        return self.find_skill(skill_ref) is not None
+
+    def add_skill(self, skill: str | Skill, description: str = "") -> bool:
+        if isinstance(skill, Skill):
+            incoming = skill.model_copy()
+        else:
+            name = skill.strip()
+            if not name:
+                return False
+            incoming = Skill(name=name, description=description.strip())
+
+        existing = self.find_skill(incoming.name)
+        if existing:
+            if incoming.description and not existing.description:
+                existing.description = incoming.description
+                return True
             return False
-        self.skills.append(skill)
+
+        self.skills.append(incoming)
         return True
 
-    def remove_skill(self, skill: str) -> bool:
-        skill = skill.strip()
-        if skill not in self.skills:
+    def remove_skill(self, skill_ref: str) -> bool:
+        target = self.find_skill(skill_ref)
+        if target is None:
             return False
-        self.skills.remove(skill)
+        self.skills.remove(target)
         return True
 
     def add_inventory_item(
@@ -98,6 +133,7 @@ class Character(BaseModel):
         item: str | InventoryItem,
         quantity: int = 1,
         unit: str = "个",
+        description: str = "",
     ) -> bool:
         if isinstance(item, InventoryItem):
             incoming = item.model_copy()
@@ -107,16 +143,20 @@ class Character(BaseModel):
                 return False
             if "（" in text and text.endswith("）"):
                 incoming = InventoryItem.parse(text)
+                if description.strip():
+                    incoming.description = description.strip()
             else:
                 incoming = InventoryItem(
                     name=text,
                     quantity=max(1, quantity),
                     unit=unit.strip() or "个",
+                    description=description.strip(),
                 )
 
         for existing in self.inventory:
             if existing.name == incoming.name and existing.unit == incoming.unit:
                 existing.quantity += incoming.quantity
+                _merge_description(existing, incoming)
                 return True
 
         for existing in self.inventory:

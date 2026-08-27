@@ -1,6 +1,7 @@
 from game.models import Character
 from game.opening_brief import OpeningBrief
 from game.skills import (
+    Skill,
     infer_starter_skills,
     merge_starter_skill_candidates,
     sync_starter_skills,
@@ -21,7 +22,7 @@ def test_sync_starter_skills_skips_duplicates():
     character = Character(name="测试", skills=["航海"])
     added = sync_starter_skills(character, ["航海", "观测天气"])
     assert added == ["观测天气"]
-    assert character.skills == ["航海", "观测天气"]
+    assert character.skill_names() == ["航海", "观测天气"]
 
 
 def test_merge_starter_skill_candidates_respects_limit():
@@ -38,3 +39,8 @@ def test_opening_brief_includes_starter_skills_hint():
     text = brief.format_for_kp()
     assert "背景隐含技能" in text
     assert "计算机渗透" in text
+
+
+def test_skill_format_detail():
+    skill = Skill(name="潜行", description="在阴影中移动不易被察觉。")
+    assert skill.format_detail() == "潜行 — 在阴影中移动不易被察觉。"

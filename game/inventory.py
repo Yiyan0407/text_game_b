@@ -38,8 +38,9 @@ class InventoryItem(BaseModel):
     name: str
     quantity: int = Field(default=1, ge=1)
     unit: str = "个"
+    description: str = ""
 
-    @field_validator("name", "unit")
+    @field_validator("name", "unit", "description")
     @classmethod
     def _strip_text(cls, value: str) -> str:
         return value.strip()
@@ -52,6 +53,12 @@ class InventoryItem(BaseModel):
     def display_labeled(self) -> str:
         """UI 展示用：始终附带数量与单位。"""
         return f"{self.name}（{self.quantity}{self.unit}）"
+
+    def format_detail(self) -> str:
+        base = self.display_labeled()
+        if self.description:
+            return f"{base} — {self.description}"
+        return base
 
     @classmethod
     def parse(cls, text: str) -> InventoryItem:
@@ -186,9 +193,20 @@ def _prefer_unit(left: str, right: str) -> str:
     return left
 
 
+def _merge_description(existing: InventoryItem, incoming: InventoryItem) -> None:
+    incoming_desc = incoming.description.strip()
+    if not incoming_desc:
+        return
+    if not existing.description.strip():
+        existing.description = incoming_desc
+    elif len(incoming_desc) > len(existing.description):
+        existing.description = incoming_desc
+
+
 def merge_item_stacks(existing: InventoryItem, incoming: InventoryItem) -> None:
     existing.quantity += incoming.quantity
     existing.unit = _prefer_unit(existing.unit, incoming.unit)
+    _merge_description(existing, incoming)
 
 
 def merge_inventory_items(items: list[InventoryItem]) -> list[InventoryItem]:

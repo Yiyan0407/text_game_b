@@ -90,18 +90,25 @@ def create_kp_tools(
         item: str,
         quantity: int = 1,
         unit: str = "个",
+        description: str = "",
     ) -> str:
         """玩家获得或失去物品时调用。item 为物品名称或完整显示名（如 铜板（97枚））；
-        quantity 为数量，unit 为单位（枚/袋/个等）。同类物品会自动合并堆叠。"""
+        quantity 为数量，unit 为单位（枚/袋/个/把等）；description 为物品说明（用途、特性等）。
+        同类物品会自动合并堆叠。"""
         cleaned = item.strip()
         if not cleaned:
             return "物品名称不能为空。"
         if quantity <= 0:
             return "数量必须大于 0。"
         if action == "add":
-            if character.add_inventory_item(cleaned, quantity=quantity, unit=unit):
+            if character.add_inventory_item(
+                cleaned,
+                quantity=quantity,
+                unit=unit,
+                description=description,
+            ):
                 matched = character.find_inventory_item(cleaned)
-                label = matched.display() if matched else cleaned
+                label = matched.format_detail() if matched else cleaned
                 return f"背包新增：{label}。当前：{character.format_inventory()}"
             return "添加失败。"
         ok, message = character.consume_inventory_quantity(
@@ -124,16 +131,18 @@ def create_kp_tools(
     def update_skills(
         action: Literal["add", "remove"],
         skill: str,
+        description: str = "",
     ) -> str:
-        """玩家学会或失去技能时调用。学会途径：NPC 传授、训练检定成功、任务奖励、背景职业能力。
-        开局若【背景技能已同步】则勿重复 add。技能名称须符合世界观（如 潜行、急救、航海）。"""
+        """玩家学会或失去技能时调用。description 写技能用途或效果简述（1 句）。"""
         cleaned = skill.strip()
         if not cleaned:
             return "技能名称不能为空。"
         if action == "add":
-            if character.add_skill(cleaned):
-                return f"技能新增：{cleaned}。当前：{character.format_skills()}"
-            if cleaned in character.skills:
+            if character.add_skill(cleaned, description=description):
+                matched = character.find_skill(cleaned)
+                label = matched.format_detail() if matched else cleaned
+                return f"技能新增：{label}。当前：{character.format_skills()}"
+            if character.has_skill(cleaned):
                 return f"已拥有技能：{cleaned}"
             return "添加失败。"
         if character.remove_skill(cleaned):
@@ -215,7 +224,8 @@ def create_kp_tools(
                 "更新玩家背包。玩家在本轮获得、拾取、被给予物品时 action=add；"
                 "失去/消耗/丢弃/付款时 action=remove。"
                 "参数 item 为名称或完整显示名；quantity 为数量（默认 1）；unit 为单位（默认 个，"
-                "货币常用 枚，散装常用 袋）。同类会自动合并，如 add item=铜板 quantity=97 unit=枚。"
+                "货币常用 枚，散装常用 袋）；description 为物品说明（外观/用途/规则，1–2 句）。"
+                "同类会自动合并，如 add item=铜板 quantity=97 unit=枚。"
                 "购买找零、交易找补也须 add。"
                 "若机械结算已扣款交货，勿重复 remove/add 同一物品；只补找零。"
                 "须在写叙事之前调用，禁止只写「你获得了 X」而不调用本工具。"
@@ -231,7 +241,8 @@ def create_kp_tools(
             name="update_skills",
             description=(
                 "更新玩家技能。NPC 传授、训练成功、任务奖励时 action=add；"
-                "失去/遗忘时 action=remove。开局背景技能若已同步则勿重复 add。"
+                "失去/遗忘时 action=remove。须带 description（技能用途，1 句）。"
+                "开局背景技能若已同步则勿重复 add。"
                 "须在写叙事之前调用。技能名称须符合当前世界观与模组设定。"
             ),
         ),

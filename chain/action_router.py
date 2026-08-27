@@ -371,7 +371,7 @@ class ActionRouter:
             route.skill_usage == "none" and route.referenced_skills
         ):
             for skill in route.referenced_skills:
-                if not fuzzy_in_list(skill, character.skills):
+                if not fuzzy_in_list(skill, character.skill_names()):
                     route.approved = False
                     route.rejection_reason = f"你没有「{skill}」这项技能，无法执行该行动。"
                     route.needs_roll = False
@@ -380,7 +380,7 @@ class ActionRouter:
 
         if route.skill_usage == "learn":
             for skill in route.referenced_skills:
-                if fuzzy_in_list(skill, character.skills):
+                if fuzzy_in_list(skill, character.skill_names()):
                     route.approved = False
                     route.rejection_reason = f"你已经掌握「{skill}」，无需再学习。"
                     route.needs_roll = False

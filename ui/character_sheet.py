@@ -25,6 +25,8 @@ def render_character_sheet(character: Character) -> None:
         with st.expander("背包", expanded=False):
             for item in character.inventory:
                 st.markdown(f"- **{item.name}**　×{item.quantity}{item.unit}")
+                if item.description:
+                    st.caption(item.description)
     else:
         with st.expander("背包", expanded=False):
             st.caption("空空如也——物品会在冒险中获得")
@@ -32,7 +34,9 @@ def render_character_sheet(character: Character) -> None:
     if character.skills:
         with st.expander("技能", expanded=False):
             for skill in character.skills:
-                st.markdown(f"- {skill}")
+                st.markdown(f"- **{skill.name}**")
+                if skill.description:
+                    st.caption(skill.description)
     else:
         with st.expander("技能", expanded=False):
             st.caption(

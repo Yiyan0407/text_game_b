@@ -61,6 +61,23 @@ def test_display_labeled_always_shows_quantity():
     assert stacked.display_labeled() == "定金币（15枚）"
 
 
+def test_format_detail_includes_description():
+    item = InventoryItem(
+        name="破禁符",
+        quantity=1,
+        unit="张",
+        description="可短暂破开低阶禁制。",
+    )
+    assert item.format_detail() == "破禁符（1张） — 可短暂破开低阶禁制。"
+
+
+def test_merge_preserves_description():
+    character = Character(name="测试")
+    character.add_inventory_item("短剑", description="精钢打造，锋利耐用。")
+    character.add_inventory_item("短剑", quantity=1, unit="把")
+    assert character.inventory[0].description == "精钢打造，锋利耐用。"
+
+
 def test_matches_fuzzy_name():
     item = InventoryItem(name="定金币", quantity=15, unit="枚")
     assert item.matches("定金币")

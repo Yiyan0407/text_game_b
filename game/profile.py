@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from config.settings import PROFILES_DIR, SAVES_DIR
 from game.inventory import InventoryItem, normalize_inventory_list
+from game.skills import Skill, normalize_skills_list
 from game.models import Character, GameState, compute_max_hp
 from game.save import SaveGame, SaveManager, _normalize_save_payload
 from game.scenario import Scenario
@@ -45,7 +46,7 @@ class CharacterCard(BaseModel):
     charisma: int = Field(default=12, ge=3, le=18)
     preferred_world_id: str = ""
     inventory: list[InventoryItem] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
+    skills: list[Skill] = Field(default_factory=list)
     notable_facts: list[str] = Field(default_factory=list)
     career_summary: str = ""
     campaign_history: list[CampaignRecord] = Field(default_factory=list)
@@ -56,6 +57,11 @@ class CharacterCard(BaseModel):
     @classmethod
     def _coerce_inventory(cls, value):
         return normalize_inventory_list(value)
+
+    @field_validator("skills", mode="before")
+    @classmethod
+    def _coerce_skills(cls, value):
+        return normalize_skills_list(value)
 
     @classmethod
     def from_character(
@@ -78,7 +84,7 @@ class CharacterCard(BaseModel):
             charisma=character.charisma,
             preferred_world_id=preferred_world_id,
             inventory=[item.model_copy() for item in character.inventory],
-            skills=list(character.skills),
+            skills=[skill.model_copy() for skill in character.skills],
             created_at=now,
             updated_at=now,
         )
@@ -129,10 +135,12 @@ class CharacterCard(BaseModel):
         elif self.career_summary.strip():
             lines.append(f"生涯摘要：{self.career_summary.strip()}")
         if self.skills:
-            lines.append(f"已掌握技能：{'、'.join(self.skills)}")
+            lines.append(
+                f"已掌握技能：{'；'.join(skill.format_detail() for skill in self.skills)}"
+            )
         if self.inventory:
             lines.append(
-                f"持有物品：{'、'.join(item.display() for item in self.inventory)}"
+                f"持有物品：{'；'.join(item.format_detail() for item in self.inventory)}"
             )
         if self.notable_facts:
             lines.append("关键记忆：")
@@ -182,10 +190,16 @@ def sync_card_from_adventure(
     card.name = character.name
     card.background = character.background
 
-    merged_skills = list(card.skills)
+    merged_skills = [skill.model_copy() for skill in card.skills]
     for skill in character.skills:
-        if skill not in merged_skills:
-            merged_skills.append(skill)
+        existing = next(
+            (entry for entry in merged_skills if entry.name == skill.name),
+            None,
+        )
+        if existing is None:
+            merged_skills.append(skill.model_copy())
+        elif skill.description and not existing.description:
+            existing.description = skill.description
     card.skills = merged_skills
     card.inventory = [item.model_copy() for item in character.inventory]
 

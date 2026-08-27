@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from game.models import Character
+from pydantic import BaseModel, Field, field_validator
 
 # (背景关键词, 技能列表) —— 保守推断，最多取前几条规则
 _STARTER_SKILL_RULES: tuple[tuple[tuple[str, ...], list[str]], ...] = (
@@ -29,6 +29,41 @@ _WORLD_SKILL_RULES: dict[str, list[tuple[tuple[str, ...], list[str]]]] = {
         (("游侠", "弓箭"), ["追踪"]),
     ),
 }
+
+
+class Skill(BaseModel):
+    name: str
+    description: str = ""
+
+    @field_validator("name", "description")
+    @classmethod
+    def _strip_text(cls, value: str) -> str:
+        return value.strip()
+
+    def format_detail(self) -> str:
+        if self.description:
+            return f"{self.name} — {self.description}"
+        return self.name
+
+
+def normalize_skills_list(value) -> list[Skill]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise TypeError("skills must be a list")
+    skills: list[Skill] = []
+    for entry in value:
+        if isinstance(entry, Skill):
+            skills.append(entry)
+        elif isinstance(entry, str):
+            cleaned = entry.strip()
+            if cleaned:
+                skills.append(Skill(name=cleaned))
+        elif isinstance(entry, dict):
+            skills.append(Skill.model_validate(entry))
+        else:
+            raise TypeError(f"unsupported skill entry: {entry!r}")
+    return skills
 
 
 def infer_starter_skills(background: str, *, world_id: str = "", limit: int = 3) -> list[str]:
@@ -64,7 +99,9 @@ def infer_starter_skills(background: str, *, world_id: str = "", limit: int = 3)
     return found
 
 
-def sync_starter_skills(character: Character, skills: list[str]) -> list[str]:
+def sync_starter_skills(character, skills: list[str]) -> list[str]:
+    from game.models import Character
+
     added: list[str] = []
     for skill in skills:
         if character.add_skill(skill.strip()):

@@ -4,6 +4,7 @@ import pytest
 
 from game.inventory import InventoryItem
 from game.models import Character, ChatMessage, GameState
+from game.skills import Skill
 from game.profile import CharacterCard, ProfileManager
 from game.save import SaveGame, SaveManager
 
@@ -65,7 +66,7 @@ def test_character_card_roundtrip_and_runtime_reset(tmp_path):
     assert loaded.name == "李逍遥"
     assert runtime.strength == 14
     assert runtime.inventory == [InventoryItem(name="旧剑", quantity=1, unit="个")]
-    assert runtime.skills == ["御剑术"]
+    assert runtime.skills == [Skill(name="御剑术")]
     assert runtime.hp == runtime.max_hp
 
 
@@ -95,7 +96,7 @@ def test_sync_card_from_adventure_updates_career(tmp_path):
     loaded = manager.load_character_card(profile.profile_id, card.card_id)
 
     assert loaded.inventory == [InventoryItem(name="破禁符", quantity=1, unit="个")]
-    assert loaded.skills == ["基础剑术"]
+    assert loaded.skills == [Skill(name="基础剑术")]
     assert loaded.notable_facts == ["与沈渊结盟"]
     assert len(loaded.campaign_history) == 1
     assert loaded.campaign_history[0].summary == game_state.story_summary

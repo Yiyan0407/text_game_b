@@ -41,6 +41,6 @@ def test_start_game_syncs_starter_skills_from_background(monkeypatch):
 
     orchestrator.start_game(character, game_state, scenario)
 
-    assert "航海" in character.skills
+    assert "航海" in character.skill_names()
     invoke_input = fake_kp.invoke.call_args.kwargs["user_input"]
     assert "【背景技能已同步】" in invoke_input

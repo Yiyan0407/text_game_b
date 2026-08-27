@@ -1,4 +1,5 @@
 from game.inventory import InventoryItem
+from game.skills import Skill
 from game.models import Character, GameState
 from chain.tools import create_kp_tools
 
@@ -150,7 +151,7 @@ def test_update_skills_tool():
 
     add_result = skills_tool.invoke({"action": "add", "skill": "观察"})
     assert "观察" in add_result
-    assert character.skills == ["观察"]
+    assert character.skills == [Skill(name="观察")]
 
     remove_result = skills_tool.invoke({"action": "remove", "skill": "观察"})
     assert "移除" in remove_result
@@ -161,3 +162,39 @@ def test_character_starts_with_empty_skills():
     character = Character(name="测试")
     assert character.skills == []
     assert "无" in character.format_skills()
+
+
+def test_update_inventory_tool_with_description():
+    character = Character(name="测试")
+    game_state = GameState()
+    tools = create_kp_tools(character, game_state)
+    inv_tool = next(t for t in tools if t.name == "update_inventory")
+
+    inv_tool.invoke(
+        {
+            "action": "add",
+            "item": "破禁符",
+            "description": "可短暂破开低阶禁制。",
+        }
+    )
+    assert character.inventory[0].description == "可短暂破开低阶禁制。"
+    assert "破禁符" in character.format_inventory()
+
+
+def test_update_skills_tool_with_description():
+    character = Character(name="测试")
+    game_state = GameState()
+    tools = create_kp_tools(character, game_state)
+    skills_tool = next(t for t in tools if t.name == "update_skills")
+
+    skills_tool.invoke(
+        {
+            "action": "add",
+            "skill": "潜行",
+            "description": "在阴影中移动不易被察觉。",
+        }
+    )
+    assert character.skills == [
+        Skill(name="潜行", description="在阴影中移动不易被察觉。")
+    ]
+    assert "潜行" in character.format_skills()

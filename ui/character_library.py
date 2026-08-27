@@ -22,10 +22,12 @@ def _render_card_stats(card: CharacterCard) -> None:
 
 def _render_card_career(card: CharacterCard) -> None:
     if card.skills:
-        st.markdown(f"**技能**：{'、'.join(card.skills)}")
+        st.markdown(
+            f"**技能**：{'；'.join(skill.format_detail() for skill in card.skills)}"
+        )
     if card.inventory:
         st.markdown(
-            f"**背包**：{'、'.join(item.display_labeled() for item in card.inventory)}"
+            f"**背包**：{'；'.join(item.format_detail() for item in card.inventory)}"
         )
     if card.campaign_history:
         st.markdown("**战役履历**")
