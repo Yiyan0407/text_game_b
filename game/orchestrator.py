@@ -25,6 +25,7 @@ from game.combat import (
 )
 from game.dice import roll
 from game.models import Character, ChatMessage, GameState
+from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
 from game.rules import ability_check, format_check_for_kp
 from game.scenario import Scenario
@@ -57,14 +58,52 @@ _OPENING_CONSISTENCY_RULE = (
     "严格遵守「NPC 此时还不应知道」：匿名投递者身份在未暴露前，NPC 不能确指玩家就是发信人。"
 )
 
+_ROUTE_PREAMBLE_PREFIXES = (
+    "[行动裁定",
+    "行动意图：",
+    "叙事边界：",
+    "合理性：",
+    "粒度要求：",
+    "本轮禁止叙事：",
+    "【状态同步】",
+    "机械结算结果：",
+    "该行动无需掷骰",
+    "请根据预掷骰",
+    "请根据上述机械",
+    "仍需按需调用",
+)
+
+
+def _strip_leaked_route_preamble(text: str) -> str:
+    lines = text.splitlines()
+    if not lines or not lines[0].strip().startswith("[行动裁定"):
+        return text.strip()
+    index = 1
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped:
+            index += 1
+            continue
+        if any(stripped.startswith(prefix) for prefix in _ROUTE_PREAMBLE_PREFIXES):
+            index += 1
+            continue
+        if stripped.startswith("- "):
+            index += 1
+            continue
+        break
+    cleaned = "\n".join(lines[index:]).strip()
+    return cleaned or text.strip()
+
 
 def _build_start_instruction(
     character: Character,
     scenario: Scenario,
     career_context: str = "",
     integrator: OpeningIntegrator | None = None,
+    brief: OpeningBrief | None = None,
 ) -> str:
-    brief = (integrator or OpeningIntegrator()).generate(character, scenario)
+    if brief is None:
+        brief = (integrator or OpeningIntegrator()).generate(character, scenario)
     lines: list[str] = []
     if career_context.strip():
         lines.append(career_context.strip())
@@ -109,18 +148,20 @@ class GameOrchestrator:
     ) -> TurnResult:
         scenario.apply_to_game_state(game_state)
         game_state.started = True
+        brief = self.opening_integrator.generate(character, scenario)
 
-        return self._finalize_turn(
-            self.kp.invoke(
-                character=character,
-                game_state=game_state,
-                scenario_context=scenario.format_for_prompt(),
-                world_id=scenario.world_id,
-                user_input=_build_start_instruction(
-                    character, scenario, career_context, self.opening_integrator
-                ),
-                history=[],
+        turn = self.kp.invoke(
+            character=character,
+            game_state=game_state,
+            scenario_context=scenario.format_for_prompt(),
+            world_id=scenario.world_id,
+            user_input=_build_start_instruction(
+                character, scenario, career_context, self.opening_integrator, brief=brief
             ),
+            history=[],
+        )
+        return self._finalize_turn(
+            turn,
             character=character,
             game_state=game_state,
             scenario=scenario,
@@ -137,8 +178,9 @@ class GameOrchestrator:
     ):
         scenario.apply_to_game_state(game_state)
         game_state.started = True
+        brief = self.opening_integrator.generate(character, scenario)
         user_input = _build_start_instruction(
-            character, scenario, career_context, self.opening_integrator
+            character, scenario, career_context, self.opening_integrator, brief=brief
         )
         return self._stream_turn(
             character=character,
@@ -303,6 +345,12 @@ class GameOrchestrator:
                     )
         elif not game_state.is_in_combat() and route.needs_roll:
             pre_tool_events.append(self._execute_pre_roll(route, character))
+        elif route.item_usage == "pickup":
+            for item in route.referenced_items:
+                if character.add_inventory_item(item):
+                    pre_tool_events.append(
+                        f"背包新增：{item}。当前：{character.format_inventory()}"
+                    )
 
         end_msg, _defeated = maybe_end_combat(game_state, character)
         if end_msg:
@@ -426,7 +474,11 @@ class GameOrchestrator:
         else:
             lines.append("该行动无需掷骰；直接叙事即可。")
         lines.append(
-            "仍需按需调用 update_inventory/update_scene/update_skills 等 tools。"
+            "【状态同步】若本行动使玩家获得/失去/消耗物品或学会/失去技能，"
+            "须在输出叙事之前调用 update_inventory / update_skills；叙事不得与【游戏状态】背包矛盾。"
+        )
+        lines.append(
+            "仍需按需调用 update_scene/record_npc/update_quest 等 tools。"
         )
         lines.append("")
         lines.append(user_input)
@@ -440,6 +492,8 @@ class GameOrchestrator:
         scenario: Scenario,
         history: list[ChatMessage],
     ) -> TurnResult:
+        if turn.response and not turn.rejected:
+            turn.response = _strip_leaked_route_preamble(turn.response)
         settings = get_settings()
         if settings.enable_action_suggestions and turn.response and not turn.rejected:
             combat = game_state.combat

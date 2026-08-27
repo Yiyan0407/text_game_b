@@ -3,10 +3,12 @@ from collections.abc import Iterator
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from chain.llm import create_chat_llm
-from chain.tools import create_kp_tools
+from chain.tools import NO_TOOL_NEEDED_NAME, create_kp_tools
 from game.models import Character, ChatMessage, GameState
 from game.results import TurnResult
 from prompts.templates import build_kp_prompt
+
+_NARRATIVE_NUDGE = "请根据以上工具结果与玩家行动，输出本轮 KP 叙事（第二人称）。不要调用工具。"
 
 
 def _merge_ai_chunks(chunks: list[AIMessageChunk]) -> AIMessage:
@@ -19,6 +21,17 @@ def _merge_ai_chunks(chunks: list[AIMessageChunk]) -> AIMessage:
         content=merged.content,
         tool_calls=getattr(merged, "tool_calls", None) or [],
     )
+
+
+def _partition_tool_calls(tool_calls: list) -> tuple[list, list]:
+    state_calls = []
+    no_tool_calls = []
+    for tool_call in tool_calls:
+        if tool_call["name"] == NO_TOOL_NEEDED_NAME:
+            no_tool_calls.append(tool_call)
+        else:
+            state_calls.append(tool_call)
+    return state_calls, no_tool_calls
 
 
 class KPChain:
@@ -39,7 +52,7 @@ class KPChain:
         skip_roll_tools: bool = False,
         skip_combat_tools: bool = False,
     ) -> TurnResult:
-        tool_events, messages, final_msg, _ = self._run_tool_loop(
+        tool_events, messages = self._run_tool_phase(
             character=character,
             game_state=game_state,
             scenario_context=scenario_context,
@@ -49,9 +62,9 @@ class KPChain:
             skip_roll_tools=skip_roll_tools,
             skip_combat_tools=skip_combat_tools,
         )
-        if final_msg.content and not final_msg.tool_calls:
-            return TurnResult(response=final_msg.content.strip(), tool_events=tool_events)
-        response = self.llm.invoke(messages)
+        narrative_messages = list(messages)
+        narrative_messages.append(HumanMessage(content=_NARRATIVE_NUDGE))
+        response = self.llm.invoke(narrative_messages)
         content = (response.content or "").strip()
         return TurnResult(response=content, tool_events=tool_events)
 
@@ -67,42 +80,23 @@ class KPChain:
         skip_roll_tools: bool = False,
         skip_combat_tools: bool = False,
     ) -> tuple[list[str], Iterator[str]]:
-        messages, llm_with_tools, tool_map = self._build_prompt_messages(
-            character,
-            game_state,
-            scenario_context,
-            world_id,
-            user_input,
-            history,
+        tool_events, messages = self._run_tool_phase(
+            character=character,
+            game_state=game_state,
+            scenario_context=scenario_context,
+            world_id=world_id,
+            user_input=user_input,
+            history=history,
             skip_roll_tools=skip_roll_tools,
             skip_combat_tools=skip_combat_tools,
         )
-        tool_events: list[str] = []
+        narrative_messages = list(messages)
+        narrative_messages.append(HumanMessage(content=_NARRATIVE_NUDGE))
 
         def _narrative_stream() -> Iterator[str]:
-            nonlocal messages
-            for _ in range(self.MAX_TOOL_ROUNDS):
-                chunks: list[AIMessageChunk] = []
-                saw_tools = False
-                for chunk in llm_with_tools.stream(messages):
-                    chunks.append(chunk)
-                    if chunk.tool_call_chunks or getattr(chunk, "tool_calls", None):
-                        saw_tools = True
-                    elif chunk.content and not saw_tools:
-                        yield chunk.content
-
-                ai_msg = _merge_ai_chunks(chunks)
-                if not ai_msg.tool_calls:
-                    return
-
-                messages.append(ai_msg)
-                for tool_call in ai_msg.tool_calls:
-                    tool = tool_map[tool_call["name"]]
-                    result = tool.invoke(tool_call["args"])
-                    tool_events.append(str(result))
-                    messages.append(
-                        ToolMessage(content=str(result), tool_call_id=tool_call["id"])
-                    )
+            for chunk in self.llm.stream(narrative_messages):
+                if chunk.content:
+                    yield chunk.content
 
         return tool_events, _narrative_stream()
 
@@ -115,10 +109,66 @@ class KPChain:
         user_input: str,
         history: list[ChatMessage],
     ) -> tuple[list[str], list[BaseMessage], AIMessage]:
-        tool_events, messages, final_msg, _ = self._run_tool_loop(
+        tool_events, messages = self._run_tool_phase(
             character, game_state, scenario_context, world_id, user_input, history
         )
-        return tool_events, messages, final_msg
+        narrative_messages = list(messages)
+        narrative_messages.append(HumanMessage(content=_NARRATIVE_NUDGE))
+        final_msg = self.llm.invoke(narrative_messages)
+        return tool_events, narrative_messages, final_msg
+
+    def _run_tool_phase(
+        self,
+        character: Character,
+        game_state: GameState,
+        scenario_context: str,
+        world_id: str,
+        user_input: str,
+        history: list[ChatMessage],
+        *,
+        skip_roll_tools: bool = False,
+        skip_combat_tools: bool = False,
+    ) -> tuple[list[str], list[BaseMessage]]:
+        messages, llm_with_tools, tool_map = self._build_prompt_messages(
+            character,
+            game_state,
+            scenario_context,
+            world_id,
+            user_input,
+            history,
+            skip_roll_tools=skip_roll_tools,
+            skip_combat_tools=skip_combat_tools,
+        )
+        tool_events: list[str] = []
+
+        for _ in range(self.MAX_TOOL_ROUNDS):
+            ai_msg = llm_with_tools.invoke(messages)
+            if not ai_msg.tool_calls:
+                messages.append(ai_msg)
+                return tool_events, messages
+
+            state_calls, no_tool_calls = _partition_tool_calls(ai_msg.tool_calls)
+            messages.append(ai_msg)
+
+            for tool_call in state_calls:
+                tool = tool_map[tool_call["name"]]
+                result = tool.invoke(tool_call["args"])
+                tool_events.append(str(result))
+                messages.append(
+                    ToolMessage(content=str(result), tool_call_id=tool_call["id"])
+                )
+
+            for tool_call in no_tool_calls:
+                tool = tool_map[NO_TOOL_NEEDED_NAME]
+                result = tool.invoke(tool_call["args"])
+                messages.append(
+                    ToolMessage(content=str(result), tool_call_id=tool_call["id"])
+                )
+
+            if no_tool_calls:
+                return tool_events, messages
+
+        return tool_events, messages
 
     def _build_prompt_messages(
         self,
@@ -139,7 +189,7 @@ class KPChain:
             exclude_roll_tools=skip_roll_tools,
             exclude_combat_tools=skip_combat_tools,
         )
-        llm_with_tools = self.llm.bind_tools(tools)
+        llm_with_tools = self.llm.bind_tools(tools, tool_choice="required")
         tool_map = {tool.name: tool for tool in tools}
 
         prompt_value = prompt.invoke(
@@ -158,47 +208,6 @@ class KPChain:
             }
         )
         return list(prompt_value.to_messages()), llm_with_tools, tool_map
-
-    def _run_tool_loop(
-        self,
-        character: Character,
-        game_state: GameState,
-        scenario_context: str,
-        world_id: str,
-        user_input: str,
-        history: list[ChatMessage],
-        *,
-        skip_roll_tools: bool = False,
-        skip_combat_tools: bool = False,
-    ) -> tuple[list[str], list[BaseMessage], AIMessage, object]:
-        messages, llm_with_tools, tool_map = self._build_prompt_messages(
-            character,
-            game_state,
-            scenario_context,
-            world_id,
-            user_input,
-            history,
-            skip_roll_tools=skip_roll_tools,
-            skip_combat_tools=skip_combat_tools,
-        )
-        tool_events: list[str] = []
-
-        for _ in range(self.MAX_TOOL_ROUNDS):
-            ai_msg = llm_with_tools.invoke(messages)
-            if not ai_msg.tool_calls:
-                return tool_events, messages, ai_msg, llm_with_tools
-
-            messages.append(ai_msg)
-            for tool_call in ai_msg.tool_calls:
-                tool = tool_map[tool_call["name"]]
-                result = tool.invoke(tool_call["args"])
-                tool_events.append(str(result))
-                messages.append(
-                    ToolMessage(content=str(result), tool_call_id=tool_call["id"])
-                )
-
-        fallback = llm_with_tools.invoke(messages)
-        return tool_events, messages, fallback, llm_with_tools
 
     @staticmethod
     def _build_messages(history: list[ChatMessage]) -> list[BaseMessage]:

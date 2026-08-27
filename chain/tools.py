@@ -11,6 +11,9 @@ AbilityKey = Literal["str", "dex", "con", "int", "wis", "cha"]
 _ABILITY_HINT = " / ".join(ABILITY_FIELDS)
 
 
+NO_TOOL_NEEDED_NAME = "no_tool_needed"
+
+
 def create_kp_tools(
     character: Character,
     game_state: GameState,
@@ -125,7 +128,22 @@ def create_kp_tools(
             return f"技能移除：{cleaned}。当前：{character.format_skills()}"
         return f"你没有这项技能：{cleaned}"
 
+    def no_tool_needed(reason: str = "") -> str:
+        """本轮不需要调用任何其他工具、可以开始写叙事时调用。"""
+        cleaned = reason.strip()
+        if cleaned:
+            return f"无需其他工具，可以开始叙事。（{cleaned}）"
+        return "无需其他工具，可以开始叙事。"
+
     tools = [
+        StructuredTool.from_function(
+            func=no_tool_needed,
+            name=NO_TOOL_NEEDED_NAME,
+            description=(
+                "当本轮不需要调用任何其他工具（无场景/背包/技能/任务/NPC/记忆/战斗/掷骰变更）时调用，"
+                "表示工具阶段结束、可以输出叙事。若已调用过其他必要工具，最后一轮也须调用本工具再写叙事。"
+            ),
+        ),
         StructuredTool.from_function(
             func=roll_dice,
             name="roll_dice",
@@ -178,9 +196,10 @@ def create_kp_tools(
             func=update_inventory,
             name="update_inventory",
             description=(
-                "更新玩家背包。获得物品时 action=add，失去/消耗/丢弃时 action=remove。"
-                "物品名称须符合当前世界观（现代勿给短剑金币，赛博勿给火把等）。"
-                "重要物品可同时调用 record_memory_fact。"
+                "更新玩家背包。玩家在本轮获得、拾取、被给予物品时 action=add；"
+                "失去/消耗/丢弃时 action=remove。"
+                "须在写叙事之前调用，禁止只写「你获得了 X」而不调用本工具。"
+                "物品名称须符合当前世界观。"
             ),
         ),
         StructuredTool.from_function(
@@ -192,8 +211,8 @@ def create_kp_tools(
             func=update_skills,
             name="update_skills",
             description=(
-                "更新玩家技能。学会新技能时 action=add，失去/遗忘技能时 action=remove。"
-                "技能名称须符合当前世界观与模组设定。"
+                "更新玩家技能。学会新技能时 action=add，失去/遗忘时 action=remove。"
+                "须在写叙事之前调用。技能名称须符合当前世界观与模组设定。"
             ),
         ),
     ]

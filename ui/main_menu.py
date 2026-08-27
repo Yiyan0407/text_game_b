@@ -7,6 +7,7 @@ from game.profile import CharacterCard
 from game.save import SaveManager
 from game.scenario import Scenario
 from game.scenario_loader import list_scenarios
+from ui.chat import render_tool_events_live
 from ui.profile_menu import render_profile_switcher
 from ui.streaming import render_streaming_markdown
 
@@ -307,19 +308,13 @@ def start_new_game(
         tool_events, text_stream, finish = orchestrator.start_game_stream(
             character, game_state, scenario, career_context=career_context
         )
-        tools_appended = False
+        from game.session import append_tool_events
 
-        def _flush_tools() -> None:
-            nonlocal tools_appended
-            if tools_appended or not tool_events:
-                return
-            from game.session import append_tool_events
-
-            append_tool_events(tool_events)
-            tools_appended = True
+        append_tool_events(tool_events)
+        render_tool_events_live(tool_events)
 
         with st.chat_message("assistant"):
-            full = render_streaming_markdown(text_stream, on_tools_ready=_flush_tools)
+            full = render_streaming_markdown(text_stream)
         turn = finish(full or "")
         st.session_state.messages.append(
             ChatMessage(role="assistant", content=full or turn.response)

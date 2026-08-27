@@ -8,7 +8,7 @@ from game.save import SaveManager
 from game.scenario import Scenario
 from game.session import append_tool_events, persist_save, sync_character_card_to_library
 from ui.character_sheet import render_character_sheet
-from ui.chat import render_chat_history, render_chat_input
+from ui.chat import render_chat_history, render_chat_input, render_tool_events_live
 from ui.game_state_panel import render_game_state_panel
 from ui.combat_panel import render_combat_panel
 from ui.action_suggestions import render_action_suggestions
@@ -87,21 +87,11 @@ def handle_player_message(user_input: str) -> None:
             )
             return
 
-        tools_appended = False
-
-        def _flush_pre_roll_tools() -> None:
-            nonlocal tools_appended
-            if tools_appended or not pre_tool_events:
-                return
-            append_tool_events(pre_tool_events)
-            tools_appended = True
+        append_tool_events(pre_tool_events)
+        render_tool_events_live(pre_tool_events)
 
         with st.chat_message("assistant"):
-            full_response = render_streaming_markdown(
-                text_stream,
-                on_tools_ready=_flush_pre_roll_tools,
-            )
-        _flush_pre_roll_tools()
+            full_response = render_streaming_markdown(text_stream)
         turn = finish(full_response or "")
     else:
         with st.spinner("KP 思考中……"):

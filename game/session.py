@@ -43,7 +43,7 @@ def append_tool_events(tool_events: list[str]) -> None:
         if not text:
             continue
         st.session_state.messages.append(
-            ChatMessage(role="system", content=f"🎲 {text}")
+            ChatMessage(role="system", content=text)
         )
 
 

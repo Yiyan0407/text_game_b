@@ -2,6 +2,15 @@ from game.models import Character, GameState
 from chain.tools import create_kp_tools
 
 
+def test_no_tool_needed_tool():
+    character = Character(name="测试")
+    game_state = GameState()
+    tools = create_kp_tools(character, game_state)
+    noop = next(t for t in tools if t.name == "no_tool_needed")
+    result = noop.invoke({"reason": "纯对话，无状态变更"})
+    assert "可以开始叙事" in result
+
+
 def test_create_kp_tools_excludes_combat_tools_when_requested():
     character = Character(name="测试")
     game_state = GameState()
@@ -30,6 +39,7 @@ def test_create_kp_tools():
     tools = create_kp_tools(character, game_state)
     names = {tool.name for tool in tools}
     assert names == {
+        "no_tool_needed",
         "roll_dice",
         "ability_check",
         "update_scene",
