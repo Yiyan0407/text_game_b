@@ -57,3 +57,16 @@ def test_starter_skills_generator_parse():
     payload = '{"skills": [{"name": "航海", "description": "近海航行"}, "观察"]}'
     skills = StarterSkillsGenerator._parse_response(payload)
     assert skills == ["航海（近海航行）", "观察"]
+
+
+def test_starter_skills_generator_prompt_variables():
+    from chain.starter_skills_generator import StarterSkillsGenerator
+
+    generator = StarterSkillsGenerator()
+    formatted = generator.prompt.format_messages(
+        world_rules="规则",
+        world_id="fantasy",
+        background="灰港老渔民",
+    )
+    assert formatted
+    assert '"name"' in formatted[0].content

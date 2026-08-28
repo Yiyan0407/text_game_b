@@ -11,7 +11,6 @@ from ui.form_drafts import (
     clear_scenario_editor_draft,
     init_scenario_editor_draft,
     scenario_editor_field_key,
-    sync_scenario_editor_draft_to_disk,
 )
 
 
@@ -152,8 +151,6 @@ def render_scenario_editor(scenario: Scenario, *, creating: bool = False) -> Sce
             """
         )
 
-    st.caption("草稿会自动保存到本机；切换页面或刷新浏览器后可继续编辑。")
-
     title_key = scenario_editor_field_key(scenario.id, creating, "title")
     description_key = scenario_editor_field_key(scenario.id, creating, "description")
     world_id_key = scenario_editor_field_key(scenario.id, creating, "world_id")
@@ -249,7 +246,6 @@ def render_scenario_editor(scenario: Scenario, *, creating: bool = False) -> Sce
     )
 
     submitted = st.button(submit_label, type="primary", use_container_width=True)
-    sync_scenario_editor_draft_to_disk(scenario.id, creating=creating)
 
     if not submitted:
         return None

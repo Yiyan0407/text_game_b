@@ -14,4 +14,4 @@
 - 「采访（追问与套话）」
 
 ## 输出 JSON（单个对象，不要 markdown 代码块）
-skills — string[] 或 {"name":"…","description":"…"}[]，1–3 项
+skills — string[] 或 {{"name":"…","description":"…"}}[]，1–3 项

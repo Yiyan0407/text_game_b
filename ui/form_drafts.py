@@ -35,18 +35,6 @@ def _scenario_editor_slug(scenario_id: str, creating: bool) -> str:
     return f"scenario_{scenario_id}_{int(creating)}"
 
 
-def _coerce_editor_rows(rows) -> list[dict]:
-    if rows is None:
-        return []
-    if isinstance(rows, list):
-        return [dict(row) for row in rows]
-    if isinstance(rows, dict):
-        return [dict(row) for row in rows.values()]
-    if hasattr(rows, "to_dict"):
-        return rows.to_dict("records")
-    return []
-
-
 def rolled_abilities_to_dict(rolled: RolledAbilities) -> dict:
     return {
         "details": [
@@ -198,10 +186,24 @@ def scenario_editor_table_keys(scenario_id: str, creating: bool) -> tuple[str, s
     )
 
 
-def init_scenario_editor_draft(scenario, *, creating: bool) -> None:
-    disk = draft_store().load(_scenario_editor_slug(scenario.id, creating)) or {}
-    disk_fields = disk.get("fields") if isinstance(disk.get("fields"), dict) else {}
+def _reset_invalid_data_editor_state(key: str) -> None:
+    """Drop values that are not Streamlit data_editor widget state.
 
+    data_editor expects ``{"edited_rows": ..., "added_rows": ..., "deleted_rows": ...}``.
+    Restoring a row list into the same key crashes with
+    ``AttributeError: 'list' object has no attribute 'get'``.
+    """
+    if key not in st.session_state:
+        return
+    value = st.session_state[key]
+    if isinstance(value, dict) and (
+        "edited_rows" in value or "added_rows" in value or "deleted_rows" in value
+    ):
+        return
+    st.session_state.pop(key, None)
+
+
+def init_scenario_editor_draft(scenario, *, creating: bool) -> None:
     seeds = {
         "title": scenario.title,
         "description": scenario.description,
@@ -216,59 +218,11 @@ def init_scenario_editor_draft(scenario, *, creating: bool) -> None:
     for field, default in seeds.items():
         seed_widget(
             scenario_editor_field_key(scenario.id, creating, field),
-            disk_fields.get(field, default),
+            default,
         )
 
-    quests_key, nodes_key, endings_key = scenario_editor_table_keys(scenario.id, creating)
-    if quests_key not in st.session_state and isinstance(disk.get("quests"), list):
-        st.session_state[quests_key] = disk["quests"]
-    if nodes_key not in st.session_state and isinstance(disk.get("nodes"), list):
-        st.session_state[nodes_key] = disk["nodes"]
-    if endings_key not in st.session_state and isinstance(disk.get("endings"), list):
-        st.session_state[endings_key] = disk["endings"]
-
-
-def sync_scenario_editor_draft_to_disk(scenario_id: str, *, creating: bool) -> None:
-    fields = {
-        field: st.session_state.get(
-            scenario_editor_field_key(scenario_id, creating, field), ""
-        )
-        for field in (
-            "title",
-            "description",
-            "world_id",
-            "world",
-            "tone",
-            "opening_scene_id",
-            "opening_scene_name",
-            "opening_prompt",
-            "custom_world_overlay",
-        )
-    }
-    quests_key, nodes_key, endings_key = scenario_editor_table_keys(scenario_id, creating)
-    quests = _coerce_editor_rows(st.session_state.get(quests_key))
-    nodes = _coerce_editor_rows(st.session_state.get(nodes_key))
-    endings = _coerce_editor_rows(st.session_state.get(endings_key))
-
-    store = draft_store()
-    slug = _scenario_editor_slug(scenario_id, creating)
-    if not str(fields.get("title", "")).strip() and not str(fields.get("description", "")).strip():
-        if not quests and not nodes and not endings:
-            store.delete(slug)
-            return
-
-    store.save(
-        slug,
-        {
-            "kind": "scenario_editor",
-            "scenario_id": scenario_id,
-            "creating": creating,
-            "fields": fields,
-            "quests": quests,
-            "nodes": nodes,
-            "endings": endings,
-        },
-    )
+    for key in scenario_editor_table_keys(scenario.id, creating):
+        _reset_invalid_data_editor_state(key)
 
 
 def clear_scenario_editor_draft(scenario_id: str, *, creating: bool) -> None:
