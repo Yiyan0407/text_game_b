@@ -4,6 +4,8 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
+from game.effects import EntityEffects
+
 _SKILL_DESC_RE = re.compile(r"^(.+?)（(.+?)）$")
 
 
@@ -26,7 +28,7 @@ def parse_skill_text(text: str, description: str = "") -> Skill:
 
 
 def split_skill_description(skill: Skill) -> Skill:
-    if skill.description.strip():
+    if skill.description.strip() or skill.effects:
         return skill
     try:
         return parse_skill_text(skill.name)
@@ -37,6 +39,12 @@ def split_skill_description(skill: Skill) -> Skill:
 class Skill(BaseModel):
     name: str
     description: str = ""
+    effects: EntityEffects | None = None
+
+    @field_validator("effects", mode="before")
+    @classmethod
+    def _coerce_effects(cls, value):
+        return EntityEffects.coerce(value)
 
     @field_validator("name", "description")
     @classmethod

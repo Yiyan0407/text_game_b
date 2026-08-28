@@ -11,6 +11,7 @@ from chain.item_sync_agent import ItemSyncAgent
 from chain.kp_chain import KPChain
 from chain.memory import ConversationWindowMemory
 from chain.memory_manager import LongTermMemoryManager
+from chain.stat_forge_agent import StatForgeAgent
 from chain.suggestions import ActionSuggester
 from chain.world_state_agent import WorldStateAgent
 from config.settings import get_settings
@@ -24,11 +25,13 @@ from game.results import ActionRouteResult, TurnResult
 from game.scenario import Scenario
 from game.state_patch import apply_state_patch
 from game.turn_context import TurnContext
-from game.turn_router import should_run_item_sync
+from game.turn_router import should_run_item_sync, should_run_stat_forge
 
 logger = logging.getLogger(__name__)
 
-ResolveMechanics = Callable[[ActionRouteResult, Character, GameState], list[str]]
+ResolveMechanics = Callable[
+    [ActionRouteResult, Character, GameState, Scenario], list[str]
+]
 DeliveredItems = Callable[[ActionRouteResult | None, list[str]], frozenset[str]]
 GuidanceHint = Callable[[str, int], str]
 
@@ -42,6 +45,7 @@ class TurnPipeline:
         router: ActionRouter,
         world_state: WorldStateAgent,
         item_sync: ItemSyncAgent,
+        stat_forge: StatForgeAgent,
         kp: KPChain,
         memory: LongTermMemoryManager,
         suggester: ActionSuggester,
@@ -53,6 +57,7 @@ class TurnPipeline:
         self.router = router
         self.world_state = world_state
         self.item_sync = item_sync
+        self.stat_forge = stat_forge
         self.kp = kp
         self.memory = memory
         self.suggester = suggester
@@ -77,7 +82,7 @@ class TurnPipeline:
             return False
         try:
             ctx.mechanical_events = self._resolve_mechanics(
-                ctx.route, ctx.character, ctx.game_state
+                ctx.route, ctx.character, ctx.game_state, ctx.scenario
             )
         except ValueError as exc:
             ctx.rejected = True
@@ -151,6 +156,24 @@ class TurnPipeline:
         )
         return ctx.item_sync_events
 
+    async def define_entities(self, ctx: TurnContext) -> list[str]:
+        """阶段 5b：为缺少 effects 的物品/技能补全战斗数值。"""
+        if not should_run_stat_forge(ctx):
+            return []
+
+        from game.stat_forge import collect_forge_targets
+
+        targets = collect_forge_targets(ctx.character)
+        if not targets:
+            return []
+
+        ctx.stat_forge_events = await self.stat_forge.aforge(
+            ctx.character,
+            ctx.scenario,
+            targets,
+        )
+        return ctx.stat_forge_events
+
     async def finalize(self, ctx: TurnContext, response: str) -> TurnResult:
         """阶段 6：记忆整理与行动建议（async 并发）。"""
         turn = TurnResult(response=response.strip(), tool_events=ctx.all_tool_events)
@@ -180,6 +203,7 @@ class TurnPipeline:
         await self.sync_world_state(ctx)
         await self.narrate(ctx)
         await self.sync_items(ctx)
+        await self.define_entities(ctx)
         return await self.finalize(ctx, ctx.kp_response)
 
     def build_narrative_brief_for_stream(self, ctx: TurnContext) -> str:

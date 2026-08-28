@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import re
 
-from game.dice import roll
+from game.dice import roll, roll_damage
+from game.effect_resolver import apply_damage_to_enemy, apply_incoming_damage
 from game.combat_range import (
     DEFAULT_START_DISTANCE_M,
     MELEE_REACH_M,
@@ -42,18 +43,56 @@ def _parse_enemy_record(data: dict) -> CombatEnemy | None:
         or data.get("distance_m")
         or data.get("start_distance_m")
     )
+    attack_bonus = _extract_int(data.get("attack_bonus"))
+    attack_damage = str(data.get("attack_damage") or data.get("damage") or "").strip()
+    sp = _extract_int(data.get("sp") or data.get("SP"))
+    sp_max = _extract_int(data.get("sp_max") or data.get("SP_max"))
     if not name or hp is None:
         return None
-    return CombatEnemy(
+    enemy = CombatEnemy(
         name=name,
         hp=hp,
         max_hp=hp,
         ac=ac or 12,
         start_distance_m=distance or 10,
     )
+    if attack_bonus is not None:
+        enemy.attack_bonus = attack_bonus
+    if attack_damage:
+        enemy.attack_damage = attack_damage
+        enemy.damage_notation = attack_damage
+    if sp is not None:
+        enemy.sp = max(0, sp)
+    if sp_max is not None:
+        enemy.sp_max = max(0, sp_max)
+    return enemy
 
 
-def parse_enemies(spec: str) -> list[CombatEnemy]:
+def enemies_from_route_defs(
+    enemy_defs: list,
+    *,
+    world_id: str = "",
+) -> list[CombatEnemy]:
+    from game.enemy_defaults import apply_world_defaults
+    from game.results import EnemyDefPatch
+
+    enemies: list[CombatEnemy] = []
+    for item in enemy_defs:
+        if isinstance(item, EnemyDefPatch):
+            patch = item
+        elif isinstance(item, dict):
+            patch = EnemyDefPatch.model_validate(item)
+        else:
+            continue
+        if not patch.name.strip() or patch.hp <= 0:
+            continue
+        enemy = patch.to_combat_enemy()
+        apply_world_defaults(enemy, world_id)
+        enemies.append(enemy)
+    return enemies
+
+
+def parse_enemies(spec: str, *, world_id: str = "") -> list[CombatEnemy]:
     """解析敌人描述。
 
     支持：
@@ -109,19 +148,38 @@ def parse_enemies(spec: str) -> list[CombatEnemy]:
 
     if not enemies:
         raise ValueError("至少需要一个敌人")
+    if world_id:
+        from game.enemy_defaults import apply_world_defaults
+
+        enemies = [apply_world_defaults(enemy, world_id) for enemy in enemies]
     return enemies
 
 
-def player_ac(character: Character, defending: bool = False) -> int:
-    return character.armor_class(defending=defending)
+def player_ac(
+    character: Character,
+    defending: bool = False,
+    *,
+    game_state: GameState | None = None,
+) -> int:
+    from game.combat_modifiers import player_ac_bonus
+
+    ac = character.armor_class(defending=defending)
+    combat = game_state.combat if game_state else None
+    return ac + player_ac_bonus(combat)
 
 
 def start_combat(
     character: Character,
     game_state: GameState,
     enemies_spec: str,
+    *,
+    enemy_defs: list | None = None,
+    world_id: str = "",
 ) -> str:
-    enemies = parse_enemies(enemies_spec)
+    if enemy_defs:
+        enemies = enemies_from_route_defs(enemy_defs, world_id=world_id)
+    else:
+        enemies = parse_enemies(enemies_spec, world_id=world_id)
     dex_mod = character.modifier("dex")
     player_init = roll(f"1d20{dex_mod:+d}").total
 
@@ -163,23 +221,40 @@ def start_combat(
     )
 
 
-def enemy_attack(enemy: CombatEnemy, character: Character, defending: bool = False) -> str:
-    ac = player_ac(character, defending=defending)
-    attack = roll(f"1d20{enemy.attack_bonus:+d}")
+def enemy_attack(
+    enemy: CombatEnemy,
+    character: Character,
+    defending: bool = False,
+    *,
+    game_state: GameState | None = None,
+) -> str:
+    from game.combat_modifiers import enemy_attack_roll_modifier
+
+    ac = player_ac(character, defending=defending, game_state=game_state)
+    roll_mod = enemy.attack_bonus + enemy_attack_roll_modifier(
+        game_state.combat if game_state else None
+    )
+    attack = roll(f"1d20{roll_mod:+d}")
     hit = attack.total >= ac
 
     if not hit:
         return (
-            f"{enemy.name} 攻击你：1d20[{attack.rolls[0]}]{enemy.attack_bonus:+d}="
+            f"{enemy.name} 攻击你：1d20[{attack.rolls[0]}]{roll_mod:+d}="
             f"{attack.total} vs AC {ac} → 未命中"
         )
 
-    damage = roll(enemy.damage_notation)
-    character.hp = max(0, character.hp - damage.total)
-    return (
-        f"{enemy.name} 攻击你：命中！伤害 {damage.describe()}。"
-        f"你的 HP {character.hp}/{character.max_hp}"
+    damage_roll = roll_damage(enemy.effective_attack_damage())
+    raw_damage = damage_roll.total
+    result = apply_incoming_damage(character, raw_damage)
+    events = result.format_events()
+    detail = (
+        f"{enemy.name} 攻击你：1d20[{attack.rolls[0]}]{roll_mod:+d}="
+        f"{attack.total} vs AC {ac} → 命中！伤害 {damage_roll.describe()}。"
     )
+    if events:
+        detail += " " + " ".join(events)
+    detail += f" 你的 HP {character.hp}/{character.effective_max_hp()}"
+    return detail
 
 
 def _enemy_approach(combat: CombatState, enemy: CombatEnemy) -> str | None:
@@ -193,7 +268,11 @@ def _enemy_approach(combat: CombatState, enemy: CombatEnemy) -> str | None:
     return f"{enemy.name} 靠近 {move}m（距离 {new_dist}m）。"
 
 
-def _resolve_enemy_turn(combat: CombatState, character: Character) -> str | None:
+def _resolve_enemy_turn(
+    combat: CombatState,
+    character: Character,
+    game_state: GameState,
+) -> str | None:
     actor = combat.current_actor()
     if actor == "player":
         return None
@@ -201,7 +280,9 @@ def _resolve_enemy_turn(combat: CombatState, character: Character) -> str | None
     if not enemy or enemy.hp <= 0:
         return f"{actor} 已倒下，跳过回合。"
     approach = _enemy_approach(combat, enemy)
-    attack = enemy_attack(enemy, character, defending=combat.defending)
+    attack = enemy_attack(
+        enemy, character, defending=combat.defending, game_state=game_state
+    )
     if approach:
         return f"{approach} {attack}"
     return attack
@@ -221,7 +302,7 @@ def resolve_until_player_turn(character: Character, game_state: GameState) -> li
     for _ in range(len(combat.turn_order)):
         if combat.is_player_turn():
             break
-        event = _resolve_enemy_turn(combat, character)
+        event = _resolve_enemy_turn(combat, character, game_state)
         if event:
             events.append(event)
         combat.advance_turn()
@@ -251,7 +332,7 @@ def advance_after_player_action(character: Character, game_state: GameState) -> 
             break
         if character.hp <= 0:
             break
-        event = _resolve_enemy_turn(combat, character)
+        event = _resolve_enemy_turn(combat, character, game_state)
         if event:
             events.append(event)
         combat.advance_turn()
@@ -378,11 +459,21 @@ def player_attack(
             f"vs AC {enemy.ac} → 未命中"
         )
 
-    damage = roll(f"{weapon.damage_notation}{mod:+d}")
-    enemy.hp = max(0, enemy.hp - damage.total)
+    damage_roll = roll_damage(weapon.damage_notation)
+    attr_mod = character.modifier(attr) + weapon.attack_bonus - range_penalty
+    raw_damage = damage_roll.total + attr_mod
+    raw_damage = max(0, raw_damage)
+    dmg_result = apply_damage_to_enemy(enemy, raw_damage)
+    sp_note = ""
+    if dmg_result.effective_sp > 0:
+        if dmg_result.fully_blocked:
+            sp_note = f" · 敌人 SP{dmg_result.effective_sp} 完全阻挡"
+        elif dmg_result.hp_loss < raw_damage:
+            sp_note = f" · 敌人 SP{dmg_result.effective_sp} 阻挡 {raw_damage - dmg_result.hp_loss} 点"
     result = (
         f"{prefix}攻击 {enemy.name}（{weapon.label}，{distance}m{range_suffix}）：命中！"
-        f"伤害 {damage.describe()}。"
+        f"伤害 {damage_roll.describe()}{mod:+d} = {raw_damage}。"
+        f"{sp_note}"
         f"{enemy.name} 剩余 HP {enemy.hp}/{enemy.max_hp}"
     )
     if enemy.hp <= 0:
@@ -483,15 +574,21 @@ def resolve_combat_ability_check(
     dc: int,
     label: str,
     *,
+    game_state: GameState | None = None,
     proficiency_bonus: bool = False,
     skill_bonus: int = 0,
 ) -> str:
+    from game.combat_modifiers import player_check_bonus
+
+    combat = game_state.combat if game_state else None
+    situational = player_check_bonus(combat, ability)
     result = ability_check(
         character,
         ability,
         dc,
         proficiency_bonus=proficiency_bonus,
         skill_bonus=skill_bonus,
+        situational_bonus=situational,
     )
     outcome = "成功" if result.success else "失败"
     return f"{label}：{format_check_for_kp(result, character)} → {outcome}"
@@ -532,6 +629,7 @@ def resolve_interact(
         ability,
         route.dc,
         "场景互动",
+        game_state=game_state,
         proficiency_bonus=proficiency_bonus,
         skill_bonus=skill_bonus,
     )
@@ -572,6 +670,7 @@ def resolve_talk(
         "cha",
         route.dc,
         label,
+        game_state=game_state,
         proficiency_bonus=proficiency_bonus,
         skill_bonus=skill_bonus,
     )
@@ -606,7 +705,7 @@ def resolve_grapple(
     )
     ensure_ability_check_dc(route, user_input=f"擒抱 {enemy.name}")
     return resolve_combat_ability_check(
-        character, "str", route.dc, f"擒抱 {enemy.name}"
+        character, "str", route.dc, f"擒抱 {enemy.name}", game_state=game_state
     )
 
 
@@ -639,7 +738,7 @@ def resolve_shove(
     )
     ensure_ability_check_dc(route, user_input=f"推撞 {enemy.name}")
     return resolve_combat_ability_check(
-        character, "str", route.dc, f"推撞 {enemy.name}"
+        character, "str", route.dc, f"推撞 {enemy.name}", game_state=game_state
     )
 
 
@@ -679,7 +778,7 @@ def resolve_search_in_combat(
     )
     ensure_ability_check_dc(route, user_input="战斗中搜索观察")
     return resolve_combat_ability_check(
-        character, "wis", route.dc, "战斗中搜索观察"
+        character, "wis", route.dc, "战斗中搜索观察", game_state=game_state
     )
 
 
@@ -703,10 +802,13 @@ def resolve_pickup_in_combat(
             events.append(f"获得：{item}")
             picked = character.find_inventory_item(item)
             if picked is not None:
+                from game.item_kinds import infer_gear_slot
+
                 slot = infer_gear_slot(picked.name, picked.kind)
                 if slot == "weapon":
-                    character.set_active_gear(picked)
-                    events.append(f"握持：{picked.name}")
+                    ok, equip_msg = character.equip_item(picked.name, slot="hand")
+                    if ok:
+                        events.append(equip_msg)
     if not events:
         return ["没有可拾取的物品。"]
     return events
@@ -717,6 +819,8 @@ def resolve_use_item_in_combat(
     game_state: GameState,
     item_refs: list[str] | None = None,
     cost: str = "bonus",
+    *,
+    attack_target: str = "",
 ) -> list[str]:
     from game.combat_item_use import combat_use_item_cost
 
@@ -742,4 +846,9 @@ def resolve_use_item_in_combat(
 
     from game.item_use import resolve_use_item
 
-    return resolve_use_item(character, refs)
+    return resolve_use_item(
+        character,
+        refs,
+        game_state=game_state,
+        attack_target=attack_target,
+    )

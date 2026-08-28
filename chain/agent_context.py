@@ -49,6 +49,5 @@ def format_character_block(character: Character) -> dict[str, str]:
         "character_abilities": character.format_abilities(),
         "character_inventory": character.format_inventory(),
         "character_equipment": character.format_equipment(),
-        "character_active_gear": character.format_active_gear(),
         "character_skills": character.format_skills(),
     }

@@ -99,7 +99,6 @@ class KPChain:
                 "max_hp": character.max_hp,
                 "character_inventory": character.format_inventory(),
                 "character_equipment": character.format_equipment(),
-                "character_active_gear": character.format_active_gear(),
                 "character_skills": character.format_skills(),
                 "game_state_context": game_state.format_for_prompt(),
                 "scenario_context": scenario_context,

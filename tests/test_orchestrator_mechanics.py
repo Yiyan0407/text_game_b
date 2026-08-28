@@ -2,6 +2,7 @@ from game.adventure_snapshot import restore_adventure, snapshot_adventure
 from game.models import Character, CombatEnemy, CombatState, GameState
 from game.orchestrator import GameOrchestrator
 from game.results import ActionRouteResult
+from tests.fixtures_effects import forged_heal_item
 
 
 def test_restore_adventure_reverts_mutations():
@@ -40,7 +41,7 @@ def test_resolve_mechanics_rejects_combat_action_when_not_player_turn():
     )
 
     try:
-        orchestrator._resolve_mechanics(route, character, game_state)
+        orchestrator._resolve_mechanics(route, character, game_state, None)
         raised = False
     except ValueError as exc:
         raised = True
@@ -65,7 +66,7 @@ def test_resolve_mechanics_rejects_trigger_combat_attack_before_player_turn():
         action_intent="拔剑砍向守卫",
     )
 
-    def _start_combat(_character, state, _spec):
+    def _start_combat(_character, state, _spec, **kwargs):
         state.combat = CombatState(
             active=True,
             round=1,
@@ -78,7 +79,7 @@ def test_resolve_mechanics_rejects_trigger_combat_attack_before_player_turn():
     with patch("game.orchestrator.start_combat", side_effect=_start_combat):
         with patch("game.orchestrator.resolve_until_player_turn", return_value=[]):
             try:
-                orchestrator._resolve_mechanics(route, character, game_state)
+                orchestrator._resolve_mechanics(route, character, game_state, None)
                 raised = False
             except ValueError as exc:
                 raised = True
@@ -88,8 +89,10 @@ def test_resolve_mechanics_rejects_trigger_combat_attack_before_player_turn():
 
 
 def test_resolve_mechanics_use_item_in_exploration():
+    from game.orchestrator import GameOrchestrator
+
     orchestrator = GameOrchestrator()
-    character = Character(name="测试", hp=5, max_hp=20, inventory=["治疗药水"])
+    character = Character(name="测试", hp=5, max_hp=20, inventory=[forged_heal_item()])
     game_state = GameState()
     route = ActionRouteResult(
         approved=True,
@@ -98,7 +101,7 @@ def test_resolve_mechanics_use_item_in_exploration():
         action_intent="喝下治疗药水",
     )
 
-    events = orchestrator._resolve_mechanics(route, character, game_state)
+    events = orchestrator._resolve_mechanics(route, character, game_state, None)
 
     assert any("使用" in event for event in events)
     assert character.hp > 5

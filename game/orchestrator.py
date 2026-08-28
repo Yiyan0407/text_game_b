@@ -6,6 +6,7 @@ from chain.kp_chain import KPChain
 from chain.memory import ConversationWindowMemory
 from chain.memory_manager import LongTermMemoryManager
 from chain.suggestions import ActionSuggester
+from chain.stat_forge_agent import StatForgeAgent
 from chain.summarizer import StorySummarizer
 from chain.world_state_agent import WorldStateAgent
 from config.settings import get_settings
@@ -106,6 +107,7 @@ class GameOrchestrator:
         opening_integrator: OpeningIntegrator | None = None,
         world_state_agent: WorldStateAgent | None = None,
         item_sync_agent: ItemSyncAgent | None = None,
+        stat_forge_agent: StatForgeAgent | None = None,
         state_agent: WorldStateAgent | None = None,
     ):
         self.kp = kp_chain if kp_chain is not None else KPChain()
@@ -116,6 +118,7 @@ class GameOrchestrator:
         legacy_state = state_agent or world_state_agent
         self.world_state = legacy_state if legacy_state is not None else WorldStateAgent()
         self.item_sync = item_sync_agent if item_sync_agent is not None else ItemSyncAgent()
+        self.stat_forge = stat_forge_agent if stat_forge_agent is not None else StatForgeAgent()
         self.state_agent = self.world_state
         self.opening_integrator = (
             opening_integrator if opening_integrator is not None else OpeningIntegrator()
@@ -126,6 +129,7 @@ class GameOrchestrator:
             router=self.router,
             world_state=self.world_state,
             item_sync=self.item_sync,
+            stat_forge=self.stat_forge,
             kp=self.kp,
             memory=self.memory,
             suggester=self.suggester,
@@ -282,6 +286,7 @@ class GameOrchestrator:
             await self.pipeline.sync_world_state(ctx)
             await self.pipeline.narrate(ctx)
             await self.pipeline.sync_items(ctx)
+            await self.pipeline.define_entities(ctx)
             return await self.pipeline.finalize(ctx, ctx.kp_response)
         return await self.pipeline.run_turn(ctx)
 
@@ -390,7 +395,9 @@ class GameOrchestrator:
             ctx.kp_response = kp_response.strip()
             events = run_async(self.pipeline.sync_items(ctx))
             tool_events.extend(events)
-            return events
+            forge_events = run_async(self.pipeline.define_entities(ctx))
+            tool_events.extend(forge_events)
+            return events + forge_events
 
         def run_memory_finalize() -> bool:
             summary_before = ctx.game_state.story_summary
@@ -425,7 +432,7 @@ class GameOrchestrator:
         if not route.approved:
             return enriched_input, [], route
         try:
-            pre_tool_events = self._resolve_mechanics(route, character, game_state)
+            pre_tool_events = self._resolve_mechanics(route, character, game_state, scenario)
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
                 approved=False,
@@ -449,7 +456,7 @@ class GameOrchestrator:
         if not route.approved:
             return enriched_input, [], route
         try:
-            pre_tool_events = self._resolve_mechanics(route, character, game_state)
+            pre_tool_events = self._resolve_mechanics(route, character, game_state, scenario)
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
                 approved=False,
@@ -462,12 +469,20 @@ class GameOrchestrator:
         route: ActionRouteResult,
         character: Character,
         game_state: GameState,
+        scenario: Scenario | None = None,
     ) -> list[str]:
         pre_tool_events: list[str] = []
+        world_id = scenario.world_id if scenario else ""
 
         if route.trigger_combat:
             pre_tool_events.append(
-                start_combat(character, game_state, route.enemies_spec)
+                start_combat(
+                    character,
+                    game_state,
+                    route.enemies_spec,
+                    enemy_defs=route.enemy_defs or None,
+                    world_id=world_id,
+                )
             )
             pre_tool_events.extend(resolve_until_player_turn(character, game_state))
 
@@ -529,6 +544,7 @@ class GameOrchestrator:
                     game_state,
                     route.referenced_items,
                     cost=cost,
+                    attack_target=route.attack_target,
                 )
             )
             if self._should_advance_combat_after_action(route, game_state):
@@ -687,6 +703,7 @@ class GameOrchestrator:
                 cost=route.action_cost
                 if route.action_cost in ("main", "bonus", "free")
                 else "bonus",
+                attack_target=route.attack_target,
             ),
             "interact": lambda: [
                 resolve_interact(
@@ -746,12 +763,17 @@ class GameOrchestrator:
     ) -> tuple[list[str], bool | None]:
         events: list[str] = []
         if route.roll_type == "ability_check":
+            from game.combat_modifiers import player_check_bonus
+
+            combat = game_state.combat if game_state.is_in_combat() else None
+            situational = player_check_bonus(combat, route.ability)
             result = ability_check(
                 character,
                 route.ability,
                 route.dc,
                 proficiency_bonus=route.proficiency_bonus,
                 skill_bonus=skill_bonus_for_route(character, route),
+                situational_bonus=situational,
             )
             events.append(format_check_for_kp(result, character))
             if not result.success:

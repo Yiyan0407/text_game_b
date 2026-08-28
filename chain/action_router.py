@@ -7,7 +7,7 @@ from chain.llm import create_chat_llm
 from config.settings import PROMPTS_DIR
 from game.difficulty import ensure_ability_check_dc
 from game.models import ABILITY_FIELDS, Character, ChatMessage, GameState
-from game.results import ActionRouteResult
+from game.results import ActionRouteResult, EnemyDefPatch
 from game.scenario import Scenario
 from game.text_match import fuzzy_in_list, resolve_fuzzy_name
 from prompts.templates import load_world_prompt
@@ -21,18 +21,27 @@ def _payment_sufficient(character: Character, payment: str, quantity: int) -> bo
     return character.has_sufficient_inventory(payment, quantity)
 
 
-def _pickup_covers_attack_weapon(route: ActionRouteResult) -> bool:
+def _pickup_covers_attack_weapon(character: Character, route: ActionRouteResult) -> bool:
     if route.item_usage != "pickup" or route.combat_action != "attack":
         return False
-    from game.weapon_combat import _weapon_from_item_name
+    refs = {item.strip() for item in route.referenced_items if item.strip()}
+    if not refs:
+        return False
+    from game.weapon_combat import resolve_weapon_profile
 
-    return any(_weapon_from_item_name(item) for item in route.referenced_items if item.strip())
+    weapon = resolve_weapon_profile(character, route)
+    if weapon.label == "徒手" or weapon.label.startswith("徒手（"):
+        return True
+    for ref in refs:
+        if ref == weapon.label or ref in weapon.label or weapon.label in ref:
+            return True
+    return False
 
 
 def _attack_needs_weapon_draw(character: Character, route: ActionRouteResult) -> bool:
     if route.combat_action != "attack":
         return False
-    if _pickup_covers_attack_weapon(route):
+    if _pickup_covers_attack_weapon(character, route):
         return False
     from game.weapon_combat import resolve_weapon_profile, weapon_needs_draw
 
@@ -217,6 +226,13 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
     approved = data.get("approved", False)
     if isinstance(approved, str):
         approved = approved.strip().lower() in ("true", "1", "yes", "是", "批准", "通过")
+    enemy_defs: list[EnemyDefPatch] = []
+    for item in data.get("enemy_defs") or []:
+        if isinstance(item, dict):
+            try:
+                enemy_defs.append(EnemyDefPatch.model_validate(item))
+            except (TypeError, ValueError):
+                continue
     return ActionRouteResult(
         approved=bool(approved),
         rejection_reason=str(data.get("rejection_reason", "")).strip(),
@@ -237,6 +253,7 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
         mode=mode,
         trigger_combat=bool(data.get("trigger_combat", False)),
         enemies_spec=str(data.get("enemies_spec", "")).strip(),
+        enemy_defs=enemy_defs,
         combat_action=combat_action,
         action_cost=action_cost,
         attack_target=str(data.get("attack_target", "")).strip(),
@@ -267,7 +284,6 @@ class ActionRouter:
                     "生命：HP {hp}/{max_hp}\n"
                     "背包：{character_inventory}\n"
                     "装备：{character_equipment}\n"
-                    "持用：{character_active_gear}\n"
                     "技能：{character_skills}\n\n"
                     "【最近对话】\n{recent_history}\n\n"
                     "【玩家行动】\n{user_input}\n\n"
@@ -295,7 +311,6 @@ class ActionRouter:
             "max_hp": character.max_hp,
             "character_inventory": character.format_inventory(),
             "character_equipment": character.format_equipment(),
-            "character_active_gear": character.format_active_gear(),
             "character_skills": character.format_skills(),
             "recent_history": _format_recent_history(history),
             "user_input": user_input.strip(),

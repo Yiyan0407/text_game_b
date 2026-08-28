@@ -387,7 +387,7 @@ def _mechanical_already_settled_item(
     item_name: str,
 ) -> bool:
     """机械层本轮已交付/持用/使用该物品。"""
-    markers = ("获得：", "持用：", "握持：", "收起：", "使用：")
+    markers = ("获得：", "装备：", "持用：", "握持：", "收起：", "卸下：", "使用：")
     for event in mechanical_events:
         if not any(marker in event for marker in markers):
             continue

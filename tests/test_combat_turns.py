@@ -7,6 +7,7 @@ from game.combat import (
     start_combat,
 )
 from game.models import Character, CombatEnemy, CombatState, GameState
+from tests.fixtures_effects import forged_heal_item
 
 
 def test_player_ac():
@@ -128,7 +129,7 @@ def test_spend_action_or_error_blocks_double_main():
 def test_attack_then_use_item_does_not_end_turn():
     from game.combat import player_attack, resolve_use_item_in_combat
 
-    character = Character(name="测试", strength=16, inventory=["治疗药水"])
+    character = Character(name="测试", strength=16, inventory=[forged_heal_item()])
     state = GameState()
     state.combat = CombatState(
         active=True,

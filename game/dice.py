@@ -43,6 +43,44 @@ def parse_dice(notation: str) -> tuple[int, int, int]:
     return count, sides, modifier
 
 
+def roll_compound(notation: str) -> DiceRoll:
+    """掷复合伤害骰，如 1d20+1d20 或 2d8+4。"""
+    cleaned = notation.strip().lower().replace(" ", "")
+    if not cleaned:
+        raise ValueError("伤害骰不能为空")
+
+    parts = cleaned.split("+")
+    all_rolls: list[int] = []
+    total = 0
+
+    for part in parts:
+        if not part:
+            continue
+        if part.isdigit() or (part.startswith("-") and part[1:].isdigit()):
+            total += int(part)
+            continue
+        segment = roll(part)
+        all_rolls.extend(segment.rolls)
+        total += segment.total
+
+    return DiceRoll(
+        notation=notation.strip(),
+        rolls=all_rolls,
+        modifier=0,
+        total=total,
+    )
+
+
+def roll_damage(notation: str) -> DiceRoll:
+    """伤害掷骰：含多段 d 骰时用 roll_compound。"""
+    cleaned = notation.strip().lower().replace(" ", "")
+    if "+" in cleaned:
+        dice_parts = [part for part in cleaned.split("+") if "d" in part]
+        if len(dice_parts) > 1:
+            return roll_compound(notation)
+    return roll(notation)
+
+
 def roll(notation: str) -> DiceRoll:
     """掷骰并返回结构化结果。"""
     count, sides, modifier = parse_dice(notation)

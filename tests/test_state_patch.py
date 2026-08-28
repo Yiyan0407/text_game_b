@@ -164,6 +164,6 @@ def test_resolve_mechanics_pickup_roll_failure_does_not_grant_items():
         referenced_items=["钱包"],
         action_intent="趁乱偷钱包",
     )
-    events = orchestrator._resolve_mechanics(route, character, game_state)
+    events = orchestrator._resolve_mechanics(route, character, game_state, None)
     assert not any(event.startswith("获得：") for event in events)
     assert not character.has_inventory_item("钱包")

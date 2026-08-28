@@ -5,6 +5,7 @@ from game.results import ActionRouteResult
 from game.state_patch import apply_state_patch, patch_from_dict
 from game.weapon_combat import resolve_weapon_profile
 from chain.action_router import ActionRouter
+from tests.fixtures_effects import forged_heal_item, forged_martial_skill, forged_weapon
 
 
 def _approved_route(**kwargs) -> ActionRouteResult:
@@ -14,13 +15,13 @@ def _approved_route(**kwargs) -> ActionRouteResult:
 def test_resolve_weapon_profile_firearm_vs_unarmed():
     armed = Character(
         name="测试",
-        inventory=["格洛克手枪（1把）"],
+        inventory=[forged_weapon("格洛克手枪")],
         skills=["射击（手枪）"],
     )
     profile = resolve_weapon_profile(armed)
     assert profile.use_dex is True
     assert profile.damage_notation == "1d10"
-    assert profile.attack_bonus == 2
+    assert profile.attack_bonus == 0
 
     unarmed = Character(name="测试")
     fist = resolve_weapon_profile(unarmed)
@@ -30,12 +31,10 @@ def test_resolve_weapon_profile_firearm_vs_unarmed():
 
 
 def test_resolve_weapon_profile_martial_unarmed():
-    martial = Character(name="测试", skills=["奔雷掌（贴身短打）"])
-    profile = resolve_weapon_profile(martial)
-    assert profile.label == "徒手（奔雷掌）"
-    assert profile.damage_notation == "1d8"
-    assert profile.attack_bonus == 2
-    assert profile.use_dex is False
+    martial = Character(name="测试", skills=[forged_martial_skill("奔雷掌")])
+    fist = resolve_weapon_profile(martial)
+    assert fist.label == "徒手"
+    assert fist.damage_notation == "1d4"
 
     route = _approved_route(
         skill_usage="use",
@@ -43,11 +42,19 @@ def test_resolve_weapon_profile_martial_unarmed():
         action_intent="一掌封喉",
     )
     profile = resolve_weapon_profile(martial, route)
+    assert profile.label == "徒手（奔雷掌）"
+    assert profile.damage_notation == "1d8"
+    assert profile.attack_bonus == 2
+    assert profile.use_dex is False
     assert "奔雷掌" in profile.label
 
 
 def test_player_attack_uses_martial_profile_label():
-    character = Character(name="测试", strength=16, skills=["奔雷掌"])
+    character = Character(
+        name="测试",
+        strength=16,
+        skills=[forged_martial_skill("奔雷掌")],
+    )
     state = GameState()
     state.combat = CombatState(
         active=True,
@@ -138,7 +145,7 @@ def test_state_patch_blocks_combat_pickup_without_mechanical_gain():
 
 
 def test_state_patch_blocks_duplicate_after_mechanical_equip():
-    character = Character(name="测试", inventory=["格洛克手枪（1把）"])
+    character = Character(name="测试", inventory=[forged_weapon("格洛克手枪")])
     game_state = GameState()
     game_state.combat = CombatState(
         active=True,
@@ -172,7 +179,7 @@ def test_state_patch_blocks_duplicate_after_mechanical_equip():
         game_state,
         route=route,
         mechanical_events=[
-            "持用：格洛克手枪（握持中）",
+            "装备：格洛克手枪（手持）",
             "具体效果由 KP 叙事描述。",
         ],
     )
@@ -183,7 +190,7 @@ def test_state_patch_blocks_duplicate_after_mechanical_equip():
 
 
 def test_state_patch_blocks_duplicate_after_mechanical_pickup():
-    character = Character(name="测试", inventory=["格洛克手枪（1把）"])
+    character = Character(name="测试", inventory=[forged_weapon("格洛克手枪")])
     game_state = GameState()
     game_state.combat = CombatState(
         active=True,
@@ -282,7 +289,7 @@ def test_orchestrator_pickup_branch_in_combat():
         turn_index=0,
     )
     route = _approved_route(item_usage="pickup", referenced_items=["格洛克手枪"])
-    events = orchestrator._resolve_mechanics(route, character, game_state)
+    events = orchestrator._resolve_mechanics(route, character, game_state, None)
     assert any("获得：格洛克手枪" in event for event in events)
     assert game_state.combat.free_interact_used is True
     assert game_state.combat.has_bonus_action() is True
@@ -290,6 +297,7 @@ def test_orchestrator_pickup_branch_in_combat():
 
 def test_pickup_weapon_equips_without_extra_draw():
     from game.combat import resolve_pickup_in_combat, player_attack
+    from game.effects import EntityEffects
 
     character = Character(name="测试", inventory=[], skills=["射击"])
     game_state = GameState()
@@ -302,8 +310,11 @@ def test_pickup_weapon_equips_without_extra_draw():
         enemy_distances={"敌人": 10},
     )
     pickup_events = resolve_pickup_in_combat(character, game_state, ["格洛克手枪"])
-    assert any("握持" in event for event in pickup_events)
+    assert any("装备" in event for event in pickup_events)
     assert game_state.combat.free_interact_used is True
+    item = character.find_inventory_item("格洛克手枪")
+    assert item is not None
+    item.effects = EntityEffects(attack_damage="1d10", use_dex=True, forged=True)
 
     route = _approved_route(
         combat_action="attack",
@@ -318,9 +329,18 @@ def test_pickup_weapon_equips_without_extra_draw():
 
 
 def test_attack_from_inventory_requires_free_interact():
+    from game.inventory import InventoryItem
+
     character = Character(
         name="测试",
-        inventory=["格洛克手枪（1把）"],
+        inventory=[
+            InventoryItem(
+                name="格洛克手枪",
+                quantity=1,
+                unit="把",
+                effects={"attack_damage": "1d10", "use_dex": True, "forged": True},
+            )
+        ],
         skills=["射击"],
     )
     game_state = GameState()
@@ -352,7 +372,7 @@ def test_validate_forces_combat_use_item_cost():
         referenced_items=["治疗药水"],
         action_intent="喝治疗药水",
     )
-    character = Character(name="测试", inventory=["治疗药水"])
+    character = Character(name="测试", inventory=[forged_heal_item()])
     game_state = GameState()
     game_state.combat = CombatState(
         active=True,
@@ -377,7 +397,7 @@ def test_orchestrator_combat_use_item_spends_bonus():
         action_router=MagicMock(),
         state_agent=MagicMock(),
     )
-    character = Character(name="测试", inventory=["治疗药水"])
+    character = Character(name="测试", inventory=[forged_heal_item()])
     game_state = GameState()
     game_state.combat = CombatState(
         active=True,
@@ -387,7 +407,7 @@ def test_orchestrator_combat_use_item_spends_bonus():
         turn_index=0,
     )
     route = _approved_route(item_usage="use", referenced_items=["治疗药水"])
-    events = orchestrator._resolve_mechanics(route, character, game_state)
+    events = orchestrator._resolve_mechanics(route, character, game_state, None)
     assert any("使用" in event for event in events)
     assert game_state.combat.bonus_action_used is True
 
@@ -417,7 +437,7 @@ def test_player_move_does_not_use_main_action():
 def test_player_attack_rejects_out_of_range():
     character = Character(
         name="测试",
-        inventory=["格洛克手枪（1把）"],
+        inventory=[forged_weapon("格洛克手枪")],
         skills=["射击"],
     )
     game_state = GameState()

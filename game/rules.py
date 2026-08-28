@@ -12,6 +12,7 @@ def ability_check(
     *,
     proficiency_bonus: bool = False,
     skill_bonus: int = 0,
+    situational_bonus: int = 0,
 ) -> AbilityCheckResult:
     """属性检定：1d20 + 属性修正 + 专业(+2) + 技能加值 vs DC。"""
     key = ability.lower()
@@ -25,8 +26,9 @@ def ability_check(
     modifier = character.modifier(key)
     prof = PROFICIENCY_BONUS if proficiency_bonus else 0
     skill = max(0, int(skill_bonus))
+    situational = int(situational_bonus)
     dice = roll(f"1d20{modifier:+d}")
-    check_total = dice.total + prof + skill
+    check_total = dice.total + prof + skill + situational
     success = check_total >= dc
     return AbilityCheckResult(
         ability=key,
@@ -34,6 +36,7 @@ def ability_check(
         roll=dice,
         proficiency_bonus=prof,
         skill_bonus=skill,
+        situational_bonus=situational,
         check_total=check_total,
         success=success,
     )
@@ -48,6 +51,8 @@ def format_check_for_kp(result: AbilityCheckResult, character: Character) -> str
         bonus += f"+{result.proficiency_bonus}专业"
     if result.skill_bonus:
         bonus += f"+{result.skill_bonus}技能"
+    if result.situational_bonus:
+        bonus += f"+{result.situational_bonus}环境"
     return (
         f"【{label}检定】1d20[{result.roll.rolls[0]}]{bonus} "
         f"= {result.check_total} vs DC {result.dc} → {outcome}"

@@ -1,7 +1,21 @@
 import streamlit as st
 
+from game.effect_resolver import get_effective_sp
 from game.equipment import SLOT_LABELS
 from game.models import ABILITY_ORDER, Character
+
+
+def _effective_sp_display(character: Character) -> tuple[int, str]:
+    return get_effective_sp(character)
+
+
+def _format_item_line(item) -> str:
+    base = item.display_labeled()
+    if item.effects:
+        summary = item.effects.format_summary()
+        if summary:
+            return f"{base} · {summary}"
+    return base
 
 
 def render_character_sheet(character: Character) -> None:
@@ -20,7 +34,11 @@ def render_character_sheet(character: Character) -> None:
         mod = character.modifier(key)
         col.metric(f"{label} {key.upper()}", value, delta=f"{mod:+d}", delta_color="off")
 
-    st.progress(character.hp / character.max_hp, text=f"HP {character.hp}/{character.max_hp}")
+    st.progress(character.hp / character.max_hp, text=f"HP {character.hp}/{character.effective_max_hp()}")
+
+    effective_sp, sp_source = _effective_sp_display(character)
+    if effective_sp > 0:
+        st.caption(f"有效 SP {effective_sp}" + (f"（{sp_source}）" if sp_source else ""))
 
     grouped = character.equipment_by_slot()
     has_equipment = any(grouped.get(slot) for slot in SLOT_LABELS)
@@ -32,19 +50,12 @@ def render_character_sheet(character: Character) -> None:
             else:
                 st.caption(f"{label} · （空）")
         if not has_equipment:
-            st.caption("穿戴/植入/挂载的物品会显示在此；须先进入背包再装备。")
-
-    active = character.format_active_gear()
-    with st.expander("持用", expanded=active != "（无）"):
-        if active != "（无）":
-            st.markdown(active)
-        else:
-            st.caption("正在手里使用或拔出的物品（如照明中、握持中）。")
+            st.caption("穿戴/植入/拿在手上的物品会显示在此；须先进入背包再装备。手持=已在手上。")
 
     if character.inventory:
         with st.expander("背包", expanded=False):
             for item in character.inventory:
-                st.markdown(f"- **{item.name}**　×{item.quantity}{item.unit}")
+                st.markdown(f"- **{_format_item_line(item)}**")
                 if item.description:
                     st.caption(item.description)
     else:
@@ -54,7 +65,10 @@ def render_character_sheet(character: Character) -> None:
     if character.skills:
         with st.expander("技能", expanded=False):
             for skill in character.skills:
-                st.markdown(f"- **{skill.name}**")
+                line = skill.name
+                if skill.effects and skill.effects.format_summary():
+                    line += f" · {skill.effects.format_summary()}"
+                st.markdown(f"- **{line}**")
                 if skill.description:
                     st.caption(skill.description)
     else:

@@ -5,6 +5,7 @@ import re
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from game.item_kinds import ItemKind, infer_item_kind
+from game.effects import EntityEffects
 
 _STACK_ITEM_RE = re.compile(r"^(.+?)（(\d+)(.+?)）$")
 _QUALIFIER_RE = re.compile(r"^(.+?)（(.+?)）$")
@@ -44,6 +45,12 @@ class InventoryItem(BaseModel):
     unit: str = "个"
     description: str = ""
     kind: ItemKind = "durable"
+    effects: EntityEffects | None = None
+
+    @field_validator("effects", mode="before")
+    @classmethod
+    def _coerce_effects(cls, value):
+        return EntityEffects.coerce(value)
 
     @field_validator("name", "unit", "description")
     @classmethod

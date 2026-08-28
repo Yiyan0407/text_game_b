@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from game.active_gear import ActiveGearEntry, normalize_active_gear
 from game.equipment import (
@@ -18,7 +18,7 @@ from game.inventory import (
     _merge_description,
 )
 from game.skills import Skill, normalize_skills_list, parse_skill_text, split_skill_description
-from game.item_kinds import infer_gear_slot
+from game.effects import EntityEffects
 from game.text_match import fuzzy_match_name
 
 ABILITY_ORDER: tuple[tuple[str, str, str], ...] = (
@@ -75,6 +75,16 @@ class Character(BaseModel):
     def _coerce_skills(cls, value):
         return normalize_skills_list(value)
 
+    @model_validator(mode="after")
+    def _migrate_legacy_active_gear(self) -> Self:
+        for entry in list(self.active_gear):
+            if self.find_inventory_item(entry.item_name) and not self.is_item_equipped(
+                entry.item_name
+            ):
+                self.equip_item(entry.item_name, slot="hand")
+        self.active_gear = []
+        return self
+
     def modifier(self, attr: str) -> int:
         field = ABILITY_FIELDS.get(attr.lower(), attr.lower())
         value = getattr(self, field)
@@ -93,17 +103,19 @@ class Character(BaseModel):
             return "（空，尚未获得任何物品）"
         return "；".join(item.format_detail() for item in self.inventory)
 
-    def format_active_gear(self) -> str:
-        self.prune_active_gear()
-        if not self.active_gear:
-            return "（无）"
-        return "；".join(entry.format_line() for entry in self.active_gear)
-
     def format_equipment(self) -> str:
         self.prune_equipment()
         if not self.equipment:
             return "（无）"
         return "；".join(entry.format_line() for entry in self.equipment)
+
+    def is_item_in_hand(self, item_name: str) -> bool:
+        self.prune_equipment()
+        return self.find_equipment_entry(item_name=item_name, slot="hand") is not None
+
+    def is_item_active(self, item_name: str) -> bool:
+        """兼容旧名：等同于是否装备在手持槽。"""
+        return self.is_item_in_hand(item_name)
 
     def equipment_by_slot(self) -> dict[str, list[str]]:
         """按槽位分组的装备名称（用于界面展示）。"""
@@ -130,12 +142,6 @@ class Character(BaseModel):
     def has_sufficient_inventory(self, item_ref: str, quantity: int = 1) -> bool:
         target = self.find_inventory_item(item_ref)
         return target is not None and target.quantity >= quantity
-
-    def prune_active_gear(self) -> None:
-        names = {item.name for item in self.inventory}
-        self.active_gear = [
-            entry for entry in self.active_gear if entry.item_name in names
-        ]
 
     def prune_equipment(self) -> None:
         names = {item.name for item in self.inventory}
@@ -211,7 +217,6 @@ class Character(BaseModel):
                 return False, f"未装备槽位：{resolved}"
             self.equipment = kept
             for name in removed:
-                self.clear_active_gear_item(name)
                 self._ensure_inventory_on_unequip(name)
             if len(removed) == 1:
                 return True, f"卸下：{removed[0]}（回背包）"
@@ -229,7 +234,6 @@ class Character(BaseModel):
                 break
         if not target_name:
             return False, f"未装备：{item_ref}"
-        self.clear_active_gear_item(target_name)
         self._ensure_inventory_on_unequip(target_name)
         return True, f"卸下：{target_name}（回背包）"
 
@@ -244,33 +248,6 @@ class Character(BaseModel):
             return
         self.equipment = [
             entry for entry in self.equipment if entry.item_name != cleaned
-        ]
-
-    def find_active_gear_slot(self, slot: str) -> ActiveGearEntry | None:
-        for entry in self.active_gear:
-            if entry.slot == slot:
-                return entry
-        return None
-
-    def is_item_active(self, item_name: str) -> bool:
-        self.prune_active_gear()
-        return any(entry.item_name == item_name for entry in self.active_gear)
-
-    def set_active_gear(self, item: InventoryItem) -> str:
-        slot = infer_gear_slot(item.name, item.kind)
-        if slot is None:
-            return f"使用：{item.name}"
-        self.prune_active_gear()
-        self.active_gear = [entry for entry in self.active_gear if entry.slot != slot]
-        self.active_gear.append(ActiveGearEntry(slot=slot, item_name=item.name))
-        status = next(
-            entry.format_line() for entry in self.active_gear if entry.item_name == item.name
-        )
-        return f"持用：{status}"
-
-    def clear_active_gear_item(self, item_name: str) -> None:
-        self.active_gear = [
-            entry for entry in self.active_gear if entry.item_name != item_name.strip()
         ]
 
     def format_skills(self) -> str:
@@ -393,7 +370,6 @@ class Character(BaseModel):
 
         if quantity == target.quantity:
             self.inventory.remove(target)
-            self.clear_active_gear_item(target.name)
             self.clear_equipment_item(target.name)
             return True, f"背包移除：{before}"
 
@@ -407,10 +383,17 @@ class Character(BaseModel):
         return self.add_inventory_item(label, quantity=quantity, unit=unit)
 
     def armor_class(self, defending: bool = False) -> int:
-        ac = 10 + self.modifier("dex")
+        from game.effect_resolver import sum_equipped_ac_bonus
+
+        ac = 10 + self.modifier("dex") + sum_equipped_ac_bonus(self)
         if defending:
             ac += 2
         return ac
+
+    def effective_max_hp(self) -> int:
+        from game.effect_resolver import sum_equipped_max_hp_bonus
+
+        return self.max_hp + sum_equipped_max_hp_bonus(self)
 
     def summary(self) -> str:
         attrs = " ".join(
@@ -452,7 +435,21 @@ class CombatEnemy(BaseModel):
     initiative: int = 0
     attack_bonus: int = 3
     damage_notation: str = "1d6"
+    attack_damage: str = ""
+    sp: int = Field(default=0, ge=0)
+    sp_max: int = Field(default=0, ge=0)
     start_distance_m: int = 10
+
+    @model_validator(mode="after")
+    def _sync_attack_damage(self) -> Self:
+        if not self.attack_damage.strip():
+            object.__setattr__(self, "attack_damage", self.damage_notation)
+        if self.sp_max <= 0 and self.sp > 0:
+            object.__setattr__(self, "sp_max", self.sp)
+        return self
+
+    def effective_attack_damage(self) -> str:
+        return (self.attack_damage or self.damage_notation or "1d6").strip()
 
 
 class CombatState(BaseModel):
@@ -469,6 +466,8 @@ class CombatState(BaseModel):
     movement_remaining_m: int = 9
     enemy_distances: dict[str, int] = Field(default_factory=dict)
     free_interact_used: bool = False
+    smoke_cover_rounds: int = 0
+    flash_disorient_rounds: int = 0
 
     def current_actor(self) -> str:
         if not self.turn_order:
@@ -484,6 +483,9 @@ class CombatState(BaseModel):
         self.turn_index = (self.turn_index + 1) % len(self.turn_order)
         if self.turn_index == 0:
             self.round += 1
+            from game.combat_modifiers import tick_tactical_effects
+
+            tick_tactical_effects(self)
         self.defending = False
         if self.is_player_turn():
             self.action_used = False

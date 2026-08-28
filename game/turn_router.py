@@ -43,7 +43,7 @@ _KP_ITEM_MARKERS = (
     "HUD",
     "接口",
 )
-_MECHANICAL_ITEM_MARKERS = ("获得：", "持用：", "握持：", "背包新增", "支付")
+_MECHANICAL_ITEM_MARKERS = ("获得：", "装备：", "持用：", "握持：", "背包新增", "支付")
 
 
 def should_run_item_sync(ctx: TurnContext) -> bool:
@@ -72,3 +72,12 @@ def should_run_item_sync(ctx: TurnContext) -> bool:
             return True
 
     return False
+
+
+def should_run_stat_forge(ctx: TurnContext) -> bool:
+    """存在尚未经 StatForge 裁定的物品/技能时运行（不依赖关键词）。"""
+    if ctx.rejected:
+        return False
+    from game.stat_forge import collect_forge_targets
+
+    return bool(collect_forge_targets(ctx.character))

@@ -11,6 +11,7 @@ class AbilityCheckResult(BaseModel):
     roll: DiceRoll
     proficiency_bonus: int = 0
     skill_bonus: int = 0
+    situational_bonus: int = 0
     check_total: int = 0
     success: bool
 
@@ -69,6 +70,38 @@ class ActionRouteResult(BaseModel):
     move_toward: bool = True
     ends_turn: bool = False
     proficiency_bonus: bool = False
+    enemy_defs: list["EnemyDefPatch"] = Field(default_factory=list)
+
+
+class EnemyDefPatch(BaseModel):
+    name: str = ""
+    hp: int = 0
+    ac: int = 12
+    attack_damage: str = "1d6"
+    attack_bonus: int = 3
+    sp: int = 0
+    sp_max: int = 0
+    start_distance_m: int = 10
+
+    def to_combat_enemy(self) -> "CombatEnemy":
+        from game.models import CombatEnemy
+
+        hp = max(1, self.hp)
+        sp = max(0, self.sp)
+        sp_max = max(sp, self.sp_max) if self.sp_max > 0 else sp
+        attack = (self.attack_damage or "1d6").strip()
+        return CombatEnemy(
+            name=self.name.strip(),
+            hp=hp,
+            max_hp=hp,
+            ac=max(1, self.ac or 12),
+            attack_bonus=self.attack_bonus,
+            attack_damage=attack,
+            damage_notation=attack,
+            sp=sp,
+            sp_max=sp_max,
+            start_distance_m=max(0, self.start_distance_m or 10),
+        )
 
 
 class ScenePatch(BaseModel):

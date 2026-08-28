@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from game.dice import roll
-from game.item_kinds import infer_gear_slot, is_healing_item
-from game.models import Character
+from game.effect_use import item_has_resolved_use, resolve_item_use
+from game.models import Character, GameState
 
 
-def resolve_use_item(character: Character, item_refs: list[str]) -> list[str]:
+def resolve_use_item(
+    character: Character,
+    item_refs: list[str],
+    *,
+    game_state: GameState | None = None,
+    attack_target: str = "",
+) -> list[str]:
     if not item_refs:
         return ["未指定要使用的物品。"]
 
@@ -28,29 +33,27 @@ def resolve_use_item(character: Character, item_refs: list[str]) -> list[str]:
             "具体内容由 KP 叙事描述；物品仍保留在背包。",
         ]
 
+    use_events = resolve_item_use(
+        character,
+        target,
+        item_ref,
+        game_state=game_state,
+        attack_target=attack_target,
+    )
+    if use_events is not None:
+        return use_events
+
     if target.kind == "durable":
-        if character.is_item_active(target.name):
-            character.clear_active_gear_item(target.name)
-            return [f"收起：{target.name}"]
-        message = character.set_active_gear(target)
+        if character.is_item_in_hand(target.name):
+            ok, message = character.unequip_item(target.name)
+            return [message if ok else f"卸下失败：{message}"]
+        ok, message = character.equip_item(target.name, slot="hand")
+        if not ok:
+            return [message]
         return [message, "具体效果由 KP 叙事描述。"]
 
     ok, consume_msg = character.consume_inventory_quantity(item_ref, 1)
     if not ok:
         return [f"使用失败：{consume_msg}"]
 
-    label = target.name
-    events = [f"使用：{label}（{consume_msg}）"]
-
-    if is_healing_item(item_ref):
-        heal_roll = roll("2d4+2")
-        healed = heal_roll.total
-        before = character.hp
-        character.hp = min(character.max_hp, character.hp + healed)
-        actual = character.hp - before
-        events.append(
-            f"🎲 治疗 {heal_roll.describe()} = {healed} HP，"
-            f"恢复 {actual} 点生命（{character.hp}/{character.max_hp}）"
-        )
-
-    return events
+    return [f"使用：{target.name}（{consume_msg}）"]

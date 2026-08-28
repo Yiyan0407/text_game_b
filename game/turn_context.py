@@ -26,6 +26,7 @@ class TurnContext:
     kp_response: str = ""
     world_state_events: list[str] = field(default_factory=list)
     item_sync_events: list[str] = field(default_factory=list)
+    stat_forge_events: list[str] = field(default_factory=list)
     rejected: bool = False
     rejection_reason: str = ""
     increment_turn: bool = True
@@ -37,7 +38,7 @@ class TurnContext:
 
     @property
     def all_state_events(self) -> list[str]:
-        return self.world_state_events + self.item_sync_events
+        return self.world_state_events + self.item_sync_events + self.stat_forge_events
 
     @property
     def all_tool_events(self) -> list[str]:

@@ -42,8 +42,8 @@ def build_narrative_brief_static(
         lines.append(combat_constraints)
     lines.append(
         "【写作要求】第二人称「你」，遵守叙事收笔与禁止推进；勿复述本简报字段；勿列编号选项。"
-        "叙事须与下方【当前状态】背包、装备、持用、技能一致：已有照明/工具时不可写「没有照明」；"
-        "【装备】中的防具/义体/武器应体现在叙事中；【持用】中的物品应体现在叙事中；检定失败须体现系统已记录的受伤/关系/暴露等后果，"
+        "叙事须与下方【当前状态】背包、装备、技能一致：【装备·手持】中的武器/工具/手电即已在手上；"
+        "【装备·身体】中的防具/义体应体现在叙事中；SP 阻挡/磨损/击穿以机械结果为准；检定失败须体现系统已记录的受伤/关系/暴露等后果，"
         "写察觉不足或环境干扰，勿否定玩家持有物，更不可写失败检定却行动成功。"
     )
     lines.append("")
@@ -89,7 +89,6 @@ def merge_narrative_brief_with_state(
         lines.append(f"已知 NPC：{npc_text}")
     lines.append(f"背包：{character.format_inventory()}")
     lines.append(f"装备：{character.format_equipment()}")
-    lines.append(f"持用：{character.format_active_gear()}")
     lines.append(f"技能：{character.format_skills()}")
     return "\n".join(lines)
 

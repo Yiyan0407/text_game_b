@@ -23,9 +23,13 @@
 - 输入「结束回合」→ combat_action=end_turn，action_cost=free，ends_turn=true
 
 **物品使用（战斗）**：`item_usage=use` 时系统会自动设为 `combat_action=use_item` 并扣对应资源——
-- 药水/食物等消耗品 → **附加动作**
+- 药水/食物/手雷/符箓等消耗品 → **附加动作**
 - 手电/铁锹/武器等快速装备/收起 → **免费物件互动**
 - 查阅文档、复杂操作 → **主要动作**
+
+**对敌消耗品（手雷、炸弹、进攻符等）**：`item_usage=use` + `referenced_items` 填物品名，**`attack_target` 必填**（范围/手雷若系统判定为 AOE 可填任一在场敌人名）；不可省略目标。
+
+**治疗消耗品**：`item_usage=use`，无需 attack_target。
 
 **拔武器**：枪在背包里但未握持时，攻击会先消耗一次免费物件互动；本回合已拾取并握住的武器不再额外消耗。
 
@@ -58,10 +62,10 @@
 
 ### 使用物品（探索模式）
 - 玩家明确**使用/打开/举起/戴上**背包物品 → `item_usage=use`，`referenced_items` 填纯名称
-- **工具、手电、铁锹、武器**：使用后进入「持用」，**不**从背包扣除；再次使用同一物品视为收起
+- **工具、手电、铁锹、武器**：使用后装备到**手持**槽，**不**从背包扣除；再次使用同一物品视为卸下（回背包，仍保留在背包列表）
 - **食物、药水、照明棒**：消耗品，使用后背包扣 1
 - **文档、图纸、名片**：查阅不扣；`action_intent` 写「查阅/出示 xxx」
-- 玩家仅「观察/搜索」但未提使用物品 → 不要设 `item_usage=use`；若【持用】中已有照明，KP 应能写借光观察
+- 玩家仅「观察/搜索」但未提使用物品 → 不要设 `item_usage=use`；若【装备·手持】中已有手电/工具，KP 应能写借光观察
 
 ### 技能（探索模式）
 - **使用已有技能**（「用潜行溜进去」「施展急救」）→ `skill_usage=use`，`referenced_skills` 填技能名；玩家须已掌握，否则驳回。
@@ -103,7 +107,22 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 **不必掷骰**：已在公开合法区域的普通移动、明确无需躲藏的对话、信息已确定的纯观察（无风险）、**本职范围内轻而易举的日常动作**（如渔民辨认渔网、黑客看常规报错）
 
 ### 开战识别
-玩家明显攻击/开战 → trigger_combat=true，enemies_spec（名字:HP:AC），combat_action=attack，attack_target，action_cost=main
+玩家明显攻击/开战 → trigger_combat=true，enemies_spec（名字:HP:AC，兼容旧格式），**enemy_defs**（推荐，含完整战斗数值），combat_action=attack，attack_target，action_cost=main
+
+**enemy_defs 示例**（按当前世界观给合理 damage 与 SP）：
+```json
+"enemy_defs": [
+  {"name": "保安", "hp": 12, "ac": 12, "attack_damage": "1d6", "sp": 0},
+  {"name": "战术组", "hp": 24, "ac": 14, "attack_damage": "2d8", "sp": 12}
+]
+```
+| world_id | 典型 attack_damage | 典型 sp |
+|----------|-------------------|---------|
+| modern | 1d6–1d10 | 0–6 |
+| cyberpunk | 2d8–2d10 | 8–15 |
+| xianxia | 1d8–2d8 | 4–10 |
+
+同世界观内敌人 damage/SP 应与玩家装备量级匹配；跨时代可自然碾压。
 
 ---
 
@@ -117,7 +136,7 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 - **购买/交易**（`item_usage=purchase`）→ approved=false，「战斗中无法购买，请战斗结束后再交易。」
 
 ### 可以批准 — 拾取
-- 拾取眼前掉落物、战场物品 → `item_usage=pickup`，`combat_action=none`，`referenced_items` 填物品名；`action_cost=free`（**免费物件互动**，每回合 1 次；武器会自动握持）。
+- 拾取眼前掉落物、战场物品 → `item_usage=pickup`，`combat_action=none`，`referenced_items` 填物品名；`action_cost=free`（**免费物件互动**，每回合 1 次；武器会自动装备到**手持**）。
 - **同一句话里既有拾取又有射击/攻击时**：若【游戏状态】显示主要动作已用尽，则必须 `approved=false`；若免费物件互动已用尽，也无法再拾取。
 - **同一回合不可在一次输入里同时消耗主要动作+附加动作后又追加第三个主要动作**；复合请求超出动作池时必须驳回并说明。
 
@@ -140,7 +159,7 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 | end_turn | 结束本回合 | free，ends_turn=true |
 
 ### 可以批准 — 附加动作（action_cost=bonus）
-| use_item | 使用消耗品（药水、食物等；`item_usage=use` 会自动映射） | false |
+| use_item | 使用消耗品（药水、手雷、符箓等；`item_usage=use` 会自动映射）；**对敌伤害类须填 attack_target** | false |
 
 ### 可以批准 — 免费物件互动（action_cost=free）
 | pickup | 拾取眼前物品（见上） | false |
@@ -155,5 +174,5 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 approved, rejection_reason, needs_roll, roll_type, ability, dc, dice_notation, proficiency_bonus,
 referenced_items, referenced_skills, payment_items, payment_quantity, item_usage, skill_usage,
 action_intent, scope_stop, must_not_narrate,
-mode, trigger_combat, enemies_spec, combat_action, action_cost, attack_target,
+mode, trigger_combat, enemies_spec, enemy_defs, combat_action, action_cost, attack_target,
 move_target, move_meters, move_toward, ends_turn
