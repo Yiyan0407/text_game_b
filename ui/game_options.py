@@ -7,7 +7,6 @@ import streamlit as st
 from game.game_config import (
     KP_GUIDANCE_LABELS,
     GameConfig,
-    KpGuidance,
 )
 
 KP_GUIDANCE_KEY = "game_option_kp_guidance"
@@ -21,12 +20,21 @@ def init_game_options_defaults() -> None:
         st.session_state[BG_VALIDATION_KEY] = True
 
 
+def get_game_config_from_session() -> GameConfig:
+    """从 session 读取当前选项（不渲染 widget）。"""
+    init_game_options_defaults()
+    return GameConfig(
+        kp_guidance=st.session_state[KP_GUIDANCE_KEY],
+        enable_background_validation=st.session_state[BG_VALIDATION_KEY],
+    )
+
+
 def render_game_options(*, show_background_validation: bool = True) -> GameConfig:
     """渲染游戏选项，返回当前选择。"""
     init_game_options_defaults()
 
     with st.expander("⚙️ 游戏选项", expanded=False):
-        guidance: KpGuidance = st.radio(
+        st.radio(
             "KP 引导强度",
             options=list(KP_GUIDANCE_LABELS.keys()),
             format_func=lambda key: KP_GUIDANCE_LABELS[key],
@@ -37,7 +45,6 @@ def render_game_options(*, show_background_validation: bool = True) -> GameConfi
             ),
         )
 
-        enable_bg_validation = True
         if show_background_validation:
             enable_bg_validation = st.checkbox(
                 "启用背景平衡审核",
@@ -50,7 +57,4 @@ def render_game_options(*, show_background_validation: bool = True) -> GameConfi
                     "KP 仍会尽量按规则叙事，但不保证完全兼容。"
                 )
 
-    return GameConfig(
-        kp_guidance=guidance,
-        enable_background_validation=enable_bg_validation,
-    )
+    return get_game_config_from_session()

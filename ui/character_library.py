@@ -148,7 +148,7 @@ def render_character_selection(scenario) -> None:
 
     from ui.game_options import render_game_options
 
-    game_config = render_game_options(show_background_validation=False)
+    game_config = render_game_options(show_background_validation=True)
 
     if cards:
         st.subheader("已有角色卡")
@@ -169,7 +169,7 @@ def render_character_selection(scenario) -> None:
 
     st.divider()
     st.subheader("创建新角色")
-    render_character_creation(scenario, creating_new_card=True)
+    render_character_creation(scenario, creating_new_card=True, game_config=game_config)
 
     if st.button("返回选模组", use_container_width=True):
         st.session_state.page = "select_scenario"

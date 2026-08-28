@@ -217,7 +217,12 @@ def render_scenario_selection() -> None:
         st.rerun()
 
 
-def render_character_creation(scenario: Scenario, *, creating_new_card: bool = False) -> None:
+def render_character_creation(
+    scenario: Scenario,
+    *,
+    creating_new_card: bool = False,
+    game_config=None,
+) -> None:
     from config.settings import get_settings
     from game.character_creation import build_character, roll_ability_scores
 
@@ -307,9 +312,11 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
         "草稿会自动保存到本机，切换页面或刷新浏览器后可继续编辑。"
     )
 
-    from ui.game_options import render_game_options
+    if game_config is None:
+        from ui.game_options import render_game_options
 
-    game_config = render_game_options(show_background_validation=True)
+        game_config = render_game_options(show_background_validation=True)
+
     sync_character_draft_to_disk(scenario.id, default_world=default_world)
     start_clicked = st.button("开始冒险", type="primary", use_container_width=True)
 
