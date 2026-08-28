@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from game.item_kinds import ItemKind, infer_item_kind
 
 _STACK_ITEM_RE = re.compile(r"^(.+?)（(\d+)(.+?)）$")
 _QUALIFIER_RE = re.compile(r"^(.+?)（(.+?)）$")
@@ -41,11 +43,21 @@ class InventoryItem(BaseModel):
     quantity: int = Field(default=1, ge=1)
     unit: str = "个"
     description: str = ""
+    kind: ItemKind = "durable"
 
     @field_validator("name", "unit", "description")
     @classmethod
     def _strip_text(cls, value: str) -> str:
         return value.strip()
+
+    @model_validator(mode="after")
+    def _apply_kind(self) -> InventoryItem:
+        object.__setattr__(
+            self,
+            "kind",
+            infer_item_kind(self.name, self.unit, self.description),
+        )
+        return self
 
     def display(self) -> str:
         if self.quantity == 1 and self.unit == "个":

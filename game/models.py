@@ -2,6 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from game.active_gear import ActiveGearEntry, normalize_active_gear
 from game.inventory import (
     InventoryItem,
     merge_item_stacks,
@@ -10,6 +11,7 @@ from game.inventory import (
     _merge_description,
 )
 from game.skills import Skill, normalize_skills_list, parse_skill_text, split_skill_description
+from game.item_kinds import infer_gear_slot
 from game.text_match import fuzzy_match_name
 
 ABILITY_ORDER: tuple[tuple[str, str, str], ...] = (
@@ -43,11 +45,17 @@ class Character(BaseModel):
     max_hp: int = Field(default=20, ge=1)
     inventory: list[InventoryItem] = Field(default_factory=list)
     skills: list[Skill] = Field(default_factory=list)
+    active_gear: list[ActiveGearEntry] = Field(default_factory=list)
 
     @field_validator("inventory", mode="before")
     @classmethod
     def _coerce_inventory(cls, value):
         return normalize_inventory_list(value)
+
+    @field_validator("active_gear", mode="before")
+    @classmethod
+    def _coerce_active_gear(cls, value):
+        return normalize_active_gear(value)
 
     @field_validator("skills", mode="before")
     @classmethod
@@ -72,6 +80,12 @@ class Character(BaseModel):
             return "（空，尚未获得任何物品）"
         return "；".join(item.format_detail() for item in self.inventory)
 
+    def format_active_gear(self) -> str:
+        self.prune_active_gear()
+        if not self.active_gear:
+            return "（无）"
+        return "；".join(entry.format_line() for entry in self.active_gear)
+
     def inventory_displays(self) -> list[str]:
         return [item.format_detail() for item in self.inventory]
 
@@ -87,6 +101,39 @@ class Character(BaseModel):
     def has_sufficient_inventory(self, item_ref: str, quantity: int = 1) -> bool:
         target = self.find_inventory_item(item_ref)
         return target is not None and target.quantity >= quantity
+
+    def prune_active_gear(self) -> None:
+        names = {item.name for item in self.inventory}
+        self.active_gear = [
+            entry for entry in self.active_gear if entry.item_name in names
+        ]
+
+    def find_active_gear_slot(self, slot: str) -> ActiveGearEntry | None:
+        for entry in self.active_gear:
+            if entry.slot == slot:
+                return entry
+        return None
+
+    def is_item_active(self, item_name: str) -> bool:
+        self.prune_active_gear()
+        return any(entry.item_name == item_name for entry in self.active_gear)
+
+    def set_active_gear(self, item: InventoryItem) -> str:
+        slot = infer_gear_slot(item.name, item.kind)
+        if slot is None:
+            return f"使用：{item.name}"
+        self.prune_active_gear()
+        self.active_gear = [entry for entry in self.active_gear if entry.slot != slot]
+        self.active_gear.append(ActiveGearEntry(slot=slot, item_name=item.name))
+        status = next(
+            entry.format_line() for entry in self.active_gear if entry.item_name == item.name
+        )
+        return f"持用：{status}"
+
+    def clear_active_gear_item(self, item_name: str) -> None:
+        self.active_gear = [
+            entry for entry in self.active_gear if entry.item_name != item_name.strip()
+        ]
 
     def format_skills(self) -> str:
         if not self.skills:
@@ -208,6 +255,7 @@ class Character(BaseModel):
 
         if quantity == target.quantity:
             self.inventory.remove(target)
+            self.clear_active_gear_item(target.name)
             return True, f"背包移除：{before}"
 
         target.quantity -= quantity

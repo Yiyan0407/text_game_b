@@ -61,6 +61,7 @@ class StateAgent:
                     "【玩家角色】\n"
                     "姓名：{character_name}\n"
                     "背包：{character_inventory}\n"
+                    "持用：{character_active_gear}\n"
                     "技能：{character_skills}\n\n"
                     "【路由裁定】\n{route_summary}\n\n"
                     "【机械结算结果】\n{mechanical_events}\n\n"
@@ -114,6 +115,7 @@ class StateAgent:
             "game_state_context": game_state.format_for_prompt(),
             "character_name": character.name,
             "character_inventory": character.format_inventory(),
+            "character_active_gear": character.format_active_gear(),
             "character_skills": character.format_skills(),
             "route_summary": _format_route_summary(route),
             "mechanical_events": _format_mechanical_events(mechanical_events),

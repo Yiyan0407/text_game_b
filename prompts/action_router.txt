@@ -43,6 +43,13 @@
 - 系统会先扣款并交付商品；KP 叙事中若有**找零/找补**，须再 `update_inventory(add)` 记录零钱
 - **禁止**只增加商品而不标注 payment_items
 
+### 使用物品（探索模式）
+- 玩家明确**使用/打开/举起/戴上**背包物品 → `item_usage=use`，`referenced_items` 填纯名称
+- **工具、手电、铁锹、武器**：使用后进入「持用」，**不**从背包扣除；再次使用同一物品视为收起
+- **食物、药水、照明棒**：消耗品，使用后背包扣 1
+- **文档、图纸、名片**：查阅不扣；`action_intent` 写「查阅/出示 xxx」
+- 玩家仅「观察/搜索」但未提使用物品 → 不要设 `item_usage=use`；若【持用】中已有照明，KP 应能写借光观察
+
 ### 技能（探索模式）
 - **使用已有技能**（「用潜行溜进去」「施展急救」）→ `skill_usage=use`，`referenced_skills` 填技能名；玩家须已掌握，否则驳回。
 - 学习/请教/训练（「向老周学开锁」「请 NPC 教潜行」「练习急救」）→ `skill_usage=learn`，`referenced_skills` 填欲习得的技能名；**即使尚未掌握也批准**；通常 `needs_roll=true`（int/wis/dex，**dc 由难度裁定 10–20**）；KP 在成功/NPC 同意后须 `update_skills(add)`。
