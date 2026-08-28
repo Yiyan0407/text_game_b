@@ -30,6 +30,29 @@ def test_equip_item_from_inventory():
     assert "身体" in character.format_equipment()
 
 
+def test_explicit_slot_equip_without_keywords():
+    character = Character(name="测试")
+    game_state = GameState()
+    patch = StatePatch(
+        inventory=[
+            InventoryPatch(
+                action="add",
+                item="未知模块",
+                quantity=1,
+                unit="套",
+                kind="durable",
+            ),
+        ],
+        equipment=[
+            EquipmentPatch(action="equip", item="未知模块", slot="body"),
+        ],
+    )
+    apply_state_patch(patch, character, game_state)
+    entry = character.find_equipment_entry(item_name="未知模块")
+    assert entry is not None
+    assert entry.slot == "body"
+
+
 def test_multiple_hand_and_body_items():
     character = Character(name="测试")
     character.add_inventory_item("短剑", quantity=1, unit="把")

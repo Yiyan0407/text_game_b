@@ -787,7 +787,7 @@ def resolve_pickup_in_combat(
     game_state: GameState,
     items: list[str],
 ) -> list[str]:
-    from game.item_kinds import infer_gear_slot
+    from game.combat_item_use import should_auto_equip_weapon_on_pickup
 
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
@@ -801,14 +801,10 @@ def resolve_pickup_in_combat(
         if character.add_inventory_item(item):
             events.append(f"获得：{item}")
             picked = character.find_inventory_item(item)
-            if picked is not None:
-                from game.item_kinds import infer_gear_slot
-
-                slot = infer_gear_slot(picked.name, picked.kind)
-                if slot == "weapon":
-                    ok, equip_msg = character.equip_item(picked.name, slot="hand")
-                    if ok:
-                        events.append(equip_msg)
+            if picked is not None and should_auto_equip_weapon_on_pickup(picked):
+                ok, equip_msg = character.equip_item(picked.name, slot="hand")
+                if ok:
+                    events.append(equip_msg)
     if not events:
         return ["没有可拾取的物品。"]
     return events

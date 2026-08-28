@@ -7,6 +7,7 @@
 | **被动** | 装备在 body/hand/accessory | `sp/sp_max`、`ac_bonus`、`max_hp_bonus` |
 | **攻击** | 战斗 `attack` 动作、物品在手持 | `attack_damage`、`attack_bonus`、`use_dex` |
 | **使用** | 战斗/探索 `use_item` 动作 | `heal_dice`、`use_damage`、`use_auto_hit`、`use_tag`、`consumes_on_use` |
+| **手持用途** | 战斗中使用耐久品是否免主动作 | `gear_slot`: `weapon` / `light` / `tool`（无 attack 通道的手电/铁锹等须填） |
 
 ### 使用通道说明
 - `heal_dice`：对自己掷骰回血（回血丹、回春符、强心针）
@@ -31,7 +32,7 @@
 
 ## 字段一览
 attack_damage, attack_bonus, use_dex, sp, sp_max, ac_bonus, max_hp_bonus,
-heal_dice, use_damage, use_aoe, use_auto_hit, use_tag, consumes_on_use
+heal_dice, use_damage, use_aoe, use_auto_hit, use_tag, consumes_on_use, gear_slot
 
 ## 世界观量级
 | world_id | attack / use_damage | SP | heal_dice |
@@ -65,6 +66,13 @@ heal_dice, use_damage, use_aoe, use_auto_hit, use_tag, consumes_on_use
       "effects": {{
         "attack_damage": "1d6",
         "use_dex": true
+      }}
+    }},
+    {{
+      "kind": "item",
+      "name": "头戴式手电筒",
+      "effects": {{
+        "gear_slot": "light"
       }}
     }}
   ]

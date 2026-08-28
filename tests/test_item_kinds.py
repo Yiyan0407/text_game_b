@@ -25,5 +25,10 @@ def test_inventory_item_applies_kind():
     assert infer_gear_slot(item.name, item.kind) == "light"
 
 
+def test_inventory_item_respects_explicit_kind():
+    item = InventoryItem(name="定金币", quantity=15, unit="枚", kind="document")
+    assert item.kind == "document"
+
+
 def test_gold_coin_name_is_durable_not_substring_gold():
     assert infer_item_kind("定金币", unit="枚") == "durable"

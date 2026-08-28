@@ -24,10 +24,13 @@ class EntityEffects(BaseModel):
     use_aoe: bool = False
     use_tag: str = ""
     consumes_on_use: bool | None = None
+    gear_slot: str = ""
 
     forged: bool = False
 
-    @field_validator("attack_damage", "heal_dice", "use_damage", "use_tag", mode="before")
+    @field_validator(
+        "attack_damage", "heal_dice", "use_damage", "use_tag", "gear_slot", mode="before"
+    )
     @classmethod
     def _strip_text_fields(cls, value) -> str:
         return str(value or "").strip()
@@ -94,6 +97,15 @@ class EntityEffects(BaseModel):
         if self.consumes_on_use is not None:
             return self.consumes_on_use
         return self.has_use_effect()
+
+    def inferred_gear_slot(self) -> str | None:
+        """StatForge 裁定的手持用途：weapon / light / tool。"""
+        slot = self.gear_slot.strip().lower()
+        if slot in ("weapon", "light", "tool"):
+            return slot
+        if self.has_attack_profile():
+            return "weapon"
+        return None
 
     @classmethod
     def coerce(cls, value) -> EntityEffects | None:

@@ -14,6 +14,40 @@ def test_apply_inventory_change_add():
     assert character.has_inventory_item("火把")
 
 
+def test_apply_inventory_change_respects_explicit_kind():
+    character = Character(name="测试")
+    apply_inventory_change(
+        character,
+        InventoryPatch(
+            action="add",
+            item="定金币",
+            quantity=15,
+            unit="枚",
+            kind="document",
+        ),
+    )
+    item = character.find_inventory_item("定金币")
+    assert item is not None
+    assert item.kind == "document"
+
+
+def test_patch_from_dict_coerces_kind():
+    patch = patch_from_dict(
+        {
+            "inventory": [
+                {
+                    "action": "add",
+                    "item": "压缩饼干",
+                    "quantity": 3,
+                    "unit": "包",
+                    "kind": "consumable",
+                }
+            ]
+        }
+    )
+    assert patch.inventory[0].kind == "consumable"
+
+
 def test_apply_inventory_change_blocks_delivered_duplicate():
     character = Character(name="测试")
     delivered = frozenset({"止血凝胶"})

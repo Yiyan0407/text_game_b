@@ -26,9 +26,10 @@ def format_equipment_sync_hint(
                 break
 
     lines = [
-        "须结合【最近对话】【玩家行动】【机械结算】【背包/装备现状】自行判断：",
-        "- 叙事上已完成穿戴/植入/装配，或体内/背景义体被确认存在且可用 → 须 inventory add（如需）并 **equipment equip**",
-        "- 纯观察/盘点/询问且未改变装备状态 → 勿 equip",
+        "须结合【最近对话】【玩家行动】【机械结算】【背包/装备现状】【角色背景】自行判断：",
+        "- 叙事上已完成穿戴/植入/装配，或 KP 确认存在的体内/背景义体模块 → 须 inventory add（如需）并 **equipment equip**",
+        "- 义体自检/盘点：KP 逐项列出模块且确认在线/可用 → **仍须**首次登记到 inventory + body equip，不可因「只是检查」而跳过",
+        "- 纯观察/询问且**叙事未引入新物品、装备栏已完整同步** → 输出 `{}`",
         "- **禁止**只写 memory_facts 而不入库、不进装备栏",
         "勿依赖玩家是否说了「都装上」等字眼；以情境为准。",
     ]
@@ -40,7 +41,7 @@ def format_equipment_sync_hint(
         marker in recent_kp for marker in ("义体", "植入", "芯片", "接口", "模块", "HUD")
     ):
         lines.append(
-            "【提示】最近 KP 叙事可能列出了体内模块或已完成装配；请逐项同步到 inventory + body/hand/accessory equip。"
+            "【提示】KP 叙事可能列出了体内模块；请逐项阅读 KP 原文，自行判断哪些须 inventory add + body equip（description=已植入）。"
         )
 
     return "\n".join(lines)

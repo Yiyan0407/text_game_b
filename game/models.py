@@ -323,6 +323,7 @@ class Character(BaseModel):
         quantity: int = 1,
         unit: str = "个",
         description: str = "",
+        kind: str | None = None,
     ) -> bool:
         if isinstance(item, InventoryItem):
             incoming = item.model_copy()
@@ -336,12 +337,15 @@ class Character(BaseModel):
                     incoming.description = description.strip()
             else:
                 qty, normalized_unit = normalize_item_quantity_unit(quantity, unit)
-                incoming = InventoryItem(
-                    name=text,
-                    quantity=qty,
-                    unit=normalized_unit,
-                    description=description.strip(),
-                )
+                item_kwargs: dict = {
+                    "name": text,
+                    "quantity": qty,
+                    "unit": normalized_unit,
+                    "description": description.strip(),
+                }
+                if kind in ("consumable", "durable", "document"):
+                    item_kwargs["kind"] = kind
+                incoming = InventoryItem(**item_kwargs)
 
         qty, normalized_unit = normalize_item_quantity_unit(
             incoming.quantity, incoming.unit

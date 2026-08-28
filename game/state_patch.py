@@ -59,6 +59,7 @@ def apply_inventory_change(
             quantity=quantity,
             unit=unit,
             description=description,
+            kind=patch.kind,
         ):
             added.add(item_name)
             matched = character.find_inventory_item(cleaned)
@@ -618,6 +619,12 @@ def _coerce_inventory_list(value) -> list[InventoryPatch]:
             quantity = max(1, int(qty))
         except (TypeError, ValueError):
             quantity = 1
+        kind_raw = str(item.get("kind", "")).strip().lower()
+        kind = (
+            kind_raw
+            if kind_raw in ("consumable", "durable", "document")
+            else None
+        )
         items.append(
             InventoryPatch(
                 action=action,  # type: ignore[arg-type]
@@ -625,6 +632,7 @@ def _coerce_inventory_list(value) -> list[InventoryPatch]:
                 quantity=quantity,
                 unit=str(item.get("unit", "个")).strip() or "个",
                 description=str(item.get("description", "")).strip(),
+                kind=kind,  # type: ignore[arg-type]
             )
         )
     return [inv for inv in items if inv.item]

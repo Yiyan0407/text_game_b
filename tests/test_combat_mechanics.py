@@ -509,3 +509,36 @@ def test_resolve_dash_adds_movement():
     assert "疾跑" in result
     assert game_state.combat.movement_remaining_m == 12
     assert game_state.combat.has_main_action() is False
+
+
+def test_combat_use_item_cost_free_when_hand_equipped():
+    from game.combat_item_use import combat_use_item_cost
+    from game.inventory import InventoryItem
+
+    character = Character(
+        name="测试",
+        inventory=[
+            InventoryItem(name="多功能装置", quantity=1, unit="套", kind="durable")
+        ],
+    )
+    character.equip_item("多功能装置", slot="hand")
+    assert combat_use_item_cost(character, "多功能装置") == "free"
+
+
+def test_combat_use_item_cost_free_from_effects_gear_slot():
+    from game.combat_item_use import combat_use_item_cost
+    from game.inventory import InventoryItem
+
+    character = Character(
+        name="测试",
+        inventory=[
+            InventoryItem(
+                name="多功能装置",
+                quantity=1,
+                unit="套",
+                kind="durable",
+                effects={"gear_slot": "tool", "forged": True},
+            )
+        ],
+    )
+    assert combat_use_item_cost(character, "多功能装置") == "free"

@@ -129,6 +129,7 @@ class InventoryPatch(BaseModel):
     quantity: int = 1
     unit: str = "个"
     description: str = ""
+    kind: Literal["consumable", "durable", "document"] | None = None
 
 
 class SkillPatch(BaseModel):

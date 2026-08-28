@@ -44,7 +44,7 @@ class InventoryItem(BaseModel):
     quantity: int = Field(default=1, ge=1)
     unit: str = "个"
     description: str = ""
-    kind: ItemKind = "durable"
+    kind: ItemKind | None = None
     effects: EntityEffects | None = None
 
     @field_validator("effects", mode="before")
@@ -59,11 +59,12 @@ class InventoryItem(BaseModel):
 
     @model_validator(mode="after")
     def _apply_kind(self) -> InventoryItem:
-        object.__setattr__(
-            self,
-            "kind",
-            infer_item_kind(self.name, self.unit, self.description),
-        )
+        if self.kind is None:
+            object.__setattr__(
+                self,
+                "kind",
+                infer_item_kind(self.name, self.unit, self.description),
+            )
         return self
 
     def display(self) -> str:
