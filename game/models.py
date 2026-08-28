@@ -3,6 +3,13 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 from game.active_gear import ActiveGearEntry, normalize_active_gear
+from game.equipment import (
+    EquipmentEntry,
+    EquipmentSlot,
+    infer_equipment_slot,
+    is_valid_equipment_slot,
+    normalize_equipment,
+)
 from game.inventory import (
     InventoryItem,
     merge_item_stacks,
@@ -46,6 +53,7 @@ class Character(BaseModel):
     inventory: list[InventoryItem] = Field(default_factory=list)
     skills: list[Skill] = Field(default_factory=list)
     active_gear: list[ActiveGearEntry] = Field(default_factory=list)
+    equipment: list[EquipmentEntry] = Field(default_factory=list)
 
     @field_validator("inventory", mode="before")
     @classmethod
@@ -56,6 +64,11 @@ class Character(BaseModel):
     @classmethod
     def _coerce_active_gear(cls, value):
         return normalize_active_gear(value)
+
+    @field_validator("equipment", mode="before")
+    @classmethod
+    def _coerce_equipment(cls, value):
+        return normalize_equipment(value)
 
     @field_validator("skills", mode="before")
     @classmethod
@@ -86,6 +99,12 @@ class Character(BaseModel):
             return "（无）"
         return "；".join(entry.format_line() for entry in self.active_gear)
 
+    def format_equipment(self) -> str:
+        self.prune_equipment()
+        if not self.equipment:
+            return "（无）"
+        return "；".join(entry.format_line() for entry in self.equipment)
+
     def inventory_displays(self) -> list[str]:
         return [item.format_detail() for item in self.inventory]
 
@@ -106,6 +125,115 @@ class Character(BaseModel):
         names = {item.name for item in self.inventory}
         self.active_gear = [
             entry for entry in self.active_gear if entry.item_name in names
+        ]
+
+    def prune_equipment(self) -> None:
+        names = {item.name for item in self.inventory}
+        self.equipment = [
+            entry for entry in self.equipment if entry.item_name in names
+        ]
+
+    def find_equipment_entry(
+        self,
+        *,
+        item_name: str = "",
+        slot: str = "",
+    ) -> EquipmentEntry | None:
+        self.prune_equipment()
+        for entry in self.equipment:
+            if slot and entry.slot != slot:
+                continue
+            if item_name and entry.item_name != item_name:
+                if not fuzzy_match_name(item_name, entry.item_name):
+                    continue
+            return entry
+        return None
+
+    def is_item_equipped(self, item_name: str) -> bool:
+        self.prune_equipment()
+        return any(
+            fuzzy_match_name(item_name, entry.item_name) for entry in self.equipment
+        )
+
+    def equip_item(
+        self,
+        item_ref: str,
+        *,
+        slot: EquipmentSlot | None = None,
+    ) -> tuple[bool, str]:
+        target = self.find_inventory_item(item_ref)
+        if target is None:
+            return False, f"背包中没有：{item_ref}"
+
+        resolved = slot or infer_equipment_slot(target.name, target.description)
+        if resolved is None:
+            return False, f"无法判断装备槽位：{target.name}"
+
+        self.prune_equipment()
+        if self.is_item_equipped(target.name):
+            return False, f"已装备：{target.name}"
+
+        self.equipment.append(
+            EquipmentEntry(slot=resolved, item_name=target.name)
+        )
+        entry = self.find_equipment_entry(item_name=target.name, slot=resolved)
+        label = entry.format_line() if entry else target.name
+        return True, f"装备：{label}"
+
+    def unequip_item(
+        self,
+        item_ref: str = "",
+        *,
+        slot: str = "",
+    ) -> tuple[bool, str]:
+        if slot and is_valid_equipment_slot(slot):
+            from game.equipment import coerce_equipment_slot
+
+            resolved = coerce_equipment_slot(slot)
+            removed: list[str] = []
+            kept: list[EquipmentEntry] = []
+            for entry in self.equipment:
+                if entry.slot == resolved:
+                    removed.append(entry.item_name)
+                else:
+                    kept.append(entry)
+            if not removed:
+                return False, f"未装备槽位：{resolved}"
+            self.equipment = kept
+            for name in removed:
+                self.clear_active_gear_item(name)
+                self._ensure_inventory_on_unequip(name)
+            if len(removed) == 1:
+                return True, f"卸下：{removed[0]}（回背包）"
+            joined = "、".join(removed)
+            return True, f"卸下：{joined}（回背包）"
+
+        if not item_ref.strip():
+            return False, "未指定要卸下的物品。"
+
+        target_name = ""
+        for entry in list(self.equipment):
+            if fuzzy_match_name(item_ref, entry.item_name):
+                target_name = entry.item_name
+                self.equipment.remove(entry)
+                break
+        if not target_name:
+            return False, f"未装备：{item_ref}"
+        self.clear_active_gear_item(target_name)
+        self._ensure_inventory_on_unequip(target_name)
+        return True, f"卸下：{target_name}（回背包）"
+
+    def _ensure_inventory_on_unequip(self, item_name: str) -> None:
+        """卸下后物品应仍在背包；若缺失则补回（防止误删）。"""
+        if not self.has_inventory_item(item_name):
+            self.add_inventory_item(item_name, quantity=1)
+
+    def clear_equipment_item(self, item_name: str) -> None:
+        cleaned = item_name.strip()
+        if not cleaned:
+            return
+        self.equipment = [
+            entry for entry in self.equipment if entry.item_name != cleaned
         ]
 
     def find_active_gear_slot(self, slot: str) -> ActiveGearEntry | None:
@@ -256,6 +384,7 @@ class Character(BaseModel):
         if quantity == target.quantity:
             self.inventory.remove(target)
             self.clear_active_gear_item(target.name)
+            self.clear_equipment_item(target.name)
             return True, f"背包移除：{before}"
 
         target.quantity -= quantity

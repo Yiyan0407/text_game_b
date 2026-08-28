@@ -35,6 +35,7 @@ def build_kp_prompt(world_id: str = DEFAULT_WORLD_ID) -> ChatPromptTemplate:
                 "属性：{character_abilities}\n"
                 "生命：HP {hp}/{max_hp}\n"
                 "背包：{character_inventory}\n"
+                "装备：{character_equipment}\n"
                 "持用：{character_active_gear}\n"
                 "技能：{character_skills}",
             ),

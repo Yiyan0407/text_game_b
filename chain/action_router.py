@@ -266,6 +266,7 @@ class ActionRouter:
                     "属性：{character_abilities}\n"
                     "生命：HP {hp}/{max_hp}\n"
                     "背包：{character_inventory}\n"
+                    "装备：{character_equipment}\n"
                     "持用：{character_active_gear}\n"
                     "技能：{character_skills}\n\n"
                     "【最近对话】\n{recent_history}\n\n"
@@ -293,6 +294,7 @@ class ActionRouter:
             "hp": character.hp,
             "max_hp": character.max_hp,
             "character_inventory": character.format_inventory(),
+            "character_equipment": character.format_equipment(),
             "character_active_gear": character.format_active_gear(),
             "character_skills": character.format_skills(),
             "recent_history": _format_recent_history(history),

@@ -12,6 +12,7 @@
   "npcs": [{{"name": "老约翰", "attitude": "unknown", "notes": "失踪渔民，62岁"}}],
   "quests": [{{"quest_id": "q1", "title": "寻人", "status": "active", "description": "..."}}],
   "inventory": [{{"action": "add", "item": "铜板", "quantity": 15, "unit": "枚", "description": "找零"}}],
+  "equipment": [{{"action": "equip", "item": "短剑", "slot": "hand"}}],
   "skills": [{{"action": "add", "skill": "潜行", "description": "短距离隐蔽移动"}}],
   "memory_facts": ["铁匠答应明天交货"],
   "time": {{
@@ -80,6 +81,20 @@
 - **仅 pickup 成功才可 add 新物品**：`item_usage=pickup` 时须有机械层 `获得：`；检定失败、结束回合、装备、对峙等**禁止** add
 - **消耗/付款勿重复 remove**：机械层已 `使用：` / `背包移除` / 扣款时，**禁止** inventory 再 remove 同名物品
 - **消耗品**（食物、药水、照明棒等）使用后由机械层扣数量；**工具/手电/武器**使用后会进入「持用」不扣数量；**文档/图纸**查阅不扣
+- 物品**进入背包后仍在背包**；穿戴/植入/挂载另写 **equipment**，不会把物品从背包移除
+
+### equipment（装备栏）
+- 玩家**穿戴、挂载、植入、装配完成**的物品须 `action=equip`；**卸下/拆除**时 `action=unequip`
+- **卸下 = 回背包**：`unequip` 只从装备栏移除，物品**仍在背包**；**禁止**对刚卸下的物品写 `inventory remove`（remove 仅用于丢弃/消耗/交出）
+- 若要丢弃已装备物品：同轮先 `equipment unequip` 再 `inventory remove`
+- **须先在背包**：同轮先 `inventory add` 再 `equipment equip`（顺序在 JSON 中 inventory 写在 equipment 前）
+- **槽位 slot**（可省略，系统会按名称推断；**只用以下三类**）：
+  - `hand` **手持**：武器、盾牌、工具等拿在手里/挂载的快速使用物
+  - `body` **身体**：防具、义体、植入物、义眼、脊柱、操作系统、AI 等穿戴/植入全身的
+  - `accessory` **配件**：戒指、徽章、外挂模块等（**可多件**）
+- **hand / body / accessory 均可多件并存**（同一件不可重复 equip）
+- **物品完整性**：本轮完成装备/植入的所有物品均须 equip，含新领取与从库房/封存处取出的旧装备，不可只 equip 一部分
+- **装备栏 vs 持用**：装备栏=已挂载/已穿戴/已植入；持用=正在手里用/照明中/拔出的武器。武器可同时出现在手持（挂载）与持用（拔出）
 
 ### skills
 - NPC 传授、训练成功、任务奖励 → action=add（含 description）

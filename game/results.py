@@ -103,6 +103,12 @@ class SkillPatch(BaseModel):
     description: str = ""
 
 
+class EquipmentPatch(BaseModel):
+    action: Literal["equip", "unequip"] = "equip"
+    item: str = ""
+    slot: str = ""
+
+
 class DeadlinePatch(BaseModel):
     id: str = ""
     label: str = ""
@@ -126,6 +132,7 @@ class StatePatch(BaseModel):
     npcs: list[NpcPatch] = Field(default_factory=list)
     quests: list[QuestPatch] = Field(default_factory=list)
     inventory: list[InventoryPatch] = Field(default_factory=list)
+    equipment: list[EquipmentPatch] = Field(default_factory=list)
     skills: list[SkillPatch] = Field(default_factory=list)
     memory_facts: list[str] = Field(default_factory=list)
     time: TimePatch | None = None

@@ -64,6 +64,7 @@ class StateAgent:
                     "背景：{character_background}\n"
                     "属性：{character_abilities}\n"
                     "背包：{character_inventory}\n"
+                    "装备：{character_equipment}\n"
                     "持用：{character_active_gear}\n"
                     "技能：{character_skills}\n\n"
                     "【路由裁定】\n{route_summary}\n\n"
@@ -121,6 +122,7 @@ class StateAgent:
             "character_background": character.background.strip() or "（未填写）",
             "character_abilities": character.format_abilities(),
             "character_inventory": character.format_inventory(),
+            "character_equipment": character.format_equipment(),
             "character_active_gear": character.format_active_gear(),
             "character_skills": character.format_skills(),
             "route_summary": _format_route_summary(route),

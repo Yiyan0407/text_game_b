@@ -9,6 +9,7 @@ from game.models import Character, GameState
 from game.results import (
     ActionRouteResult,
     DeadlinePatch,
+    EquipmentPatch,
     InventoryPatch,
     NpcPatch,
     QuestPatch,
@@ -108,27 +109,58 @@ def apply_state_patch(
             events.append(result)
 
     for inv in patch.inventory:
-        if inv.action == "add" and _should_block_inventory_add(
+        if inv.action != "add":
+            continue
+        if _should_block_inventory_add(
             route, mechanical, inv, character, in_combat
         ):
             events.append(
                 _inventory_add_block_reason(route, mechanical, inv, character, in_combat)
             )
             continue
-        if inv.action == "remove" and _should_block_inventory_remove(
-            route, mechanical, inv
-        ):
-            events.append(
-                f"跳过重复移除：{inv.item}（机械层已消耗或扣款）。"
-            )
-            continue
-        if purchase_settled and inv.action == "add":
+        if purchase_settled:
             item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
             if delivered_items and any(
                 fuzzy_match_name(item_name, d) for d in delivered_items
             ):
                 events.append(f"跳过重复添加：{item_name}（已在交易结算中交付）。")
                 continue
+        events.append(
+            apply_inventory_change(
+                character,
+                inv,
+                delivered_items=delivered_items,
+                added_this_turn=added_this_turn,
+            )
+        )
+
+    for equip in patch.equipment:
+        if equip.action != "unequip":
+            continue
+        result = _apply_equipment(character, equip)
+        if result:
+            events.append(result)
+
+    for equip in patch.equipment:
+        if equip.action != "equip":
+            continue
+        result = _apply_equipment(character, equip)
+        if result:
+            events.append(result)
+
+    unequipped_items = _unequipped_item_names(patch.equipment)
+
+    for inv in patch.inventory:
+        if inv.action != "remove":
+            continue
+        if _should_block_inventory_remove(route, mechanical, inv):
+            events.append(
+                f"跳过重复移除：{inv.item}（机械层已消耗或扣款）。"
+            )
+            continue
+        if _should_block_inventory_remove_on_unequip(character, inv, unequipped_items):
+            events.append(_inventory_remove_block_reason(character, inv, unequipped_items))
+            continue
         events.append(
             apply_inventory_change(
                 character,
@@ -219,6 +251,59 @@ def _apply_skill(character: Character, skill: SkillPatch) -> str:
     if character.remove_skill(cleaned):
         return f"失去技能：{cleaned}"
     return f"你没有这项技能：{cleaned}"
+
+
+def _apply_equipment(character: Character, patch: EquipmentPatch) -> str:
+    from game.equipment import EquipmentSlot, coerce_equipment_slot, is_valid_equipment_slot
+
+    slot: EquipmentSlot | None = None
+    if patch.slot.strip() and is_valid_equipment_slot(patch.slot.strip()):
+        slot = coerce_equipment_slot(patch.slot.strip())
+
+    if patch.action == "equip":
+        item = patch.item.strip()
+        if not item:
+            return ""
+        ok, message = character.equip_item(item, slot=slot)
+        return message if ok else f"跳过装备：{message}"
+
+    ok, message = character.unequip_item(patch.item.strip(), slot=patch.slot.strip())
+    return message if ok else ""
+
+
+def _unequipped_item_names(equipment_patches) -> set[str]:
+    names: set[str] = set()
+    for patch in equipment_patches:
+        if patch.action != "unequip":
+            continue
+        cleaned = patch.item.strip()
+        if cleaned:
+            names.add(cleaned)
+    return names
+
+
+def _should_block_inventory_remove_on_unequip(
+    character: Character,
+    inv: InventoryPatch,
+    unequipped_items: set[str],
+) -> bool:
+    item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
+    if not item_name:
+        return False
+    if any(fuzzy_match_name(item_name, name) for name in unequipped_items):
+        return True
+    return character.is_item_equipped(item_name)
+
+
+def _inventory_remove_block_reason(
+    character: Character,
+    inv: InventoryPatch,
+    unequipped_items: set[str],
+) -> str:
+    item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
+    if any(fuzzy_match_name(item_name, name) for name in unequipped_items):
+        return f"跳过移除：{item_name}（卸下后应保留在背包，勿 inventory remove）"
+    return f"跳过移除：{item_name}（仍装备中，请先 equipment unequip；卸下后物品回背包）"
 
 
 def _mechanical_roll_failed(mechanical_events: list[str]) -> bool:
@@ -358,6 +443,7 @@ def patch_from_dict(data: dict) -> StatePatch:
     npcs = _coerce_npc_list(data.get("npcs"))
     quests = _coerce_quest_list(data.get("quests"))
     inventory = _coerce_inventory_list(data.get("inventory"))
+    equipment = _coerce_equipment_list(data.get("equipment"))
     skills = _coerce_skill_list(data.get("skills"))
     memory_facts = _coerce_str_list(data.get("memory_facts"))
     end_combat = bool(data.get("end_combat", False))
@@ -368,6 +454,7 @@ def patch_from_dict(data: dict) -> StatePatch:
         npcs=npcs,
         quests=quests,
         inventory=inventory,
+        equipment=equipment,
         skills=skills,
         memory_facts=memory_facts,
         time=time,
@@ -452,6 +539,30 @@ def _coerce_inventory_list(value) -> list[InventoryPatch]:
             )
         )
     return [inv for inv in items if inv.item]
+
+
+def _coerce_equipment_list(value) -> list[EquipmentPatch]:
+    if not isinstance(value, list):
+        return []
+    entries: list[EquipmentPatch] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        action = str(item.get("action", "equip")).strip().lower()
+        if action not in ("equip", "unequip"):
+            action = "equip"
+        entries.append(
+            EquipmentPatch(
+                action=action,  # type: ignore[arg-type]
+                item=str(item.get("item", "")).strip(),
+                slot=str(item.get("slot", "")).strip(),
+            )
+        )
+    return [
+        entry
+        for entry in entries
+        if entry.action == "unequip" or entry.item or entry.slot
+    ]
 
 
 def _coerce_skill_list(value) -> list[SkillPatch]:

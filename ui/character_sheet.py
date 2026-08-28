@@ -21,6 +21,10 @@ def render_character_sheet(character: Character) -> None:
 
     st.progress(character.hp / character.max_hp, text=f"HP {character.hp}/{character.max_hp}")
 
+    equipment = character.format_equipment()
+    if equipment != "（无）":
+        st.markdown(f"**装备** · {equipment}")
+
     active = character.format_active_gear()
     if active != "（无）":
         st.markdown(f"**持用** · {active}")
