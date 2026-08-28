@@ -164,6 +164,15 @@ class TimePatch(BaseModel):
     enforce_deadline_ids: list[str] = Field(default_factory=list)
 
 
+class RerollPatch(BaseModel):
+    grant: bool = False
+    overturn_failure: bool = False
+    adjusted_dc: int = 0
+    ability: str = ""
+    action_hint: str = ""
+    reason: str = ""
+
+
 class StatePatch(BaseModel):
     scene: ScenePatch | None = None
     npcs: list[NpcPatch] = Field(default_factory=list)
@@ -174,6 +183,7 @@ class StatePatch(BaseModel):
     memory_facts: list[str] = Field(default_factory=list)
     time: TimePatch | None = None
     end_combat: bool = False
+    reroll: RerollPatch | None = None
 
 
 class StreamPhase(BaseModel):

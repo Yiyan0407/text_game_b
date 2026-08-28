@@ -13,6 +13,7 @@ from game.results import (
     InventoryPatch,
     NpcPatch,
     QuestPatch,
+    RerollPatch,
     ScenePatch,
     SkillPatch,
     StatePatch,
@@ -525,6 +526,7 @@ def patch_from_dict(data: dict) -> StatePatch:
     memory_facts = _coerce_str_list(data.get("memory_facts"))
     end_combat = bool(data.get("end_combat", False))
     time = _coerce_time_patch(data.get("time"))
+    reroll = _coerce_reroll_patch(data.get("reroll"))
 
     return StatePatch(
         scene=scene,
@@ -536,13 +538,32 @@ def patch_from_dict(data: dict) -> StatePatch:
         memory_facts=memory_facts,
         time=time,
         end_combat=end_combat,
+        reroll=reroll,
     )
 
 
+def _coerce_reroll_patch(value) -> RerollPatch | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        adjusted_dc = max(0, int(value.get("adjusted_dc", 0) or 0))
+    except (TypeError, ValueError):
+        adjusted_dc = 0
+    patch = RerollPatch(
+        grant=bool(value.get("grant", False)),
+        overturn_failure=bool(value.get("overturn_failure", False)),
+        adjusted_dc=adjusted_dc,
+        ability=str(value.get("ability", "")).strip(),
+        action_hint=str(value.get("action_hint", "")).strip(),
+        reason=str(value.get("reason", "")).strip(),
+    )
+    if not patch.grant and not patch.overturn_failure:
+        return None
+    return patch
+
+
 def sanitize_kp_meta_patch(patch: StatePatch) -> StatePatch:
-    """KP 出戏沟通：禁止借机新增物品/装备、推进时间或登记新时限。"""
-    patch.inventory = [item for item in patch.inventory if item.action == "remove"]
-    patch.equipment = [item for item in patch.equipment if item.action == "unequip"]
+    """KP 出戏沟通：允许 inventory/equipment 修正（由 KP meta AI 裁定）；禁止推进时间或登记新时限。"""
     if patch.time is None:
         return patch
     patch.time.advance_minutes = 0

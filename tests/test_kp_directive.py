@@ -5,8 +5,8 @@ from chain.kp_meta_agent import KpMetaAgent, KpMetaResult, _extract_patch_from_k
 from game.kp_directive import is_kp_directive, is_kp_meta_response, parse_kp_directive
 from game.models import Character, GameState, Quest
 from game.orchestrator import GameOrchestrator
-from game.results import InventoryPatch, QuestPatch, StatePatch, TimePatch
-from game.state_patch import _apply_quest, sanitize_kp_meta_patch
+from game.results import EquipmentPatch, InventoryPatch, QuestPatch, StatePatch, TimePatch
+from game.state_patch import _apply_quest, apply_state_patch, sanitize_kp_meta_patch
 
 
 def test_parse_kp_directive_fullwidth():
@@ -49,12 +49,15 @@ def test_extract_patch_from_kp_meta_flat_top_level():
     assert patch.time.cancel_deadline_ids == ["bomb"]
 
 
-def test_sanitize_kp_meta_patch_strips_adds_and_time():
+def test_sanitize_kp_meta_patch_keeps_inventory_and_strips_time():
     patch = sanitize_kp_meta_patch(
         StatePatch(
             inventory=[
-                InventoryPatch(action="add", item="神器"),
+                InventoryPatch(action="add", item="战斗义体·神经反应增幅模块", quantity=1, unit="套", kind="durable"),
                 InventoryPatch(action="remove", item="空瓶"),
+            ],
+            equipment=[
+                EquipmentPatch(action="equip", item="战斗义体·神经反应增幅模块", slot="body"),
             ],
             time=TimePatch(
                 advance_minutes=60,
@@ -63,12 +66,40 @@ def test_sanitize_kp_meta_patch_strips_adds_and_time():
             ),
         )
     )
-    assert len(patch.inventory) == 1
-    assert patch.inventory[0].action == "remove"
+    assert len(patch.inventory) == 2
+    assert patch.inventory[0].action == "add"
+    assert len(patch.equipment) == 1
+    assert patch.equipment[0].slot == "body"
     assert patch.time is not None
     assert patch.time.advance_minutes == 0
     assert patch.time.deadlines == []
     assert patch.time.cancel_deadline_ids == ["old"]
+
+
+def test_kp_meta_sync_correction_applies_inventory_and_equipment():
+    character = Character(name="里昂")
+    game_state = GameState()
+    patch = sanitize_kp_meta_patch(
+        StatePatch(
+            inventory=[
+                InventoryPatch(
+                    action="add",
+                    item="义眼·战术扫描阵列",
+                    quantity=1,
+                    unit="套",
+                    kind="durable",
+                    description="已植入",
+                ),
+            ],
+            equipment=[
+                EquipmentPatch(action="equip", item="义眼·战术扫描阵列", slot="body"),
+            ],
+        )
+    )
+    events = apply_state_patch(patch, character, game_state, apply_time=False)
+    assert character.has_inventory_item("义眼·战术扫描阵列")
+    assert character.is_item_equipped("义眼·战术扫描阵列")
+    assert any("装备" in event for event in events)
 
 
 def test_apply_quest_fills_missing_title_from_existing():

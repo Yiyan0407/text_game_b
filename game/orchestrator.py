@@ -369,6 +369,12 @@ class GameOrchestrator:
                 events.append(
                     f"💚 KP 修正：HP {before} → {character.hp}/{character.max_hp}"
                 )
+        if result.patch.reroll is not None:
+            from game.check_reroll import apply_reroll_patch
+
+            events.extend(
+                apply_reroll_patch(result.patch.reroll, character, game_state)
+            )
         response = self._format_kp_meta_response(result.response)
         return events, response
 
@@ -756,6 +762,9 @@ class GameOrchestrator:
                 )
 
         if not game_state.is_in_combat() and route.needs_roll:
+            from game.check_reroll import apply_pending_reroll_to_route
+
+            pre_tool_events.extend(apply_pending_reroll_to_route(route, game_state))
             roll_events, roll_success = self._execute_pre_roll(
                 route, character, game_state
             )
@@ -966,10 +975,12 @@ class GameOrchestrator:
     ) -> tuple[list[str], bool | None]:
         events: list[str] = []
         if route.roll_type == "ability_check":
+            from game.check_reroll import record_ability_check
             from game.combat_modifiers import player_check_bonus
 
             combat = game_state.combat if game_state.is_in_combat() else None
             situational = player_check_bonus(combat, route.ability)
+            hp_before = character.hp
             result = ability_check(
                 character,
                 route.ability,
@@ -979,6 +990,19 @@ class GameOrchestrator:
                 situational_bonus=situational,
             )
             events.append(format_check_for_kp(result, character))
+            record_ability_check(
+                game_state,
+                character=character,
+                ability=result.ability,
+                dc=result.dc,
+                check_total=result.check_total or result.roll.total,
+                roll_total=result.roll.total,
+                success=result.success,
+                action_intent=route.action_intent,
+                user_input=route.action_intent,
+                proficiency_bonus=route.proficiency_bonus,
+                hp_before=hp_before,
+            )
             if not result.success:
                 events.extend(
                     apply_check_failure_consequences(

@@ -630,6 +630,26 @@ def _default_quests() -> list[Quest]:
     return []
 
 
+class LastAbilityCheckRecord(BaseModel):
+    ability: str = ""
+    dc: int = 0
+    check_total: int = 0
+    roll_total: int = 0
+    success: bool = False
+    action_intent: str = ""
+    user_input: str = ""
+    proficiency_bonus: bool = False
+    hp_before: int = 0
+    hp_after: int = 0
+
+
+class PendingReroll(BaseModel):
+    adjusted_dc: int = 0
+    ability: str = ""
+    action_hint: str = ""
+    reason: str = ""
+
+
 class GameState(BaseModel):
     started: bool = False
     scenario_id: str = ""
@@ -649,6 +669,8 @@ class GameState(BaseModel):
     story_start_absolute_minutes: int = 8 * 60
     narrative_time_label: str = ""
     deadlines: list[NarrativeDeadline] = Field(default_factory=list)
+    last_ability_check: LastAbilityCheckRecord | None = None
+    pending_reroll: PendingReroll | None = None
 
     def add_memory_facts(self, new_facts: list[str], max_facts: int) -> None:
         for fact in new_facts:
@@ -702,6 +724,13 @@ class GameState(BaseModel):
             for npc in self.npcs:
                 note = f" — {npc.notes}" if npc.notes else ""
                 lines.append(f"- {npc.name}（{npc.attitude}）{note}")
+
+        from game.check_reroll import format_last_check_for_prompt
+
+        check_ctx = format_last_check_for_prompt(self)
+        if check_ctx != "（无）":
+            lines.append("【最近检定 — 申诉可参考】")
+            lines.append(check_ctx)
 
         return "\n".join(lines)
 
