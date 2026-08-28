@@ -156,6 +156,7 @@ class DeadlinePatch(BaseModel):
 class TimePatch(BaseModel):
     time_label: str = ""
     advance_minutes: int = 0
+    advance_reason: str = ""
     deadlines: list[DeadlinePatch] = Field(default_factory=list)
     cancel_deadline_ids: list[str] = Field(default_factory=list)
 

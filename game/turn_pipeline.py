@@ -153,6 +153,7 @@ class TurnPipeline:
             delivered_items=delivered,
             mechanical_events=ctx.mechanical_events,
             user_input=ctx.effective_input,
+            apply_time=False,
         )
         return ctx.item_sync_events
 

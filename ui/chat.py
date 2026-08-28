@@ -42,13 +42,14 @@ def render_chat_history(history: list[ChatMessage]) -> None:
 
 def render_chat_input(disabled: bool = False, placeholder: str | None = None) -> str | None:
     hint = placeholder or "描述你的行动，例如：检查手机里的匿名邮件……"
-    if CHAT_DRAFT_KEY not in st.session_state:
-        st.session_state[CHAT_DRAFT_KEY] = ""
+    # 表单内不要用与 seed_chat_draft 相同的 widget key：外部写入 session_state 后，
+    # 界面会显示建议文案，但提交时 widget 内部值仍可能为空，导致点击发送无反应。
+    initial = str(st.session_state.get(CHAT_DRAFT_KEY, ""))
 
     with st.form("player_action_form", clear_on_submit=True):
-        draft = st.text_area(
+        user_text = st.text_area(
             "行动输入",
-            key=CHAT_DRAFT_KEY,
+            value=initial,
             height=72,
             placeholder=hint,
             disabled=disabled,
@@ -62,7 +63,8 @@ def render_chat_input(disabled: bool = False, placeholder: str | None = None) ->
         )
 
     if submitted and not disabled:
-        text = draft.strip()
+        text = user_text.strip()
         if text:
+            clear_chat_draft()
             return text
     return None

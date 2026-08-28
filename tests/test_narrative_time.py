@@ -254,7 +254,7 @@ def test_apply_turn_time_from_patch_uses_agent_value():
     state = GameState()
     events = apply_turn_time_from_patch(
         state,
-        TimePatch(advance_minutes=2),
+        TimePatch(advance_minutes=2, advance_reason="与门卫简短交谈"),
         route=ActionRouteResult(approved=True, action_intent="询问"),
         user_input="你是谁？",
         character=None,
@@ -262,6 +262,52 @@ def test_apply_turn_time_from_patch_uses_agent_value():
     )
     assert state.elapsed_minutes == 2
     assert any("时间推进" in event for event in events)
+    assert any("与门卫简短交谈" in event for event in events)
+
+
+def test_apply_turn_time_from_patch_heuristic_includes_reason():
+    state = GameState()
+    events = apply_turn_time_from_patch(
+        state,
+        None,
+        route=ActionRouteResult(approved=True, action_intent="移动"),
+        user_input="接受邀请前往B2层",
+        character=None,
+        has_time_field=False,
+    )
+    assert state.elapsed_minutes == 45
+    assert any("跨场景移动/赶路" in event for event in events)
+
+
+def test_apply_state_patch_skips_time_when_disabled():
+    from game.results import StatePatch
+    from game.state_patch import apply_state_patch
+
+    state = GameState()
+    character = Character(name="测试")
+    events = apply_state_patch(
+        StatePatch(time=TimePatch(advance_minutes=10, advance_reason="不应生效")),
+        character,
+        state,
+        user_input="前往远处",
+        apply_time=False,
+    )
+    assert state.elapsed_minutes == 0
+    assert not any("时间推进" in event for event in events)
+
+
+def test_patch_from_dict_parses_advance_reason():
+    patch = patch_from_dict(
+        {
+            "time": {
+                "advance_minutes": 5,
+                "advance_reason": "搜查设备间端口",
+            }
+        }
+    )
+    assert patch.time is not None
+    assert patch.time.advance_minutes == 5
+    assert patch.time.advance_reason == "搜查设备间端口"
 
 
 def test_patch_from_dict_parses_time():

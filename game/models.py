@@ -99,15 +99,28 @@ class Character(BaseModel):
         return " | ".join(parts)
 
     def format_inventory(self) -> str:
-        if not self.inventory:
+        items = self.unequipped_inventory()
+        if not items:
+            if self.equipment:
+                return "（已装备物品见装备栏，背包无额外物品）"
             return "（空，尚未获得任何物品）"
-        return "；".join(item.format_detail() for item in self.inventory)
+        return "；".join(item.format_full_line() for item in items)
 
     def format_equipment(self) -> str:
         self.prune_equipment()
         if not self.equipment:
             return "（无）"
-        return "；".join(entry.format_line() for entry in self.equipment)
+        from game.equipment import SLOT_LABELS
+
+        grouped = self.equipment_by_slot()
+        parts: list[str] = []
+        for slot, label in SLOT_LABELS.items():
+            items = grouped.get(slot, [])
+            if items:
+                parts.append(f"{label}：{'；'.join(items)}")
+            else:
+                parts.append(f"{label}：（空）")
+        return " | ".join(parts)
 
     def is_item_in_hand(self, item_name: str) -> bool:
         self.prune_equipment()
@@ -118,17 +131,28 @@ class Character(BaseModel):
         return self.is_item_in_hand(item_name)
 
     def equipment_by_slot(self) -> dict[str, list[str]]:
-        """按槽位分组的装备名称（用于界面展示）。"""
+        """按槽位分组的装备展示行（含数量、效果、描述）。"""
         from game.equipment import SLOT_LABELS
 
         self.prune_equipment()
         grouped: dict[str, list[str]] = {slot: [] for slot in SLOT_LABELS}
         for entry in self.equipment:
-            grouped.setdefault(entry.slot, []).append(entry.item_name)
+            item = self.find_inventory_item(entry.item_name)
+            line = item.format_full_line() if item is not None else entry.item_name
+            grouped.setdefault(entry.slot, []).append(line)
         return grouped
 
+    def unequipped_inventory(self) -> list[InventoryItem]:
+        """背包中尚未装备的物品（已装备的不重复展示）。"""
+        self.prune_equipment()
+        return [
+            item
+            for item in self.inventory
+            if not self.is_item_equipped(item.name)
+        ]
+
     def inventory_displays(self) -> list[str]:
-        return [item.format_detail() for item in self.inventory]
+        return [item.format_full_line() for item in self.unequipped_inventory()]
 
     def find_inventory_item(self, item_ref: str) -> InventoryItem | None:
         for item in self.inventory:

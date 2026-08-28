@@ -74,6 +74,47 @@ def test_format_detail_includes_description():
     assert item.format_detail() == "破禁符（1张） — 可短暂破开低阶禁制。"
 
 
+def test_format_full_line_includes_effects_and_description():
+    from game.effects import EntityEffects
+
+    item = InventoryItem(
+        name="单分子线",
+        quantity=1,
+        unit="套",
+        description="前臂义体模块。",
+        effects=EntityEffects(attack_damage="2d10", use_dex=True, forged=True),
+    )
+    line = item.format_full_line()
+    assert "单分子线（1套）" in line
+    assert "伤害 2d10" in line
+    assert "前臂义体模块" in line
+
+
+def test_unequipped_inventory_hides_equipped_items():
+    from game.effects import EntityEffects
+
+    character = Character(name="测试")
+    character.add_inventory_item(
+        "皮下装甲",
+        quantity=1,
+        unit="套",
+        description="全身护甲。",
+    )
+    armor = character.find_inventory_item("皮下装甲")
+    assert armor is not None
+    armor.effects = EntityEffects(ac_bonus=3, max_hp_bonus=10, forged=True)
+    character.add_inventory_item("伪造工牌", quantity=1, unit="张", description="进门用。")
+    character.equip_item("皮下装甲")
+
+    assert character.is_item_equipped("皮下装甲")
+    assert len(character.unequipped_inventory()) == 1
+    assert character.unequipped_inventory()[0].name == "伪造工牌"
+    assert "伪造工牌" in character.format_inventory()
+    assert "皮下装甲" not in character.format_inventory()
+    assert "AC+3" in character.format_equipment()
+    assert "皮下装甲" in character.format_equipment()
+
+
 def test_merge_preserves_description():
     character = Character(name="测试")
     character.add_inventory_item("短剑", description="精钢打造，锋利耐用。")

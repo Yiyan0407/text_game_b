@@ -81,6 +81,17 @@ class InventoryItem(BaseModel):
             return f"{base} — {self.description}"
         return base
 
+    def format_full_line(self) -> str:
+        """展示用：数量 + 效果摘要 + 描述。"""
+        base = self.display_labeled()
+        if self.effects:
+            summary = self.effects.format_summary()
+            if summary:
+                base = f"{base} · {summary}"
+        if self.description:
+            return f"{base} — {self.description}"
+        return base
+
     @classmethod
     def parse(cls, text: str) -> InventoryItem:
         raw = text.strip()

@@ -83,6 +83,7 @@ def apply_state_patch(
     delivered_items: frozenset[str] | None = None,
     mechanical_events: list[str] | None = None,
     user_input: str = "",
+    apply_time: bool = True,
 ) -> list[str]:
     """将 StatePatch 应用到游戏状态，返回事件列表。"""
     events: list[str] = []
@@ -196,16 +197,17 @@ def apply_state_patch(
             game_state.add_memory_facts([cleaned], settings.max_memory_facts)
             events.append(f"已记录关键事实：{cleaned}")
 
-    events.extend(
-        apply_turn_time_from_patch(
-            game_state,
-            patch.time,
-            route=route,
-            user_input=user_input,
-            character=character,
-            has_time_field=patch.time is not None,
+    if apply_time:
+        events.extend(
+            apply_turn_time_from_patch(
+                game_state,
+                patch.time,
+                route=route,
+                user_input=user_input,
+                character=character,
+                has_time_field=patch.time is not None,
+            )
         )
-    )
 
     if patch.end_combat and game_state.is_in_combat():
         events.append(end_combat(game_state))
@@ -704,6 +706,7 @@ def _coerce_time_patch(value) -> TimePatch | None:
     return TimePatch(
         time_label=str(value.get("time_label", "")).strip(),
         advance_minutes=advance,
+        advance_reason=str(value.get("advance_reason", "")).strip(),
         deadlines=_coerce_deadline_list(value.get("deadlines")),
         cancel_deadline_ids=_coerce_str_list(value.get("cancel_deadline_ids")),
     )

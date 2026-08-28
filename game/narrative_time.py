@@ -192,53 +192,76 @@ def parse_explicit_wait_minutes(
     return None
 
 
-def estimate_turn_minutes(
+def _explicit_wait_reason(text: str) -> str:
+    normalized = text.strip()
+    if re.search(r"(?:等|等待)(?:到)?(?:明天|翌日|天亮)", normalized):
+        return "等待至次日/天亮（玩家声明）"
+    if re.search(r"过夜|睡一夜|休整一夜|休息一(?:夜|晚)", normalized):
+        return "过夜休息（玩家声明）"
+    if re.search(rf"(?:等|等待)(?:上)?{_NUM_TOKEN}\s*天", normalized):
+        return "多日等待（玩家声明）"
+    if re.search(rf"(?:等|等待)(?:上)?{_NUM_TOKEN}\s*个?\s*小时", normalized):
+        return "数小时等待（玩家声明）"
+    if re.search(rf"(?:等|等待)(?:上)?{_NUM_TOKEN}\s*分钟", normalized):
+        return "短时等待（玩家声明）"
+    return "等待/休息（玩家声明）"
+
+
+def format_time_advance_event(minutes: int, clock_label: str, reason: str = "") -> str:
+    base = f"⏳ 时间推进 {format_duration(minutes)}（{clock_label}）"
+    cleaned = reason.strip()
+    if cleaned:
+        return f"{base} — {cleaned}"
+    return base
+
+
+def estimate_turn_time(
     route: ActionRouteResult | None,
     user_input: str,
     game_state: GameState,
-) -> int:
+) -> tuple[int, str]:
     explicit = parse_explicit_wait_minutes(
         user_input,
         elapsed_minutes=game_state.elapsed_minutes,
         story_start_absolute=game_state.story_start_absolute_minutes,
     )
     if explicit is not None:
-        return explicit
+        return explicit, _explicit_wait_reason(user_input)
 
     text = user_input.strip()
     intent = route.action_intent.strip() if route else ""
     combined = f"{intent} {text}"
 
     if game_state.is_in_combat():
-        return 6
+        return 6, "战斗中进行了一轮行动（系统估算）"
 
     if route and route.trigger_combat:
-        return 5
+        return 5, "触发战斗，进入交战（系统估算）"
 
     long_wait_markers = ("整晚", "半天", "一整天", "一天", "数日")
     if any(marker in combined for marker in long_wait_markers):
         if "半天" in combined:
-            return 12 * 60
+            return 12 * 60, "长时间等待：约半天（系统估算）"
         if "一天" in combined or "整日" in combined:
-            return _STORY_DAY_MINUTES
+            return _STORY_DAY_MINUTES, "长时间等待：约一整天（系统估算）"
         if "数日" in combined:
-            return 2 * _STORY_DAY_MINUTES
+            return 2 * _STORY_DAY_MINUTES, "长时间等待：约数日（系统估算）"
 
     travel_markers = ("长途", "跨城", "赶到", "前往", "驱车", "飞行", "坐火车", "转场")
     if any(marker in combined for marker in travel_markers):
-        return 45
+        return 45, "跨场景移动/赶路（系统估算）"
 
     scene_markers = ("进入", "离开", "返回", "赶到", "抵达")
     if any(marker in combined for marker in scene_markers):
-        return 25
+        return 25, "场景切换与就位（系统估算）"
 
     search_markers = ("搜查", "搜证", "排查", "全面调查", "翻找")
     if any(marker in combined for marker in search_markers):
-        return 30
+        return 30, "搜查/调查耗时（系统估算）"
 
     negotiation_markers = ("谈判", "交涉", "讨价还价", "商量条件")
     if any(marker in combined for marker in negotiation_markers):
-        return 10
+        return 10, "谈判/交涉（系统估算）"
 
     talk_markers = ("交谈", "对话", "询问", "闲聊", "搭话", "追问", "质疑", "盘问")
     question_markers = (
@@ -248,19 +271,28 @@ def estimate_turn_minutes(
     if any(marker in combined for marker in talk_markers) or any(
         marker in text for marker in question_markers
     ):
-        return 2
+        return 2, "简短对话/问答（系统估算）"
 
     quick_markers = ("观察", "查看", "检查", "倾听", "偷听", "阅读", "点头", "沉默")
     if any(marker in combined for marker in quick_markers):
-        return 3
+        return 3, "快速观察/检查（系统估算）"
 
     if route and route.item_usage == "purchase":
-        return 12
+        return 12, "购买与交割（系统估算）"
 
     if route and route.combat_action == "talk":
-        return 3
+        return 3, "战斗中简短喊话（系统估算）"
 
-    return 4
+    return 4, "常规行动（系统估算）"
+
+
+def estimate_turn_minutes(
+    route: ActionRouteResult | None,
+    user_input: str,
+    game_state: GameState,
+) -> int:
+    minutes, _ = estimate_turn_time(route, user_input, game_state)
+    return minutes
 
 
 def extract_turn_time_cost(mechanical_events: list[str]) -> str | None:
@@ -453,6 +485,8 @@ def advance_narrative_clock(
     game_state: GameState,
     minutes: int,
     character: Character | None = None,
+    *,
+    reason: str = "",
 ) -> list[str]:
     if minutes <= 0:
         return check_imminent_deadlines(game_state, character=character)
@@ -465,7 +499,11 @@ def advance_narrative_clock(
     )
 
     events = [
-        f"⏳ 时间推进 {format_duration(minutes)}（{narrative_time_display(game_state)}）"
+        format_time_advance_event(
+            minutes,
+            narrative_time_display(game_state),
+            reason,
+        )
     ]
     for deadline in game_state.deadlines:
         if deadline.status != "pending":
@@ -513,7 +551,14 @@ def apply_time_patch(
         events.extend(add_deadline(game_state, deadline_patch))
 
     if patch.advance_minutes > 0:
-        events.extend(advance_narrative_clock(game_state, patch.advance_minutes, character))
+        events.extend(
+            advance_narrative_clock(
+                game_state,
+                patch.advance_minutes,
+                character,
+                reason=patch.advance_reason,
+            )
+        )
     elif patch.time_label.strip():
         apply_story_clock_label(game_state, patch.time_label.strip())
 
@@ -607,6 +652,35 @@ def format_player_stated_duration_hint(user_input: str) -> str:
     )
 
 
+def resolve_turn_time(
+    time_patch: TimePatch | None,
+    *,
+    route: ActionRouteResult | None,
+    user_input: str,
+    game_state: GameState,
+    has_time_field: bool,
+) -> tuple[int, str]:
+    """决定本轮应推进的分钟数及原因：显式等待 > State Agent 裁定 > 启发式兜底。"""
+    explicit = parse_explicit_wait_minutes(
+        user_input,
+        elapsed_minutes=game_state.elapsed_minutes,
+        story_start_absolute=game_state.story_start_absolute_minutes,
+    )
+    if explicit is not None:
+        return explicit, _explicit_wait_reason(user_input)
+
+    if time_patch is not None and time_patch.advance_minutes > 0:
+        reason = time_patch.advance_reason.strip() or "世界状态同步器裁定（未说明具体原因）"
+        return time_patch.advance_minutes, reason
+
+    if has_time_field and time_patch is not None:
+        if time_patch.time_label or time_patch.deadlines or time_patch.cancel_deadline_ids:
+            return 0, ""
+        return 0, ""
+
+    return estimate_turn_time(route, user_input, game_state)
+
+
 def resolve_turn_advance_minutes(
     time_patch: TimePatch | None,
     *,
@@ -616,23 +690,14 @@ def resolve_turn_advance_minutes(
     has_time_field: bool,
 ) -> int:
     """决定本轮应推进的分钟数：显式等待 > State Agent 裁定 > 启发式兜底。"""
-    explicit = parse_explicit_wait_minutes(
-        user_input,
-        elapsed_minutes=game_state.elapsed_minutes,
-        story_start_absolute=game_state.story_start_absolute_minutes,
+    minutes, _ = resolve_turn_time(
+        time_patch,
+        route=route,
+        user_input=user_input,
+        game_state=game_state,
+        has_time_field=has_time_field,
     )
-    if explicit is not None:
-        return explicit
-
-    if time_patch is not None and time_patch.advance_minutes > 0:
-        return time_patch.advance_minutes
-
-    if has_time_field and time_patch is not None:
-        if time_patch.time_label or time_patch.deadlines or time_patch.cancel_deadline_ids:
-            return 0
-        return 0
-
-    return estimate_turn_minutes(route, user_input, game_state)
+    return minutes
 
 
 def apply_turn_time_from_patch(
@@ -644,7 +709,7 @@ def apply_turn_time_from_patch(
     character: Character | None,
     has_time_field: bool,
 ) -> list[str]:
-    minutes = resolve_turn_advance_minutes(
+    minutes, reason = resolve_turn_time(
         time_patch,
         route=route,
         user_input=user_input,
@@ -656,7 +721,9 @@ def apply_turn_time_from_patch(
 
     patch = time_patch if time_patch is not None else TimePatch()
     if minutes > 0 and patch.advance_minutes <= 0:
-        patch = patch.model_copy(update={"advance_minutes": minutes})
+        patch = patch.model_copy(update={"advance_minutes": minutes, "advance_reason": reason})
+    elif minutes > 0 and patch.advance_minutes > 0 and not patch.advance_reason.strip():
+        patch = patch.model_copy(update={"advance_reason": reason})
     elif minutes <= 0 and not (
         patch.time_label or patch.deadlines or patch.cancel_deadline_ids
     ):
@@ -671,5 +738,5 @@ def advance_narrative_time_for_turn(
     game_state: GameState,
     character: Character | None = None,
 ) -> list[str]:
-    minutes = estimate_turn_minutes(route, user_input, game_state)
-    return advance_narrative_clock(game_state, minutes, character)
+    minutes, reason = estimate_turn_time(route, user_input, game_state)
+    return advance_narrative_clock(game_state, minutes, character, reason=reason)

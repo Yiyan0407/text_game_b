@@ -9,14 +9,6 @@ def _effective_sp_display(character: Character) -> tuple[int, str]:
     return get_effective_sp(character)
 
 
-def _format_item_line(item) -> str:
-    base = item.display_labeled()
-    if item.effects:
-        summary = item.effects.format_summary()
-        if summary:
-            return f"{base} · {summary}"
-    return base
-
 
 def render_character_sheet(character: Character) -> None:
     st.subheader("角色卡")
@@ -46,21 +38,24 @@ def render_character_sheet(character: Character) -> None:
         for slot, label in SLOT_LABELS.items():
             items = grouped.get(slot, [])
             if items:
-                st.markdown(f"**{label}** · {'；'.join(items)}")
+                for line in items:
+                    st.markdown(f"**{label}** · {line}")
             else:
                 st.caption(f"{label} · （空）")
         if not has_equipment:
-            st.caption("穿戴/植入/拿在手上的物品会显示在此；须先进入背包再装备。手持=已在手上。")
+            st.caption("穿戴/植入/拿在手上的物品会显示在此；卸下后才会回到背包列表。")
 
-    if character.inventory:
+    unequipped = character.unequipped_inventory()
+    if unequipped:
         with st.expander("背包", expanded=False):
-            for item in character.inventory:
-                st.markdown(f"- **{_format_item_line(item)}**")
-                if item.description:
-                    st.caption(item.description)
+            for item in unequipped:
+                st.markdown(f"- **{item.format_full_line()}**")
     else:
         with st.expander("背包", expanded=False):
-            st.caption("空空如也——物品会在冒险中获得")
+            if character.equipment:
+                st.caption("已装备物品见上方装备栏；背包无额外物品。")
+            else:
+                st.caption("空空如也——物品会在冒险中获得")
 
     if character.skills:
         with st.expander("技能", expanded=False):

@@ -26,7 +26,8 @@ def test_equip_item_from_inventory():
     assert ok
     assert "装备" in message
     assert character.is_item_equipped("军用义眼")
-    assert character.format_equipment() == "军用义眼（身体）"
+    assert "军用义眼" in character.format_equipment()
+    assert "身体" in character.format_equipment()
 
 
 def test_multiple_hand_and_body_items():
