@@ -7,6 +7,12 @@ from game.scenario import Scenario
 from game.scenario_loader import can_delete_scenario, delete_generated_scenario, load_scenario, save_scenario
 from ui.form_drafts import init_scenario_generator_draft, sync_scenario_generator_draft_to_disk
 from ui.loading import run_with_spinner
+from ui.risky_action import (
+    ACTION_DELETE_SCENARIO,
+    PENDING,
+    handle_risky_action_prompt,
+    queue_delete_scenario,
+)
 from ui.scenario_editor import render_scenario_editor
 
 
@@ -153,12 +159,35 @@ def _run_generation(generate_fn) -> None:
     st.rerun()
 
 
+def _handle_preview_risky_deletes(scenario: Scenario) -> None:
+    result = handle_risky_action_prompt()
+    if result is PENDING or not result:
+        return
+    if result["action"] != ACTION_DELETE_SCENARIO:
+        return
+
+    ctx = result["context"]
+    if ctx.get("scenario_id") != scenario.id:
+        return
+
+    if delete_generated_scenario(scenario.id):
+        clear_scenario_from_session(scenario.id)
+        st.session_state.page = "select_scenario"
+        st.toast(f"已删除剧本：{ctx['title']}")
+        st.rerun()
+    else:
+        st.error("删除失败，剧本可能已被移除。")
+        st.rerun()
+
+
 def render_scenario_preview() -> None:
     scenario: Scenario | None = st.session_state.get("generated_scenario")
     if not scenario:
         st.session_state.page = "generate_scenario"
         st.rerun()
         return
+
+    _handle_preview_risky_deletes(scenario)
 
     st.title("📜 剧本预览")
     view = st.radio(
@@ -225,13 +254,7 @@ def _render_preview_actions(scenario: Scenario) -> None:
 
     if scenario.is_generated and can_delete_scenario(scenario.id):
         if st.button("🗑️ 删除此剧本", use_container_width=True):
-            if delete_generated_scenario(scenario.id):
-                clear_scenario_from_session(scenario.id)
-                st.session_state.page = "select_scenario"
-                st.toast(f"已删除剧本：{scenario.title}")
-                st.rerun()
-            else:
-                st.error("删除失败，剧本可能已被移除。")
+            queue_delete_scenario(scenario.id, title=scenario.title)
 
 
 def open_scenario_for_edit(scenario_id: str) -> None:

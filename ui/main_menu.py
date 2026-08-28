@@ -19,6 +19,14 @@ from ui.form_drafts import (
     rolled_abilities_session_key,
     sync_character_draft_to_disk,
 )
+from ui.risky_action import (
+    ACTION_DELETE_SAVE,
+    ACTION_DELETE_SCENARIO,
+    PENDING,
+    handle_risky_action_prompt,
+    queue_delete_save,
+    queue_delete_scenario,
+)
 from ui.scenario_generator import clear_scenario_from_session
 from ui.chat import render_tool_events_live
 from ui.loading import LoadingPlaceholder, run_with_spinner
@@ -37,7 +45,27 @@ def _format_saved_at(saved_at: str) -> str:
         return saved_at
 
 
+def _handle_pending_risky_deletes(save_manager: SaveManager) -> None:
+    result = handle_risky_action_prompt()
+    if result is PENDING or not result:
+        return
+
+    action = result["action"]
+    ctx = result["context"]
+    if action == ACTION_DELETE_SAVE:
+        save_manager.delete(ctx["save_id"])
+        st.toast(f"已删除存档：{ctx['label']}")
+    elif action == ACTION_DELETE_SCENARIO:
+        if delete_generated_scenario(ctx["scenario_id"]):
+            clear_scenario_from_session(ctx["scenario_id"])
+            st.toast(f"已删除剧本：{ctx['title']}")
+        else:
+            st.error("删除失败，剧本可能已被移除。")
+    st.rerun()
+
+
 def render_main_menu(save_manager: SaveManager) -> None:
+    _handle_pending_risky_deletes(save_manager)
     st.title("🎲 AI 跑团")
     render_profile_switcher(st.session_state.profile_manager)
     st.markdown("选择继续冒险，或开始新的模组。")
@@ -73,12 +101,15 @@ def render_main_menu(save_manager: SaveManager) -> None:
                 if ok:
                     st.rerun()
             if c2.button("🗑️", key=f"quick_del_{meta.save_id}", help="删除存档"):
-                save_manager.delete(meta.save_id)
-                st.rerun()
+                queue_delete_save(
+                    meta.save_id,
+                    label=f"{meta.character_name} · {meta.scenario_title}",
+                )
             st.caption(f"📍 {meta.current_scene} · {_format_saved_at(meta.saved_at)}")
 
 
 def render_load_save(save_manager: SaveManager) -> None:
+    _handle_pending_risky_deletes(save_manager)
     st.title("📂 继续冒险")
     saves = save_manager.list_saves()
 
@@ -120,8 +151,10 @@ def render_load_save(save_manager: SaveManager) -> None:
                 if ok:
                     st.rerun()
             if c2.button("删除", key=f"del_{meta.save_id}", use_container_width=True):
-                save_manager.delete(meta.save_id)
-                st.rerun()
+                queue_delete_save(
+                    meta.save_id,
+                    label=f"{meta.character_name} · {meta.scenario_title}",
+                )
 
     if st.button("返回主菜单"):
         st.session_state.page = "menu"
@@ -129,6 +162,8 @@ def render_load_save(save_manager: SaveManager) -> None:
 
 
 def render_scenario_selection() -> None:
+    save_manager: SaveManager = st.session_state.save_manager
+    _handle_pending_risky_deletes(save_manager)
     st.title("🆕 选择模组")
     st.caption("模组简介描述的是事件与场景，不是你的固定身份；选角后开局会自动衔接你的角色背景。")
     scenarios = list_scenarios()
@@ -162,12 +197,7 @@ def render_scenario_selection() -> None:
                     open_scenario_for_edit(scenario.id)
                     st.rerun()
                 if c3.button("🗑️ 删除", key=f"del_scenario_{scenario.id}", use_container_width=True):
-                    if delete_generated_scenario(scenario.id):
-                        clear_scenario_from_session(scenario.id)
-                        st.toast(f"已删除剧本：{scenario.title}")
-                        st.rerun()
-                    else:
-                        st.error("删除失败，剧本可能已被移除。")
+                    queue_delete_scenario(scenario.id, title=scenario.title)
             elif st.button("选择", key=f"scenario_{scenario.id}", use_container_width=True):
                 st.session_state.selected_scenario = scenario
                 preselected = st.session_state.get("selected_character_card")
