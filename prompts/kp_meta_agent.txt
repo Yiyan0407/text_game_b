@@ -26,16 +26,16 @@
 
 ## 示例
 ```json
-{
+{{
   "response": "你说得对：Amigo 已在到期前接管日志清洗，B2-07 检查不应导致主任务失败。我已把「摧毁病毒源头」恢复为进行中，并标记该安保检查时限已化解。继续按原计划在自由女神像附近等待升温即可。",
-  "patch": {
+  "patch": {{
     "quests": [
-      {"quest_id": "primary-destroy-virus", "title": "摧毁病毒源头", "status": "active"}
+      {{"quest_id": "primary-destroy-virus", "title": "摧毁病毒源头", "status": "active"}}
     ],
-    "time": {"cancel_deadline_ids": ["安保人员检查B2-07异常日志"]},
+    "time": {{"cancel_deadline_ids": ["安保人员检查B2-07异常日志"]}},
     "memory_facts": ["B2-07 安保日志检查已由 Amigo 自动清洗，未暴露入侵痕迹"]
-  }
-}
+  }}
+}}
 ```
 
 ## 禁止
