@@ -301,6 +301,8 @@ class NarrativeDeadline(BaseModel):
     status: Literal["pending", "triggered", "cancelled"] = "pending"
     consequence: str = ""
     created_at_minutes: int = 0
+    fail_quest_ids: list[str] = Field(default_factory=list)
+    hp_loss: int = 0
 
 
 class CombatEnemy(BaseModel):
@@ -424,6 +426,7 @@ class GameState(BaseModel):
     combat: CombatState | None = None
     scene_image_url: str = ""
     elapsed_minutes: int = 0
+    story_start_absolute_minutes: int = 8 * 60
     narrative_time_label: str = ""
     deadlines: list[NarrativeDeadline] = Field(default_factory=list)
 

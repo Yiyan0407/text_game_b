@@ -141,7 +141,7 @@ def apply_state_patch(
             game_state.add_memory_facts([cleaned], settings.max_memory_facts)
             events.append(f"已记录关键事实：{cleaned}")
 
-    events.extend(apply_time_patch(game_state, patch.time))
+    events.extend(apply_time_patch(game_state, patch.time, character=character))
 
     if patch.end_combat and game_state.is_in_combat():
         events.append(end_combat(game_state))
@@ -362,6 +362,10 @@ def _coerce_deadline_list(value) -> list[DeadlinePatch]:
             due_in = max(0, int(item.get("due_in_minutes", 0) or 0))
         except (TypeError, ValueError):
             due_in = 0
+        try:
+            hp_loss = max(0, int(item.get("hp_loss", 0) or 0))
+        except (TypeError, ValueError):
+            hp_loss = 0
         deadlines.append(
             DeadlinePatch(
                 id=str(item.get("id", "")).strip(),
@@ -370,6 +374,8 @@ def _coerce_deadline_list(value) -> list[DeadlinePatch]:
                 due_at_minutes=due_at,
                 consequence=str(item.get("consequence", "")).strip(),
                 status=status,  # type: ignore[arg-type]
+                fail_quest_ids=_coerce_str_list(item.get("fail_quest_ids")),
+                hp_loss=hp_loss,
             )
         )
     return [d for d in deadlines if d.label]

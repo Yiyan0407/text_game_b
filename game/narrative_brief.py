@@ -1,5 +1,6 @@
 """叙事简报构建：供 KP 纯叙事模式使用。"""
 
+from game.check_consequences import format_check_failure_constraints_for_kp
 from game.models import Character, GameState
 from game.results import ActionRouteResult
 
@@ -29,10 +30,15 @@ def build_narrative_brief_static(
             lines.append(f"- {event}")
     else:
         lines.append("【已发生的结果】（无机械结算，直接叙事）")
+    failure_constraints = format_check_failure_constraints_for_kp(mechanical_events, route)
+    if failure_constraints:
+        lines.append("")
+        lines.append(failure_constraints)
     lines.append(
         "【写作要求】第二人称「你」，遵守叙事收笔与禁止推进；勿复述本简报字段；勿列编号选项。"
         "叙事须与下方【当前状态】背包、持用、技能一致：已有照明/工具时不可写「没有照明」；"
-        "【持用】中的物品应体现在叙事中；检定失败写察觉不足或环境干扰，勿否定玩家持有物。"
+        "【持用】中的物品应体现在叙事中；检定失败须体现系统已记录的受伤/关系/暴露等后果，"
+        "写察觉不足或环境干扰，勿否定玩家持有物，更不可写失败检定却行动成功。"
     )
     lines.append("")
     lines.append(user_input.strip())

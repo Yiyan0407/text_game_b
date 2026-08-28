@@ -21,7 +21,9 @@
         "id": "bomb",
         "label": "炸弹爆炸",
         "due_in_minutes": 30,
-        "consequence": "大楼一层发生爆炸，警报响起"
+        "consequence": "大楼一层发生爆炸，警报响起",
+        "fail_quest_ids": ["q1"],
+        "hp_loss": 8
       }}
     ],
     "cancel_deadline_ids": ["old_event"]
@@ -31,10 +33,12 @@
 ```
 
 ### time（叙事时间 — 重要）
-- **time_label**：当前故事内时刻（如「第1天 23:45」「周五深夜」）；若省略，系统会按已过去时间推算。
+- **time_label**：当前故事内时刻，**必须**使用「第N天 HH:MM」格式（如「第1天 23:45」）；须与本轮叙事时段一致（夜晚开局写 21:00–23:59，凌晨写 00:00–05:59）。
 - **deadlines**：当本轮叙事**新出现**倒计时/约定时刻时登记（如「30分钟后爆炸」「6小时后行动开始」）：
   - `due_in_minutes`：从**当前故事时间**起多少分钟后到期（30 分钟写 30，6 小时写 360）
   - `consequence`：到期后应发生的后果（供 KP 叙事）
+  - `fail_quest_ids`：到期后应自动判失败的任务 id（与 quests 中 quest_id 对应；若 id 与 deadline.id 相同可省略）
+  - `hp_loss`：到期后对玩家造成的伤害点数；爆炸/遇袭等后果建议写 5–15
   - 若之前已登记同类时限，勿重复 add；改期时先 cancel 再 add
 - **cancel_deadline_ids**：任务取消、炸弹被拆除、约定改期时取消对应 id
 - **advance_minutes**：仅当玩家明确「等待/睡觉/耗到某时刻」且路由未覆盖时，可额外推进分钟数（一般留空）
@@ -79,6 +83,7 @@
 ## 开场模式
 输入含「游戏刚刚开始」或 START 指令时：
 - 须 scene（模组 opening_scene）
+- 须 time.time_label（与开场叙事时段一致，如夜班/深夜场景写「第1天 23:30」）
 - 出场或提及的有名 NPC 须 npcs
 - initial_quests 若尚未入库须 quests
 

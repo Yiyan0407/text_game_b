@@ -1,24 +1,92 @@
+from __future__ import annotations
+
+import json
+import re
+
 from game.dice import roll
 from game.models import Character, CombatEnemy, CombatState, GameState
 from game.rules import ability_check, format_check_for_kp
 
 FLEE_DC = 12
+_STAT_LABELS = {"HP", "AC", "hp", "ac", "生命值", "护甲"}
+
+
+def _extract_int(value) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    cleaned = str(value).strip().strip("'\"")
+    if not cleaned or cleaned.upper() in _STAT_LABELS:
+        return None
+    if cleaned.isdigit():
+        return int(cleaned)
+    match = re.search(r"\d+", cleaned)
+    return int(match.group()) if match else None
+
+
+def _parse_enemy_record(data: dict) -> CombatEnemy | None:
+    name = str(data.get("name") or data.get("enemy") or "").strip()
+    hp = _extract_int(data.get("hp") or data.get("HP") or data.get("max_hp"))
+    ac = _extract_int(data.get("ac") or data.get("AC"))
+    if not name or hp is None:
+        return None
+    return CombatEnemy(name=name, hp=hp, max_hp=hp, ac=ac or 12)
 
 
 def parse_enemies(spec: str) -> list[CombatEnemy]:
-    """解析敌人描述，格式：名字:HP:AC，多个用逗号分隔。"""
+    """解析敌人描述。
+
+    支持：
+    - ``名字:HP:AC``（如 ``守卫:12:12``）
+    - 带标签写法（如 ``光头壮汉:HP:30:AC:12``、``光头:'HP:30:12``）
+    - JSON 数组（如 ``[{"name":"光头","hp":30,"ac":12}]``）
+    """
+    cleaned = spec.strip()
+    if not cleaned:
+        raise ValueError("至少需要一个敌人")
+
+    if cleaned.startswith("[") or cleaned.startswith("{"):
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"无效的敌人 JSON：{exc}") from exc
+        records = payload if isinstance(payload, list) else [payload]
+        enemies = [
+            enemy
+            for item in records
+            if isinstance(item, dict)
+            for enemy in [_parse_enemy_record(item)]
+            if enemy is not None
+        ]
+        if enemies:
+            return enemies
+        raise ValueError("敌人 JSON 中缺少 name/hp 字段")
+
     enemies: list[CombatEnemy] = []
-    for part in spec.split(","):
+    for part in cleaned.split(","):
         part = part.strip()
         if not part:
             continue
-        tokens = [t.strip() for t in part.split(":")]
+        tokens = [token.strip().strip("'\"") for token in part.split(":") if token.strip()]
         if len(tokens) < 2:
             raise ValueError(f"无效的敌人格式: {part}，请用 名字:HP:AC")
-        name = tokens[0]
-        hp = int(tokens[1])
-        ac = int(tokens[2]) if len(tokens) > 2 else 12
+
+        numbers = [
+            value
+            for token in tokens[1:]
+            if (value := _extract_int(token)) is not None
+        ]
+        if not numbers:
+            raise ValueError(f"无效的敌人数值: {part}，请用 名字:HP:AC")
+
+        name = tokens[0].strip().strip("'\"")
+        hp = numbers[0]
+        ac = numbers[1] if len(numbers) > 1 else 12
         enemies.append(CombatEnemy(name=name, hp=hp, max_hp=hp, ac=ac))
+
     if not enemies:
         raise ValueError("至少需要一个敌人")
     return enemies

@@ -38,6 +38,7 @@ from game.narrative_brief import (
 )
 from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
+from game.check_consequences import apply_check_failure_consequences
 from game.rules import ability_check, format_check_for_kp
 from game.skill_check import skill_bonus_for_route
 from game.scenario import Scenario
@@ -481,7 +482,7 @@ class GameOrchestrator:
         try:
             pre_tool_events = self._resolve_mechanics(route, character, game_state)
             pre_tool_events.extend(
-                advance_narrative_time_for_turn(route, enriched_input, game_state)
+                advance_narrative_time_for_turn(route, enriched_input, game_state, character)
             )
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
@@ -508,7 +509,7 @@ class GameOrchestrator:
         try:
             pre_tool_events = self._resolve_mechanics(route, character, game_state)
             pre_tool_events.extend(
-                advance_narrative_time_for_turn(route, enriched_input, game_state)
+                advance_narrative_time_for_turn(route, enriched_input, game_state, character)
             )
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
@@ -560,9 +561,9 @@ class GameOrchestrator:
                     )
 
         if not game_state.is_in_combat() and route.needs_roll:
-            pre_tool_events.append(self._execute_pre_roll(route, character))
-
-        if route.item_usage == "pickup":
+            pre_tool_events.extend(
+                self._execute_pre_roll(route, character, game_state)
+            )
             if game_state.is_in_combat():
                 pre_tool_events.extend(
                     resolve_pickup_in_combat(
@@ -715,7 +716,12 @@ class GameOrchestrator:
         return not combat.has_main_action() and not combat.has_bonus_action()
 
     @staticmethod
-    def _execute_pre_roll(route: ActionRouteResult, character: Character) -> str:
+    def _execute_pre_roll(
+        route: ActionRouteResult,
+        character: Character,
+        game_state: GameState,
+    ) -> list[str]:
+        events: list[str] = []
         if route.roll_type == "ability_check":
             result = ability_check(
                 character,
@@ -724,10 +730,17 @@ class GameOrchestrator:
                 proficiency_bonus=route.proficiency_bonus,
                 skill_bonus=skill_bonus_for_route(character, route),
             )
-            return format_check_for_kp(result, character)
+            events.append(format_check_for_kp(result, character))
+            if not result.success:
+                events.extend(
+                    apply_check_failure_consequences(
+                        route, result, character, game_state
+                    )
+                )
+            return events
         if route.roll_type == "dice":
-            return roll(route.dice_notation).describe()
-        return ""
+            events.append(roll(route.dice_notation).describe())
+        return events
 
     async def _afinalize_suggestions_async(
         self,

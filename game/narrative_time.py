@@ -4,17 +4,38 @@ from __future__ import annotations
 
 import re
 import uuid
+from typing import TYPE_CHECKING
 
 from game.models import GameState, NarrativeDeadline
 from game.results import ActionRouteResult, DeadlinePatch, TimePatch
 
+if TYPE_CHECKING:
+    from game.models import Character
+    from game.scenario import Scenario
+
 _STORY_DAY_MINUTES = 24 * 60
 _DEFAULT_START_MINUTE = 8 * 60  # 第1天 08:00
 _IMMINENT_MINUTES = 30
+_CLOCK_LABEL_RE = re.compile(r"第(\d+)天\s*(\d{1,2}):(\d{2})")
+_INJURY_KEYWORDS = ("受伤", "爆炸", "伤害", "灼烧", "中毒", "失血", "遇袭", "遇险")
 
 
-def format_clock(elapsed_minutes: int) -> str:
-    absolute = _DEFAULT_START_MINUTE + max(0, elapsed_minutes)
+def parse_time_label(label: str) -> tuple[int, int, int] | None:
+    match = _CLOCK_LABEL_RE.search(label.strip())
+    if not match:
+        return None
+    day = max(1, int(match.group(1)))
+    hour = min(23, max(0, int(match.group(2))))
+    minute = min(59, max(0, int(match.group(3))))
+    return day, hour, minute
+
+
+def absolute_minutes_from_day_time(day: int, hour: int, minute: int) -> int:
+    return (max(1, day) - 1) * _STORY_DAY_MINUTES + hour * 60 + minute
+
+
+def format_clock(elapsed_minutes: int, story_start_absolute: int = _DEFAULT_START_MINUTE) -> str:
+    absolute = story_start_absolute + max(0, elapsed_minutes)
     day = absolute // _STORY_DAY_MINUTES + 1
     minute_of_day = absolute % _STORY_DAY_MINUTES
     hour, minute = divmod(minute_of_day, 60)
@@ -22,9 +43,71 @@ def format_clock(elapsed_minutes: int) -> str:
 
 
 def narrative_time_display(game_state: GameState) -> str:
-    if game_state.narrative_time_label.strip():
-        return game_state.narrative_time_label.strip()
-    return format_clock(game_state.elapsed_minutes)
+    label = game_state.narrative_time_label.strip()
+    parsed = parse_time_label(label) if label else None
+    if parsed is None and label:
+        return label
+    return format_clock(
+        game_state.elapsed_minutes,
+        game_state.story_start_absolute_minutes,
+    )
+
+
+def infer_opening_time_label(scenario: Scenario) -> str:
+    text = " ".join(
+        part
+        for part in (
+            scenario.opening_prompt,
+            scenario.opening_scene_name,
+            scenario.tone,
+            scenario.description,
+        )
+        if part
+    )
+    rules: list[tuple[tuple[str, ...], tuple[int, int, int]]] = [
+        (("凌晨", "拂晓", "黎明", "清晨", "天亮"), (1, 5, 30)),
+        (("上午", "早晨", "早间"), (1, 9, 0)),
+        (("正午", "中午"), (1, 12, 0)),
+        (("下午", "午后"), (1, 15, 0)),
+        (("黄昏", "日落", "傍晚"), (1, 18, 30)),
+        (("夜班", "值夜"), (1, 23, 0)),
+        (("深夜",), (1, 23, 30)),
+        (("午夜", "子夜"), (1, 0, 0)),
+        (("夜晚", "晚上", "夜间", "夜里", "雨夜", "月夜"), (1, 21, 0)),
+    ]
+    for keywords, (day, hour, minute) in rules:
+        if any(keyword in text for keyword in keywords):
+            return format_clock(0, absolute_minutes_from_day_time(day, hour, minute))
+    return format_clock(0, _DEFAULT_START_MINUTE)
+
+
+def apply_story_clock_label(game_state: GameState, label: str) -> None:
+    parsed = parse_time_label(label)
+    if parsed is None:
+        game_state.narrative_time_label = label.strip()
+        return
+
+    day, hour, minute = parsed
+    absolute = absolute_minutes_from_day_time(day, hour, minute)
+    if game_state.turn_count == 0 and game_state.elapsed_minutes == 0:
+        game_state.story_start_absolute_minutes = absolute
+        game_state.elapsed_minutes = 0
+    else:
+        game_state.elapsed_minutes = max(
+            0, absolute - game_state.story_start_absolute_minutes
+        )
+    game_state.narrative_time_label = format_clock(
+        game_state.elapsed_minutes,
+        game_state.story_start_absolute_minutes,
+    )
+
+
+def initialize_story_clock_from_scenario(game_state: GameState, scenario: Scenario) -> None:
+    if game_state.elapsed_minutes != 0:
+        return
+    if parse_time_label(game_state.narrative_time_label):
+        return
+    apply_story_clock_label(game_state, infer_opening_time_label(scenario))
 
 
 def format_duration(minutes: int) -> str:
@@ -69,7 +152,12 @@ def _parse_count_token(text: str) -> int | None:
     return None
 
 
-def parse_explicit_wait_minutes(text: str, *, elapsed_minutes: int) -> int | None:
+def parse_explicit_wait_minutes(
+    text: str,
+    *,
+    elapsed_minutes: int,
+    story_start_absolute: int = _DEFAULT_START_MINUTE,
+) -> int | None:
     normalized = text.strip()
     if not normalized:
         return None
@@ -86,7 +174,7 @@ def parse_explicit_wait_minutes(text: str, *, elapsed_minutes: int) -> int | Non
         if not match:
             continue
         if unit == "tomorrow":
-            absolute = _DEFAULT_START_MINUTE + elapsed_minutes
+            absolute = story_start_absolute + elapsed_minutes
             minute_of_day = absolute % _STORY_DAY_MINUTES
             until_morning = (_STORY_DAY_MINUTES - minute_of_day) % _STORY_DAY_MINUTES
             return max(60, until_morning or _STORY_DAY_MINUTES)
@@ -108,7 +196,11 @@ def estimate_turn_minutes(
     user_input: str,
     game_state: GameState,
 ) -> int:
-    explicit = parse_explicit_wait_minutes(user_input, elapsed_minutes=game_state.elapsed_minutes)
+    explicit = parse_explicit_wait_minutes(
+        user_input,
+        elapsed_minutes=game_state.elapsed_minutes,
+        story_start_absolute=game_state.story_start_absolute_minutes,
+    )
     if explicit is not None:
         return explicit
 
@@ -194,6 +286,8 @@ def add_deadline(game_state: GameState, patch: DeadlinePatch) -> list[str]:
             status="pending",
             consequence=patch.consequence.strip(),
             created_at_minutes=game_state.elapsed_minutes,
+            fail_quest_ids=list(patch.fail_quest_ids),
+            hp_loss=max(0, int(patch.hp_loss or 0)),
         )
     )
     remaining = _deadline_remaining(game_state.deadlines[-1], game_state.elapsed_minutes)
@@ -222,7 +316,69 @@ def cancel_deadline(game_state: GameState, deadline_id: str) -> str | None:
     return None
 
 
-def _trigger_deadline(game_state: GameState, deadline: NarrativeDeadline) -> list[str]:
+def _resolve_fail_quest_ids(
+    deadline: NarrativeDeadline,
+    game_state: GameState,
+) -> list[str]:
+    quest_ids = [quest_id.strip() for quest_id in deadline.fail_quest_ids if quest_id.strip()]
+    seen = set(quest_ids)
+
+    if deadline.id.strip() and deadline.id.strip() not in seen:
+        for quest in game_state.active_quests:
+            if quest.status == "active" and quest.id == deadline.id.strip():
+                quest_ids.append(quest.id)
+                seen.add(quest.id)
+                break
+
+    label = deadline.label.strip()
+    if label:
+        for quest in game_state.active_quests:
+            if quest.status != "active" or quest.id in seen:
+                continue
+            if label in quest.title or label in quest.description:
+                quest_ids.append(quest.id)
+                seen.add(quest.id)
+
+    return quest_ids
+
+
+def _default_hp_loss(consequence: str, configured: int) -> int:
+    if configured > 0:
+        return configured
+    if any(keyword in consequence for keyword in _INJURY_KEYWORDS):
+        return 5
+    return 0
+
+
+def _apply_deadline_penalties(
+    game_state: GameState,
+    deadline: NarrativeDeadline,
+    character: Character | None,
+) -> list[str]:
+    events: list[str] = []
+    for quest_id in _resolve_fail_quest_ids(deadline, game_state):
+        quest = game_state.get_quest(quest_id)
+        if quest is None or quest.status != "active":
+            continue
+        quest.status = "failed"
+        events.append(f"❌ 任务失败：[{quest.id}] {quest.title}")
+
+    hp_loss = _default_hp_loss(deadline.consequence, deadline.hp_loss)
+    if character is not None and hp_loss > 0:
+        before = character.hp
+        character.hp = max(1, character.hp - hp_loss)
+        actual = before - character.hp
+        if actual > 0:
+            events.append(f"💔 时限后果：受到 {actual} 点伤害（HP {character.hp}/{character.max_hp}）")
+
+    return events
+
+
+def _trigger_deadline(
+    game_state: GameState,
+    deadline: NarrativeDeadline,
+    character: Character | None = None,
+) -> list[str]:
     from config.settings import get_settings
 
     deadline.status = "triggered"
@@ -232,19 +388,24 @@ def _trigger_deadline(game_state: GameState, deadline: NarrativeDeadline) -> lis
     if deadline.consequence.strip():
         fact = f"{fact}；后果：{deadline.consequence.strip()}"
     game_state.add_memory_facts([fact], get_settings().max_memory_facts)
+    events.extend(_apply_deadline_penalties(game_state, deadline, character))
     return events
 
 
-def advance_narrative_clock(game_state: GameState, minutes: int) -> list[str]:
+def advance_narrative_clock(
+    game_state: GameState,
+    minutes: int,
+    character: Character | None = None,
+) -> list[str]:
     if minutes <= 0:
-        return check_imminent_deadlines(game_state)
+        return check_imminent_deadlines(game_state, character=character)
 
     before = game_state.elapsed_minutes
     game_state.elapsed_minutes += minutes
-    if not game_state.narrative_time_label.strip():
-        game_state.narrative_time_label = format_clock(game_state.elapsed_minutes)
-    else:
-        game_state.narrative_time_label = format_clock(game_state.elapsed_minutes)
+    game_state.narrative_time_label = format_clock(
+        game_state.elapsed_minutes,
+        game_state.story_start_absolute_minutes,
+    )
 
     events = [
         f"⏳ 时间推进 {format_duration(minutes)}（{narrative_time_display(game_state)}）"
@@ -253,19 +414,22 @@ def advance_narrative_clock(game_state: GameState, minutes: int) -> list[str]:
         if deadline.status != "pending":
             continue
         if deadline.due_at_minutes > before and deadline.due_at_minutes <= game_state.elapsed_minutes:
-            events.extend(_trigger_deadline(game_state, deadline))
-    events.extend(check_imminent_deadlines(game_state))
+            events.extend(_trigger_deadline(game_state, deadline, character))
+    events.extend(check_imminent_deadlines(game_state, character=character))
     return events
 
 
-def check_imminent_deadlines(game_state: GameState) -> list[str]:
+def check_imminent_deadlines(
+    game_state: GameState,
+    character: Character | None = None,
+) -> list[str]:
     events: list[str] = []
     for deadline in game_state.deadlines:
         if deadline.status != "pending":
             continue
         remaining = _deadline_remaining(deadline, game_state.elapsed_minutes)
         if remaining < 0:
-            events.extend(_trigger_deadline(game_state, deadline))
+            events.extend(_trigger_deadline(game_state, deadline, character))
         elif remaining <= _IMMINENT_MINUTES:
             events.append(
                 f"⏰ 时限临近：{deadline.label}（还剩 {format_duration(remaining)}）"
@@ -273,13 +437,17 @@ def check_imminent_deadlines(game_state: GameState) -> list[str]:
     return events
 
 
-def apply_time_patch(game_state: GameState, patch: TimePatch | None) -> list[str]:
+def apply_time_patch(
+    game_state: GameState,
+    patch: TimePatch | None,
+    character: Character | None = None,
+) -> list[str]:
     if patch is None:
         return []
 
     events: list[str] = []
     if patch.time_label.strip():
-        game_state.narrative_time_label = patch.time_label.strip()
+        apply_story_clock_label(game_state, patch.time_label.strip())
 
     for deadline_id in patch.cancel_deadline_ids:
         message = cancel_deadline(game_state, deadline_id)
@@ -290,7 +458,7 @@ def apply_time_patch(game_state: GameState, patch: TimePatch | None) -> list[str
         events.extend(add_deadline(game_state, deadline_patch))
 
     if patch.advance_minutes > 0:
-        events.extend(advance_narrative_clock(game_state, patch.advance_minutes))
+        events.extend(advance_narrative_clock(game_state, patch.advance_minutes, character))
 
     return events
 
@@ -309,7 +477,7 @@ def format_narrative_time_context(game_state: GameState) -> str:
             if remaining < 0:
                 lines.append(
                     f"- {deadline.label}：已逾期 {format_duration(-remaining)}，"
-                    "本轮必须体现后果，不得再写「还有很久」"
+                    "系统已执行失败/伤害等惩罚，本轮必须体现后果"
                 )
             elif remaining == 0:
                 lines.append(f"- {deadline.label}：此刻到期")
@@ -320,6 +488,15 @@ def format_narrative_time_context(game_state: GameState) -> str:
                 )
                 if deadline.consequence.strip():
                     lines.append(f"  到期后果：{deadline.consequence.strip()}")
+                penalty_parts: list[str] = []
+                if deadline.fail_quest_ids:
+                    penalty_parts.append(f"失败任务 {', '.join(deadline.fail_quest_ids)}")
+                if deadline.hp_loss > 0:
+                    penalty_parts.append(f"伤害 {deadline.hp_loss}")
+                elif any(keyword in deadline.consequence for keyword in _INJURY_KEYWORDS):
+                    penalty_parts.append("伤害（默认 5）")
+                if penalty_parts:
+                    lines.append(f"  到期惩罚：{'；'.join(penalty_parts)}")
 
     triggered = [d for d in game_state.deadlines if d.status == "triggered"][-3:]
     if triggered:
@@ -350,6 +527,7 @@ def format_time_constraints_for_kp(game_state: GameState) -> str:
         )
         if deadline.consequence.strip():
             lines.append(f"  建议后果：{deadline.consequence.strip()}")
+        lines.append("  系统已执行相关任务失败/伤害惩罚，叙事须与之吻合。")
     for deadline in imminent:
         remaining = _deadline_remaining(deadline, game_state.elapsed_minutes)
         lines.append(
@@ -365,6 +543,7 @@ def advance_narrative_time_for_turn(
     route: ActionRouteResult | None,
     user_input: str,
     game_state: GameState,
+    character: Character | None = None,
 ) -> list[str]:
     minutes = estimate_turn_minutes(route, user_input, game_state)
-    return advance_narrative_clock(game_state, minutes)
+    return advance_narrative_clock(game_state, minutes, character)

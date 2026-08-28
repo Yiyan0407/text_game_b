@@ -86,8 +86,11 @@ class Scenario(BaseModel):
         return "\n".join(lines)
 
     def apply_to_game_state(self, game_state: GameState) -> None:
+        from game.narrative_time import initialize_story_clock_from_scenario
+
         game_state.scenario_id = self.id
         game_state.scene_id = self.opening_scene_id
         game_state.current_scene = self.opening_scene_name
         if self.initial_quests:
             game_state.active_quests = list(self.initial_quests)
+        initialize_story_clock_from_scenario(game_state, self)

@@ -9,6 +9,22 @@ def test_parse_enemies():
     assert enemies[0].ac == 12
 
 
+def test_parse_enemies_with_hp_labels():
+    enemies = parse_enemies("光头壮汉:HP:30:AC:12,瘦高个:'HP:18:10")
+    assert len(enemies) == 2
+    assert enemies[0].name == "光头壮汉"
+    assert enemies[0].hp == 30
+    assert enemies[0].ac == 12
+    assert enemies[1].hp == 18
+    assert enemies[1].ac == 10
+
+
+def test_parse_enemies_json():
+    enemies = parse_enemies('[{"name":"光头壮汉","hp":30,"ac":12}]')
+    assert enemies[0].name == "光头壮汉"
+    assert enemies[0].hp == 30
+
+
 def test_start_combat():
     character = Character(name="测试", dex=14)
     state = GameState()

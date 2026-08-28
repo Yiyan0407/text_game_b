@@ -105,6 +105,8 @@ class DeadlinePatch(BaseModel):
     due_at_minutes: int | None = None
     consequence: str = ""
     status: Literal["pending", "cancelled"] = "pending"
+    fail_quest_ids: list[str] = Field(default_factory=list)
+    hp_loss: int = 0
 
 
 class TimePatch(BaseModel):
