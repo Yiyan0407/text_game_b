@@ -11,6 +11,19 @@ from game.game_config import (
 
 KP_GUIDANCE_KEY = "game_option_kp_guidance"
 BG_VALIDATION_KEY = "game_option_bg_validation"
+_RENDER_GUARD_KEY = "_game_options_rendered_run_id"
+
+
+def _current_script_run_id() -> str | None:
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        ctx = get_script_run_ctx()
+        if ctx is None:
+            return None
+        return str(ctx.script_run_id)
+    except Exception:
+        return None
 
 
 def init_game_options_defaults() -> None:
@@ -30,7 +43,15 @@ def get_game_config_from_session() -> GameConfig:
 
 
 def render_game_options(*, show_background_validation: bool = True) -> GameConfig:
-    """渲染游戏选项，返回当前选择。"""
+    """渲染游戏选项，返回当前选择。
+
+    同一 Streamlit script run 内重复调用时，仅首次渲染 widget，
+    后续调用只读 session（防止 DuplicateElementKey）。
+    """
+    run_id = _current_script_run_id()
+    if run_id and st.session_state.get(_RENDER_GUARD_KEY) == run_id:
+        return get_game_config_from_session()
+
     init_game_options_defaults()
 
     with st.expander("⚙️ 游戏选项", expanded=False):
@@ -57,4 +78,6 @@ def render_game_options(*, show_background_validation: bool = True) -> GameConfi
                     "KP 仍会尽量按规则叙事，但不保证完全兼容。"
                 )
 
+    if run_id:
+        st.session_state[_RENDER_GUARD_KEY] = run_id
     return get_game_config_from_session()
