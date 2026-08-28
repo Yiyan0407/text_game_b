@@ -41,7 +41,6 @@ def render_game_options(*, show_background_validation: bool = True) -> GameConfi
         if show_background_validation:
             enable_bg_validation = st.checkbox(
                 "启用背景平衡审核",
-                value=st.session_state.get(BG_VALIDATION_KEY, True),
                 key=BG_VALIDATION_KEY,
                 help="关闭后跳过「开局无敌/满级/神器」等审核，适合想放飞自我的玩家。",
             )

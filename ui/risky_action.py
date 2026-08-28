@@ -6,7 +6,9 @@ from typing import Any
 
 import streamlit as st
 
-SESSION_KEY = "risky_action_confirm"
+SESSION_KEY = "risky_action_pending"
+CONFIRM_BUTTON_KEY = "risky_action_confirm"
+CANCEL_BUTTON_KEY = "risky_action_cancel"
 
 ACTION_DELETE_SAVE = "delete_save"
 ACTION_DELETE_SCENARIO = "delete_scenario"
@@ -49,6 +51,12 @@ def queue_delete_scenario(scenario_id: str, *, title: str) -> None:
 
 def get_risky_action() -> dict[str, Any] | None:
     pending = st.session_state.get(SESSION_KEY)
+    if pending is None:
+        legacy = st.session_state.get(CONFIRM_BUTTON_KEY)
+        if isinstance(legacy, dict) and "action" in legacy:
+            st.session_state[SESSION_KEY] = legacy
+            st.session_state.pop(CONFIRM_BUTTON_KEY, None)
+            pending = legacy
     return pending if isinstance(pending, dict) else None
 
 
@@ -72,11 +80,11 @@ def handle_risky_action_prompt(
         confirm_label,
         type="primary",
         use_container_width=True,
-        key="risky_action_confirm",
+        key=CONFIRM_BUTTON_KEY,
     ):
         clear_risky_action()
         return pending
-    if c2.button(cancel_label, use_container_width=True, key="risky_action_cancel"):
+    if c2.button(cancel_label, use_container_width=True, key=CANCEL_BUTTON_KEY):
         clear_risky_action()
         st.rerun()
     return PENDING
