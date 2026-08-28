@@ -70,6 +70,7 @@ def handle_player_message(user_input: str) -> None:
     user_msg_index = len(st.session_state.messages) - 1
     turn_completed = False
     rollback_turn = None
+    item_events: list[str] = []
 
     try:
         if settings.enable_streaming:
@@ -80,6 +81,7 @@ def handle_player_message(user_input: str) -> None:
                 pre_tool_events,
                 run_state_phase,
                 text_stream,
+                run_item_sync_phase,
                 run_memory_finalize,
                 finish_turn,
                 rollback_turn,
@@ -115,9 +117,16 @@ def handle_player_message(user_input: str) -> None:
             append_tool_events(state_events)
             turn = finalize_streaming_turn(
                 full_response,
+                run_item_sync_phase=run_item_sync_phase,
                 run_memory_finalize=run_memory_finalize,
                 finish_turn=finish_turn,
             )
+            item_events = [
+                event
+                for event in turn.tool_events
+                if event not in pre_tool_events and event not in state_events
+            ]
+            append_tool_events(item_events)
             progress.clear()
         else:
             with st.spinner("KP 思考中……"):
@@ -154,7 +163,9 @@ def handle_player_message(user_input: str) -> None:
             kp_tool_events = [
                 event
                 for event in turn.tool_events
-                if event not in pre_tool_events and event not in state_events
+                if event not in pre_tool_events
+                and event not in state_events
+                and event not in item_events
             ]
             append_tool_events(kp_tool_events)
             st.session_state.messages.append(

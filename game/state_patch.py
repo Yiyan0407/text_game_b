@@ -153,8 +153,6 @@ def apply_state_patch(
             character,
             patch,
             added_this_turn,
-            user_input=user_input,
-            route=route,
         )
     )
 
@@ -281,34 +279,6 @@ def _apply_equipment(character: Character, patch: EquipmentPatch) -> str:
     return message if ok else ""
 
 
-_EQUIP_CONTEXT_MARKERS = (
-    "植入",
-    "穿戴",
-    "装备",
-    "装配",
-    "挂载",
-    "安装",
-    "换上",
-    "穿上",
-    "佩戴",
-    "装完",
-    "完成植入",
-    "完成装配",
-    "安装完成",
-    "装备完成",
-    "义体库",
-    "储存舱",
-    "手术台",
-)
-_OBSERVE_ONLY_MARKERS = (
-    "检查",
-    "查看",
-    "观察",
-    "盘点",
-    "确认状态",
-    "什么样",
-    "状态如何",
-)
 _INVENTORY_EQUIP_DESCRIPTION_MARKERS = (
     "已植入",
     "已装备",
@@ -318,29 +288,6 @@ _INVENTORY_EQUIP_DESCRIPTION_MARKERS = (
     "安装完成",
     "植入完成",
 )
-
-
-def _turn_action_text(user_input: str, route: ActionRouteResult | None) -> str:
-    parts = [user_input.strip()]
-    if route is not None:
-        parts.extend(
-            part.strip()
-            for part in (route.action_intent, route.scope_stop)
-            if part and part.strip()
-        )
-    return " ".join(part for part in parts if part)
-
-
-def _turn_implies_equip_wear(user_input: str, route: ActionRouteResult | None) -> bool:
-    text = _turn_action_text(user_input, route)
-    if not text:
-        return False
-    if any(marker in text for marker in _OBSERVE_ONLY_MARKERS):
-        if not any(marker in text for marker in _EQUIP_CONTEXT_MARKERS):
-            return False
-    if route is not None and route.item_usage in ("pickup", "purchase"):
-        return False
-    return any(marker in text for marker in _EQUIP_CONTEXT_MARKERS)
 
 
 def _inventory_add_implies_equip(inv: InventoryPatch) -> bool:
@@ -365,19 +312,18 @@ def _auto_equip_added_items(
     character: Character,
     patch: StatePatch,
     added_this_turn: set[str],
-    *,
-    user_input: str,
-    route: ActionRouteResult | None,
 ) -> list[str]:
+    """State Agent 在 inventory description 中标明已装备/已植入时的兜底 equip。"""
     if not added_this_turn:
         return []
 
     events: list[str] = []
-    turn_equip = _turn_implies_equip_wear(user_input, route)
     explicit = _explicit_equip_item_names(patch)
 
     for inv in patch.inventory:
         if inv.action != "add":
+            continue
+        if not _inventory_add_implies_equip(inv):
             continue
         item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
         if not item_name:
@@ -387,8 +333,6 @@ def _auto_equip_added_items(
         if any(fuzzy_match_name(item_name, name) for name in explicit):
             continue
         if character.is_item_equipped(item_name):
-            continue
-        if not turn_equip and not _inventory_add_implies_equip(inv):
             continue
         ok, message = character.equip_item(item_name)
         if ok:

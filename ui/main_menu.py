@@ -410,6 +410,7 @@ def start_new_game(
                 pre_tool_events,
                 run_state_phase,
                 text_stream,
+                run_item_sync_phase,
                 run_memory_finalize,
                 finish_turn,
                 rollback_turn,
@@ -431,9 +432,16 @@ def start_new_game(
             append_tool_events(state_events)
             turn = finalize_streaming_turn(
                 full,
+                run_item_sync_phase=run_item_sync_phase,
                 run_memory_finalize=run_memory_finalize,
                 finish_turn=finish_turn,
             )
+            item_events = [
+                event
+                for event in turn.tool_events
+                if event not in pre_tool_events and event not in state_events
+            ]
+            append_tool_events(item_events)
             progress.clear()
             st.session_state.messages.append(
                 ChatMessage(role="assistant", content=full or turn.response)

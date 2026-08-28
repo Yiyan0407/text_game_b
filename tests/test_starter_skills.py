@@ -25,19 +25,22 @@ def test_start_game_does_not_sync_starter_skills(monkeypatch):
     fake_kp.anarrate = AsyncMock(
         return_value=TurnResult(response="开场", tool_events=[])
     )
-    fake_state = MagicMock()
-    fake_state.apropose = AsyncMock(return_value=StatePatch())
+    fake_world = MagicMock()
+    fake_world.apropose = AsyncMock(return_value=StatePatch())
+    fake_item_sync = MagicMock()
+    fake_item_sync.apropose = AsyncMock(return_value=StatePatch())
 
     orchestrator = GameOrchestrator(
         kp_chain=fake_kp,
         opening_integrator=FakeIntegrator(),
-        state_agent=fake_state,
+        world_state_agent=fake_world,
+        item_sync_agent=fake_item_sync,
     )
 
-    async def _fake_finalize(turn, *args, **kwargs):
-        return turn
+    async def _fake_finalize(ctx, response):
+        return TurnResult(response=response, tool_events=[])
 
-    monkeypatch.setattr(orchestrator, "_afinalize_turn", _fake_finalize)
+    monkeypatch.setattr(orchestrator.pipeline, "finalize", _fake_finalize)
 
     orchestrator.start_game(character, game_state, scenario)
 

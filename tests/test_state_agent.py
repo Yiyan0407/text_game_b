@@ -1,12 +1,12 @@
 from unittest.mock import MagicMock, patch
 
-from chain.state_agent import StateAgent
+from chain.world_state_agent import WorldStateAgent
 from game.models import Character, GameState
 from game.results import NpcPatch, StatePatch
 
 
 def test_parse_valid_json():
-    agent = StateAgent()
+    agent = WorldStateAgent()
     text = """{"npcs": [{"name": "老王", "attitude": "neutral", "notes": "店主"}]}"""
     patch = agent._parse_response(text)
     assert len(patch.npcs) == 1
@@ -14,13 +14,13 @@ def test_parse_valid_json():
 
 
 def test_parse_invalid_returns_empty():
-    agent = StateAgent()
+    agent = WorldStateAgent()
     patch = agent._parse_response("not json at all")
     assert patch == StatePatch()
 
 
 def test_propose_calls_llm():
-    agent = StateAgent()
+    agent = WorldStateAgent()
     character = Character(name="测试")
     game_state = GameState()
     mock_chain = MagicMock()

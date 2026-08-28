@@ -57,7 +57,7 @@ def render_phased_turn(
     *,
     loading: LoadingPlaceholder | None = None,
 ) -> tuple[list[str], str]:
-    """分阶段展示：机械事件 → 状态同步 → 叙事流。"""
+    """分阶段展示：机械事件 → 世界状态 → 叙事流。"""
     if pre_tool_events:
         from ui.chat import render_tool_events_live
 
@@ -85,10 +85,18 @@ def render_phased_turn(
 def finalize_streaming_turn(
     full_response: str,
     *,
+    run_item_sync_phase: Callable[[str], list[str]],
     run_memory_finalize: Callable[[], bool],
     finish_turn: Callable[[str], TurnResult],
 ) -> TurnResult:
-    """流式回合收尾：记忆整理 → 行动建议。"""
+    """流式回合收尾：物品同步 → 记忆整理 → 行动建议。"""
+    with st.spinner("同步物品与装备中……"):
+        item_events = run_item_sync_phase(full_response or "")
+    if item_events:
+        from ui.chat import render_tool_events_live
+
+        render_tool_events_live(item_events)
+
     with st.spinner("整理冒险记忆中……"):
         summary_updated = run_memory_finalize()
     with st.spinner("生成行动建议中……"):

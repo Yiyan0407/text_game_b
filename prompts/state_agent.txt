@@ -84,11 +84,14 @@
 - 物品**进入背包后仍在背包**；穿戴/植入/挂载另写 **equipment**，不会把物品从背包移除
 
 ### equipment（装备栏）
-- 玩家**穿戴、挂载、植入、装配完成**的物品须 `action=equip`；**卸下/拆除**时 `action=unequip`
+- **由你根据上下文裁定**是否 equip：结合【最近对话】KP 叙事、【玩家行动】、【机械结算】、角色背景、背包/装备现状；叙事上已穿戴/植入/装配完成，或体内/背景义体被确认存在 → **必须**输出 `equipment equip`（及必要的 `inventory add`）
+- **勿依赖**玩家是否说了「都装上」等字眼；纯观察/盘点/询问且未改变装备状态 → 勿 equip
+- 玩家**卸下/拆除**时 `action=unequip`
 - **卸下 = 回背包**：`unequip` 只从装备栏移除，物品**仍在背包**；**禁止**对刚卸下的物品写 `inventory remove`（remove 仅用于丢弃/消耗/交出）
 - 若要丢弃已装备物品：同轮先 `equipment unequip` 再 `inventory remove`
-- **须先在背包**：同轮先 `inventory add`；系统会在**植入/穿戴/装配完成**时自动 equip（见下），也可手动写 `equipment equip`
-- **自动 equip**：玩家本轮明确完成植入/穿戴/装配，或 inventory description 含「已植入/已装备」等时，**仅写 inventory add 即可**，系统会自动写入装备栏；纯检查/观察/拾取/购买不会自动 equip
+- **须先在背包**：同轮先 `inventory add` 再 `equipment equip`（JSON 中 inventory 写在 equipment 前）
+- **体内/背景义体（极重要）**：KP 列出或玩家确认存在的每个植入模块须 `inventory add` + `body` equip（description 可写 `已植入`）；**禁止**只写 `memory_facts`
+- **兜底**：若你在 inventory 的 description 写了「已植入/已装备」等但漏写 equipment，系统会自动 equip；**仍应主动输出 equipment**
 - **槽位 slot**（可省略，系统会按名称推断；**只用以下三类**）：
   - `hand` **手持**：武器、盾牌、工具等拿在手里/挂载的快速使用物
   - `body` **身体**：防具、义体、植入物、义眼、脊柱、操作系统、AI 等穿戴/植入全身的
