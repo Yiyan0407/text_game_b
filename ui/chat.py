@@ -1,8 +1,12 @@
 import streamlit as st
 
+from game.kp_directive import is_kp_directive, is_kp_meta_response
 from game.models import ChatMessage
 
 CHAT_DRAFT_KEY = "chat_draft"
+_KP_USER_AVATAR = "🎙️"
+_KP_META_AVATAR = "🎙️"
+_STORY_KP_AVATAR = "🎲"
 
 
 def seed_chat_draft(text: str) -> None:
@@ -25,25 +29,45 @@ def render_tool_events_live(tool_events: list[str]) -> None:
         text = format_tool_event_content(event)
         if not text:
             continue
-        with st.chat_message("assistant", avatar="🎲"):
+        with st.chat_message("assistant", avatar=_STORY_KP_AVATAR):
             st.markdown(f"*{text}*")
+
+
+def _render_kp_meta_user_message(content: str) -> None:
+    with st.chat_message("user", avatar=_KP_USER_AVATAR):
+        st.caption("出戏沟通 · 主持人频道")
+        st.markdown(content)
+
+
+def _render_kp_meta_assistant_message(content: str) -> None:
+    with st.chat_message("assistant", avatar=_KP_META_AVATAR):
+        st.caption("主持人回复")
+        st.markdown(content)
 
 
 def render_chat_history(history: list[ChatMessage]) -> None:
     for msg in history:
         if msg.role == "system":
-            with st.chat_message("assistant", avatar="🎲"):
+            with st.chat_message("assistant", avatar=_STORY_KP_AVATAR):
                 st.markdown(f"*{format_tool_event_content(msg.content)}*")
             continue
+        if msg.role == "user" and is_kp_directive(msg.content):
+            _render_kp_meta_user_message(msg.content)
+            continue
+        if msg.role == "assistant" and is_kp_meta_response(msg.content):
+            _render_kp_meta_assistant_message(msg.content)
+            continue
         role = "user" if msg.role == "user" else "assistant"
-        with st.chat_message(role):
+        avatar = _STORY_KP_AVATAR if role == "assistant" else None
+        with st.chat_message(role, avatar=avatar):
             st.markdown(msg.content)
 
 
 def render_chat_input(disabled: bool = False, placeholder: str | None = None) -> str | None:
-    hint = placeholder or "描述你的行动，例如：检查手机里的匿名邮件……"
-    # 表单内不要用与 seed_chat_draft 相同的 widget key：外部写入 session_state 后，
-    # 界面会显示建议文案，但提交时 widget 内部值仍可能为空，导致点击发送无反应。
+    hint = placeholder or (
+        "描述你的行动，例如：检查手机里的匿名邮件……"
+        "（规则申诉以 【kp】 开头，如「【kp】刚才任务不应失败」）"
+    )
     initial = str(st.session_state.get(CHAT_DRAFT_KEY, ""))
 
     with st.form("player_action_form", clear_on_submit=True):

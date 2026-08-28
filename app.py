@@ -74,11 +74,10 @@ def handle_player_message(user_input: str) -> None:
     item_events: list[str] = []
 
     try:
+        kp_meta_turn = is_kp_directive(user_input)
         if settings.enable_streaming:
             progress = LoadingPlaceholder()
-            progress.show(
-                "KP 沟通中……" if is_kp_directive(user_input) else "裁定行动中……"
-            )
+            progress.show("KP 沟通中……" if kp_meta_turn else "裁定行动中……")
             (
                 rejection_turn,
                 pre_tool_events,
@@ -110,12 +109,16 @@ def handle_player_message(user_input: str) -> None:
 
             append_tool_events(pre_tool_events)
 
-            with st.chat_message("assistant"):
+            assistant_avatar = "🎙️" if kp_meta_turn else "🎲"
+            with st.chat_message("assistant", avatar=assistant_avatar):
+                if kp_meta_turn:
+                    st.caption("主持人回复")
                 state_events, full_response = render_phased_turn(
                     pre_tool_events,
                     run_state_phase,
                     text_stream,
                     loading=progress,
+                    kp_meta=kp_meta_turn,
                 )
             append_tool_events(state_events)
             turn = finalize_streaming_turn(
@@ -123,6 +126,7 @@ def handle_player_message(user_input: str) -> None:
                 run_item_sync_phase=run_item_sync_phase,
                 run_memory_finalize=run_memory_finalize,
                 finish_turn=finish_turn,
+                kp_meta=kp_meta_turn,
             )
             item_events = [
                 event
@@ -132,9 +136,7 @@ def handle_player_message(user_input: str) -> None:
             append_tool_events(item_events)
             progress.clear()
         else:
-            with st.spinner(
-                "KP 沟通中……" if is_kp_directive(user_input) else "KP 思考中……"
-            ):
+            with st.spinner("KP 沟通中……" if kp_meta_turn else "KP 思考中……"):
                 turn = orchestrator.player_turn(
                     character=character,
                     game_state=game_state,

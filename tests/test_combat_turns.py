@@ -3,6 +3,7 @@ from game.combat import (
     enemy_attack,
     maybe_end_combat,
     player_ac,
+    resolve_defend,
     resolve_until_player_turn,
     start_combat,
 )
@@ -14,6 +15,39 @@ def test_player_ac():
     character = Character(name="测试", dex=14)
     assert player_ac(character) == 12
     assert player_ac(character, defending=True) == 14
+
+
+def test_defend_bonus_persists_during_enemy_turn():
+    character = Character(name="测试", dex=14)
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="哥布林", hp=10, max_hp=10, ac=10, attack_bonus=-5)],
+        turn_order=["player", "哥布林"],
+        turn_index=0,
+    )
+    resolve_defend(character, state)
+    assert state.combat.defending is True
+    state.combat.advance_turn()
+    assert state.combat.is_player_turn() is False
+    assert state.combat.defending is True
+
+
+def test_defend_resets_on_new_player_turn():
+    character = Character(name="测试", hp=20, max_hp=20, dex=14)
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="哥布林", hp=10, max_hp=10, ac=10, attack_bonus=-5)],
+        turn_order=["player", "哥布林"],
+        turn_index=0,
+    )
+    resolve_defend(character, state)
+    advance_after_player_action(character, state)
+    assert state.combat.is_player_turn()
+    assert state.combat.defending is False
 
 
 def test_enemy_attack_can_reduce_hp():

@@ -56,6 +56,7 @@ def render_phased_turn(
     text_stream: Iterator[str],
     *,
     loading: LoadingPlaceholder | None = None,
+    kp_meta: bool = False,
 ) -> tuple[list[str], str]:
     """分阶段展示：机械事件 → 世界状态 → 叙事流。"""
     if pre_tool_events:
@@ -64,7 +65,7 @@ def render_phased_turn(
         render_tool_events_live(pre_tool_events)
 
     if loading:
-        loading.show("同步世界状态中……")
+        loading.show("KP 沟通处理中……" if kp_meta else "同步世界状态中……")
     state_events = run_state_phase()
     if loading:
         loading.clear()
@@ -77,7 +78,7 @@ def render_phased_turn(
     full = render_streaming_markdown(
         text_stream,
         loading=loading,
-        loading_message="KP 撰写叙事中……",
+        loading_message="KP 回复中……" if kp_meta else "KP 撰写叙事中……",
     )
     return state_events, full
 
@@ -88,8 +89,14 @@ def finalize_streaming_turn(
     run_item_sync_phase: Callable[[str], list[str]],
     run_memory_finalize: Callable[[], bool],
     finish_turn: Callable[[str], TurnResult],
+    kp_meta: bool = False,
 ) -> TurnResult:
     """流式回合收尾：物品同步 → 记忆整理 → 行动建议。"""
+    if kp_meta:
+        item_events = run_item_sync_phase(full_response or "")
+        run_memory_finalize()
+        return finish_turn(full_response or "")
+
     with st.spinner("同步物品与装备中……"):
         item_events = run_item_sync_phase(full_response or "")
     if item_events:

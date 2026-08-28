@@ -510,8 +510,8 @@ class CombatState(BaseModel):
             from game.combat_modifiers import tick_tactical_effects
 
             tick_tactical_effects(self)
-        self.defending = False
         if self.is_player_turn():
+            self.defending = False
             self.action_used = False
             self.bonus_action_used = False
             self.movement_remaining_m = self.movement_speed_m

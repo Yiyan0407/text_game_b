@@ -6,15 +6,41 @@ from game.models import Character, ChatMessage, GameState
 from game.results import ActionRouteResult
 
 
+def format_tool_event_line(content: str) -> str:
+    text = str(content).strip()
+    if text.startswith("🎲 "):
+        return text[2:].strip()
+    return text
+
+
 def format_recent_history(history: list[ChatMessage], limit: int = 6) -> str:
     if not history:
         return "（无）"
     recent = history[-limit:]
     lines = []
     for msg in recent:
+        if msg.role == "system":
+            continue
         role = {"user": "玩家", "assistant": "KP", "system": "系统"}.get(msg.role, msg.role)
         lines.append(f"[{role}] {msg.content}")
-    return "\n".join(lines)
+    return "\n".join(lines) if lines else "（无）"
+
+
+def format_recent_system_events(history: list[ChatMessage], limit: int = 15) -> str:
+    """提取最近机械/系统结算，供 KP meta 申诉裁定。"""
+    if not history:
+        return "（无）"
+    events: list[str] = []
+    for msg in history:
+        if msg.role != "system":
+            continue
+        text = format_tool_event_line(msg.content)
+        if text:
+            events.append(text)
+    recent = events[-limit:]
+    if not recent:
+        return "（无）"
+    return "\n".join(f"- {line}" for line in recent)
 
 
 def format_mechanical_events(events: list[str]) -> str:

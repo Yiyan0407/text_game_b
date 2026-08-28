@@ -245,7 +245,67 @@ def test_cancel_deadline_matches_label():
     assert state.deadlines[0].status == "cancelled"
 
 
-def test_apply_time_patch_enforce_deadline():
+def test_apply_time_patch_warns_when_cancel_not_found():
+    state = GameState()
+    events = apply_time_patch(state, TimePatch(cancel_deadline_ids=["missing"]))
+    assert any("未找到" in event for event in events)
+
+
+def test_apply_turn_time_zero_minutes_marks_overdue_pending_due():
+    state = GameState(
+        elapsed_minutes=20,
+        deadlines=[
+            {
+                "id": "bomb",
+                "label": "炸弹爆炸",
+                "due_at_minutes": 10,
+                "status": "pending",
+                "consequence": "爆炸",
+                "created_at_minutes": 0,
+            }
+        ],
+    )
+    events = apply_turn_time_from_patch(
+        state,
+        TimePatch(),
+        route=None,
+        user_input="继续观察",
+        character=None,
+        has_time_field=True,
+    )
+    assert state.deadlines[0].status == "due"
+    assert any("时限已到" in event for event in events)
+
+
+def test_enforce_deadline_triggers_overdue_pending():
+    state = GameState(
+        elapsed_minutes=20,
+        active_quests=[Quest(id="q1", title="任务", status="active")],
+        deadlines=[
+            {
+                "id": "bomb",
+                "label": "炸弹爆炸",
+                "due_at_minutes": 10,
+                "status": "pending",
+                "consequence": "爆炸",
+                "created_at_minutes": 0,
+                "fail_quest_ids": ["q1"],
+            }
+        ],
+    )
+    events = apply_time_patch(state, TimePatch(enforce_deadline_ids=["bomb"]))
+    assert state.deadlines[0].status == "resolved"
+    assert state.active_quests[0].status == "failed"
+    assert any("后果成立" in event for event in events)
+
+
+def test_coerce_quest_list_allows_missing_title():
+    from game.state_patch import _coerce_quest_list
+
+    quests = _coerce_quest_list([{"quest_id": "q1", "status": "completed"}])
+    assert len(quests) == 1
+    assert quests[0].quest_id == "q1"
+    assert quests[0].title == ""
     state = GameState(
         elapsed_minutes=20,
         active_quests=[Quest(id="q1", title="任务", status="active")],

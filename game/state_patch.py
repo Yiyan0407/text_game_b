@@ -234,8 +234,13 @@ def _apply_npc(game_state: GameState, npc: NpcPatch) -> str:
 def _apply_quest(game_state: GameState, quest: QuestPatch) -> str:
     quest_id = quest.quest_id.strip()
     title = quest.title.strip()
-    if not quest_id or not title:
+    if not quest_id:
         return ""
+    if not title:
+        existing = game_state.get_quest(quest_id)
+        if existing is None:
+            return ""
+        title = existing.title
     status = quest.status if quest.status in ("active", "completed", "failed") else "active"
     game_state.upsert_quest(
         quest_id=quest_id,
@@ -533,6 +538,19 @@ def patch_from_dict(data: dict) -> StatePatch:
     )
 
 
+def sanitize_kp_meta_patch(patch: StatePatch) -> StatePatch:
+    """KP 出戏沟通：禁止借机新增物品/装备、推进时间或登记新时限。"""
+    patch.inventory = [item for item in patch.inventory if item.action == "remove"]
+    patch.equipment = [item for item in patch.equipment if item.action == "unequip"]
+    if patch.time is None:
+        return patch
+    patch.time.advance_minutes = 0
+    patch.time.advance_reason = ""
+    patch.time.time_label = ""
+    patch.time.deadlines = []
+    return patch
+
+
 def _coerce_str_list(value) -> list[str]:
     if value is None:
         return []
@@ -582,7 +600,7 @@ def _coerce_quest_list(value) -> list[QuestPatch]:
                 description=str(item.get("description", "")).strip(),
             )
         )
-    return [q for q in quests if q.quest_id and q.title]
+    return [q for q in quests if q.quest_id]
 
 
 def _coerce_inventory_list(value) -> list[InventoryPatch]:

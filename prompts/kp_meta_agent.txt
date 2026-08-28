@@ -11,12 +11,14 @@
 - 系统机械判了任务失败/伤害，但剧情上玩家已提前化解（如远程改日志、拆弹、伪装维护）
 - 时限到期惩罚与 memory_facts / 最近叙事矛盾
 - 明显的状态同步遗漏（任务应仍 active、时限应 cancel）
-- 要求撤销刚发生的错误机械结算（在【最近对话】中有据可查）
+- 要求撤销刚发生的错误机械结算（在【最近对话】或【最近系统/机械结算】中有据可查）
+
+**裁定顺序**：【最近系统/机械结算】> memory_facts > 【最近对话】叙事；系统事件与叙事冲突时，若玩家已提前布局化解，应支持回退错误惩罚。
 
 ## 输出规则
 - **只输出一个 JSON 对象**，不要 markdown 代码块、不要前后解释。
 - `response`（必填）：给玩家的 KP 回复，简体中文，100–300 字，语气像主持人而非小说。
-- `patch`：可选，结构与状态同步器相同（scene/npcs/quests/memory_facts/time 等）；**禁止** advance_minutes（meta 沟通不推进时间）。
+- `patch`：可选；也可把 `quests` / `time` / `memory_facts` 等**直接写在顶层**（与 patch 等价）。
 - `character_hp`：可选；仅当需纠正误扣 HP 时填写整数。
 - time 字段中优先用 `cancel_deadline_ids` 化解已消除的威胁；仅当确认后果确实发生才用 `enforce_deadline_ids`。
 - 恢复任务时 quests 须写完整 `quest_id`、`title`、`status`（从【游戏状态】复制 title）。

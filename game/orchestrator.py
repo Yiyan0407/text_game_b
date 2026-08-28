@@ -38,7 +38,7 @@ from game.item_use import resolve_use_item
 from game.models import Character, ChatMessage, GameState
 from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
-from game.kp_directive import parse_kp_directive
+from game.kp_directive import is_kp_directive, parse_kp_directive
 from game.narrative_time import apply_time_patch
 from game.results import TimePatch
 from game.state_patch import apply_state_patch
@@ -253,20 +253,25 @@ class GameOrchestrator:
         user_input: str,
         history: list[ChatMessage],
     ) -> TurnResult:
-        if parse_kp_directive(user_input) is not None:
+        if is_kp_directive(user_input):
             windowed = self.window_memory.get_history(history)
             return await self._akp_meta_turn(
                 character, game_state, scenario, user_input, history, windowed
             )
         windowed = self.window_memory.get_history(history)
-        return await self._run_turn_via_pipeline(
-            character=character,
-            game_state=game_state,
-            scenario=scenario,
-            user_input=user_input,
-            history=history,
-            windowed_history=windowed,
-        )
+        char_snap, state_snap = snapshot_adventure(character, game_state)
+        try:
+            return await self._run_turn_via_pipeline(
+                character=character,
+                game_state=game_state,
+                scenario=scenario,
+                user_input=user_input,
+                history=history,
+                windowed_history=windowed,
+            )
+        except Exception:
+            restore_adventure(character, game_state, char_snap, state_snap)
+            raise
 
     async def _akp_meta_turn(
         self,
@@ -278,7 +283,9 @@ class GameOrchestrator:
         windowed_history: list[ChatMessage],
     ) -> TurnResult:
         meta_message = parse_kp_directive(user_input)
-        if not meta_message:
+        if meta_message is None:
+            meta_message = ""
+        if not meta_message.strip():
             return TurnResult(
                 response="**【KP 沟通】**\n\n请在 【kp】 后面写上你想沟通的内容。",
                 tool_events=[],
@@ -318,7 +325,7 @@ class GameOrchestrator:
             )
         if result.character_hp is not None:
             before = character.hp
-            character.hp = max(1, min(int(result.character_hp), character.max_hp))
+            character.hp = max(0, min(int(result.character_hp), character.max_hp))
             if character.hp != before:
                 events.append(
                     f"💚 KP 修正：HP {before} → {character.hp}/{character.max_hp}"
@@ -377,11 +384,12 @@ class GameOrchestrator:
         user_input: str,
         history: list[ChatMessage],
     ):
-        if parse_kp_directive(user_input) is not None:
+        if is_kp_directive(user_input):
             return self._stream_kp_meta_turn(
                 character, game_state, scenario, user_input, history
             )
         windowed = self.window_memory.get_history(history)
+        char_snap, state_snap = snapshot_adventure(character, game_state)
         ctx = TurnContext(
             user_input=user_input,
             character=character,
@@ -418,10 +426,9 @@ class GameOrchestrator:
                 run_item_sync_phase_rejected,
                 run_memory_finalize_rejected,
                 finish_rejected,
-                lambda: None,
+                lambda: restore_adventure(character, game_state, char_snap, state_snap),
             )
 
-        char_snap, state_snap = snapshot_adventure(character, game_state)
         rejection, pre_events, run_state, stream, item_sync, mem, finish = (
             self._stream_turn_phased(ctx)
         )
@@ -440,11 +447,17 @@ class GameOrchestrator:
         history: list[ChatMessage],
     ):
         windowed = self.window_memory.get_history(history)
-        meta_message = parse_kp_directive(user_input) or ""
+        meta_message = parse_kp_directive(user_input)
+        if meta_message is None:
+            meta_message = ""
         char_snap, state_snap = snapshot_adventure(character, game_state)
         holder: dict[str, object] = {"events": [], "response": ""}
 
         def run_state_phase() -> list[str]:
+            if not meta_message.strip():
+                response = self._format_kp_meta_response("请在 【kp】 后面写上你想沟通的内容。")
+                holder["response"] = response
+                return []
             result = run_async(
                 self.kp_meta.arespond(
                     meta_message, character, game_state, windowed or history

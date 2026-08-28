@@ -426,6 +426,15 @@ def enforce_deadline(
         return []
     deadline = _find_due_deadline(game_state, target)
     if deadline is None:
+        pending = _find_open_deadline(game_state, target)
+        if (
+            pending is not None
+            and pending.status == "pending"
+            and _deadline_remaining(pending, game_state.elapsed_minutes) <= 0
+        ):
+            _trigger_deadline(game_state, pending, character)
+            deadline = pending if _deadline_is_due(pending) else None
+    if deadline is None:
         return []
     deadline.status = "resolved"
     events = [f"⏰ 时限后果成立：{deadline.label}"]
@@ -439,11 +448,6 @@ def _find_open_deadline(game_state: GameState, ref: str) -> NarrativeDeadline | 
             continue
         if deadline.id == ref or deadline.label == ref:
             return deadline
-    for deadline in game_state.deadlines:
-        if not _deadline_is_open(deadline):
-            continue
-        if ref in deadline.label or ref in deadline.id:
-            return deadline
     return None
 
 
@@ -452,11 +456,6 @@ def _find_due_deadline(game_state: GameState, ref: str) -> NarrativeDeadline | N
         if not _deadline_is_due(deadline):
             continue
         if deadline.id == ref or deadline.label == ref:
-            return deadline
-    for deadline in game_state.deadlines:
-        if not _deadline_is_due(deadline):
-            continue
-        if ref in deadline.label or ref in deadline.id:
             return deadline
     return None
 
@@ -604,9 +603,15 @@ def apply_time_patch(
         message = cancel_deadline(game_state, deadline_id)
         if message:
             events.append(message)
+        else:
+            events.append(f"⚠️ 未找到可取消/化解的时限：{deadline_id.strip()}")
 
     for deadline_id in patch.enforce_deadline_ids:
-        events.extend(enforce_deadline(game_state, deadline_id, character))
+        enforced = enforce_deadline(game_state, deadline_id, character)
+        if enforced:
+            events.extend(enforced)
+        else:
+            events.append(f"⚠️ 未找到可执行后果的时限：{deadline_id.strip()}")
 
     for deadline_patch in patch.deadlines:
         events.extend(add_deadline(game_state, deadline_patch))
@@ -622,6 +627,7 @@ def apply_time_patch(
         )
     elif patch.time_label.strip():
         apply_story_clock_label(game_state, patch.time_label.strip())
+        events.extend(check_imminent_deadlines(game_state, character))
 
     return events
 
@@ -797,7 +803,7 @@ def apply_turn_time_from_patch(
         has_time_field=has_time_field,
     )
     if time_patch is None and minutes <= 0:
-        return []
+        return check_imminent_deadlines(game_state, character=character)
 
     patch = time_patch if time_patch is not None else TimePatch()
     if minutes > 0 and patch.advance_minutes <= 0:
@@ -807,9 +813,12 @@ def apply_turn_time_from_patch(
     elif minutes <= 0 and not (
         patch.time_label or patch.deadlines or patch.cancel_deadline_ids or patch.enforce_deadline_ids
     ):
-        return []
+        return check_imminent_deadlines(game_state, character=character)
 
-    return apply_time_patch(game_state, patch, character)
+    events = apply_time_patch(game_state, patch, character)
+    if minutes <= 0:
+        events.extend(check_imminent_deadlines(game_state, character=character))
+    return events
 
 
 def advance_narrative_time_for_turn(

@@ -456,6 +456,7 @@ def start_new_game(
         except Exception as exc:
             if rollback_turn:
                 rollback_turn()
+            st.session_state.messages = []
             st.session_state.game_started = False
             st.session_state.page = "menu"
             st.error(f"开场生成失败：{exc}")

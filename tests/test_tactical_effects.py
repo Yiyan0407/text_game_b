@@ -36,7 +36,7 @@ def test_smoke_applies_to_combat_ability_check(monkeypatch):
     from game.models import DiceRoll
 
     monkeypatch.setattr(
-        "game.dice.roll",
+        "game.rules.roll",
         lambda notation: DiceRoll(notation=notation, rolls=[15], total=15),
     )
 
