@@ -600,12 +600,18 @@ class GameOrchestrator:
                 )
 
         if not game_state.is_in_combat() and route.needs_roll:
-            pre_tool_events.extend(
-                self._execute_pre_roll(route, character, game_state)
+            roll_events, roll_success = self._execute_pre_roll(
+                route, character, game_state
             )
-            for item in route.referenced_items:
-                if character.add_inventory_item(item):
-                    pre_tool_events.append(f"获得：{item}")
+            pre_tool_events.extend(roll_events)
+            if (
+                route.item_usage == "pickup"
+                and roll_success is True
+                and route.referenced_items
+            ):
+                for item in route.referenced_items:
+                    if character.add_inventory_item(item):
+                        pre_tool_events.append(f"获得：{item}")
         elif route.item_usage == "pickup" and not game_state.is_in_combat():
             for item in route.referenced_items:
                 if character.add_inventory_item(item):
@@ -800,7 +806,7 @@ class GameOrchestrator:
         route: ActionRouteResult,
         character: Character,
         game_state: GameState,
-    ) -> list[str]:
+    ) -> tuple[list[str], bool | None]:
         events: list[str] = []
         if route.roll_type == "ability_check":
             result = ability_check(
@@ -817,10 +823,11 @@ class GameOrchestrator:
                         route, result, character, game_state
                     )
                 )
-            return events
+            return events, result.success
         if route.roll_type == "dice":
             events.append(roll(route.dice_notation).describe())
-        return events
+            return events, None
+        return events, None
 
     async def _afinalize_suggestions_async(
         self,

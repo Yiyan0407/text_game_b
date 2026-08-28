@@ -137,6 +137,131 @@ def test_state_patch_blocks_combat_pickup_without_mechanical_gain():
     assert not character.has_inventory_item("格洛克手枪")
 
 
+def test_state_patch_blocks_duplicate_after_mechanical_equip():
+    character = Character(name="测试", inventory=["格洛克手枪（1把）"])
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="光头", hp=12, max_hp=12, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+    )
+    route = _approved_route(
+        item_usage="use",
+        combat_action="use_item",
+        referenced_items=["格洛克手枪"],
+        action_intent="装备手枪",
+    )
+    patch = patch_from_dict(
+        {
+            "inventory": [
+                {
+                    "action": "add",
+                    "item": "格洛克手枪",
+                    "quantity": 1,
+                    "unit": "把",
+                    "description": "从敌人手中脱落",
+                }
+            ]
+        }
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        route=route,
+        mechanical_events=[
+            "持用：格洛克手枪（握持中）",
+            "具体效果由 KP 叙事描述。",
+        ],
+    )
+    assert any("跳过重复添加" in event for event in events)
+    item = character.find_inventory_item("格洛克手枪")
+    assert item is not None
+    assert item.quantity == 1
+
+
+def test_state_patch_blocks_duplicate_after_mechanical_pickup():
+    character = Character(name="测试", inventory=["格洛克手枪（1把）"])
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+    )
+    route = _approved_route(
+        item_usage="pickup",
+        referenced_items=["格洛克手枪"],
+    )
+    patch = patch_from_dict(
+        {
+            "inventory": [
+                {"action": "add", "item": "格洛克手枪", "quantity": 1, "unit": "把"}
+            ]
+        }
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        route=route,
+        mechanical_events=["获得：格洛克手枪（1把）", "握持：格洛克手枪"],
+    )
+    assert any("机械层已结算" in event for event in events)
+    item = character.find_inventory_item("格洛克手枪")
+    assert item is not None
+    assert item.quantity == 1
+
+
+def test_state_patch_blocks_inventory_add_on_end_turn():
+    character = Character(name="测试", inventory=["格洛克手枪（2把）"])
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[
+            CombatEnemy(name="光头壮汉", hp=20, max_hp=20, ac=12),
+            CombatEnemy(name="瘦高个", hp=15, max_hp=15, ac=12),
+        ],
+        turn_order=["player", "光头壮汉", "瘦高个"],
+        turn_index=0,
+    )
+    route = _approved_route(
+        combat_action="end_turn",
+        action_cost="free",
+        action_intent="结束回合",
+    )
+    patch = patch_from_dict(
+        {
+            "inventory": [
+                {
+                    "action": "add",
+                    "item": "格洛克手枪",
+                    "quantity": 4,
+                    "unit": "把",
+                    "description": "从光头壮汉手中脱落后拾取",
+                }
+            ]
+        }
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        route=route,
+        mechanical_events=[
+            "光头壮汉 靠近 6m（距离 4m）。 光头壮汉 攻击你：命中！",
+            "瘦高个 靠近 6m（距离 4m）。 瘦高个 攻击你：未命中",
+        ],
+    )
+    assert any("结束回合不会获得物品" in event for event in events)
+    item = character.find_inventory_item("格洛克手枪")
+    assert item.quantity == 2
+
+
 def test_orchestrator_pickup_branch_in_combat():
     from unittest.mock import MagicMock
 

@@ -102,3 +102,68 @@ def test_patch_from_dict_empty():
     patch = patch_from_dict({})
     assert patch.npcs == []
     assert patch.end_combat is False
+
+
+def test_apply_state_patch_blocks_exploration_duplicate_pickup():
+    character = Character(name="测试")
+    game_state = GameState()
+    route = ActionRouteResult(
+        approved=True,
+        item_usage="pickup",
+        referenced_items=["药瓶"],
+    )
+    patch = patch_from_dict(
+        {"inventory": [{"action": "add", "item": "药瓶", "quantity": 1, "unit": "个"}]}
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        route=route,
+        mechanical_events=["获得：药瓶"],
+    )
+    assert any("机械层已结算" in event for event in events)
+    assert not character.has_inventory_item("药瓶")
+
+
+def test_apply_state_patch_blocks_duplicate_remove_after_use():
+    character = Character(name="测试", inventory=["治疗药水"])
+    game_state = GameState()
+    route = ActionRouteResult(
+        approved=True,
+        item_usage="use",
+        referenced_items=["治疗药水"],
+    )
+    patch = patch_from_dict(
+        {"inventory": [{"action": "remove", "item": "治疗药水", "quantity": 1}]}
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        route=route,
+        mechanical_events=["使用：治疗药水（背包移除：治疗药水）"],
+    )
+    assert any("跳过重复移除" in event for event in events)
+    assert character.has_inventory_item("治疗药水")
+
+
+def test_resolve_mechanics_pickup_roll_failure_does_not_grant_items():
+    from game.orchestrator import GameOrchestrator
+
+    orchestrator = GameOrchestrator()
+    character = Character(name="测试", dexterity=8)
+    game_state = GameState()
+    route = ActionRouteResult(
+        approved=True,
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="dex",
+        dc=25,
+        item_usage="pickup",
+        referenced_items=["钱包"],
+        action_intent="趁乱偷钱包",
+    )
+    events = orchestrator._resolve_mechanics(route, character, game_state)
+    assert not any(event.startswith("获得：") for event in events)
+    assert not character.has_inventory_item("钱包")

@@ -107,10 +107,19 @@ def apply_state_patch(
             events.append(result)
 
     for inv in patch.inventory:
-        if in_combat and inv.action == "add" and _should_block_combat_pickup_add(
-            route, mechanical, inv.item
+        if inv.action == "add" and _should_block_inventory_add(
+            route, mechanical, inv, character, in_combat
         ):
-            events.append(f"跳过重复添加：{inv.item}（战斗中拾取未成功，不得凭空入库）")
+            events.append(
+                _inventory_add_block_reason(route, mechanical, inv, character, in_combat)
+            )
+            continue
+        if inv.action == "remove" and _should_block_inventory_remove(
+            route, mechanical, inv
+        ):
+            events.append(
+                f"跳过重复移除：{inv.item}（机械层已消耗或扣款）。"
+            )
             continue
         if purchase_settled and inv.action == "add":
             item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
@@ -209,30 +218,113 @@ def _mechanical_roll_failed(mechanical_events: list[str]) -> bool:
     return False
 
 
-def _should_block_combat_pickup_add(
+def _mechanical_already_settled_item(
+    mechanical_events: list[str],
+    item_name: str,
+) -> bool:
+    """机械层本轮已交付/持用/使用该物品。"""
+    markers = ("获得：", "持用：", "握持：", "收起：", "使用：")
+    for event in mechanical_events:
+        if not any(marker in event for marker in markers):
+            continue
+        if fuzzy_match_name(item_name, event):
+            return True
+    return False
+
+
+def _mechanical_granted_pickup(
+    mechanical_events: list[str],
+    item_name: str,
+) -> bool:
+    """机械层本轮拾取成功（获得：）。"""
+    return any(
+        "获得：" in event and fuzzy_match_name(item_name, event)
+        for event in mechanical_events
+    )
+
+
+def _should_block_inventory_add(
     route: ActionRouteResult | None,
     mechanical_events: list[str],
-    item_ref: str,
+    inv: InventoryPatch,
+    character: Character,
+    in_combat: bool,
 ) -> bool:
-    if route is None or route.item_usage != "pickup":
+    if inv.action != "add":
         return False
-    item_name = item_name_from_ref(item_ref.strip()) or item_ref.strip()
+    item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
+    if not item_name:
+        return False
+
+    if _mechanical_already_settled_item(mechanical_events, item_name):
+        return True
+
+    if route and route.item_usage == "use" and character.has_inventory_item(item_name):
+        if route.referenced_items and any(
+            fuzzy_match_name(item_name, ref) for ref in route.referenced_items
+        ):
+            return True
+
+    if route and route.item_usage == "pickup" and not _mechanical_granted_pickup(
+        mechanical_events, item_name
+    ):
+        return True
+
+    if in_combat and not _mechanical_granted_pickup(mechanical_events, item_name):
+        return True
+
+    return False
+
+
+def _should_block_inventory_remove(
+    route: ActionRouteResult | None,
+    mechanical_events: list[str],
+    inv: InventoryPatch,
+) -> bool:
+    if inv.action != "remove":
+        return False
+    item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
     if not item_name:
         return False
     for event in mechanical_events:
-        if "获得：" in event and fuzzy_match_name(item_name, event):
-            return False
-    if any(
-        marker in event
-        for event in mechanical_events
-        for marker in (
-            "附加动作已用尽",
-            "主要动作已用尽",
-            "没有可拾取的物品",
-        )
-    ):
-        return True
-    return not any("获得：" in event for event in mechanical_events)
+        if not fuzzy_match_name(item_name, event):
+            continue
+        if any(
+            marker in event
+            for marker in ("使用：", "背包移除", "背包更新", "支付失败")
+        ):
+            return True
+    if route and route.item_usage == "purchase":
+        for payment in route.payment_items:
+            if fuzzy_match_name(item_name, payment) and any(
+                "背包" in event for event in mechanical_events
+            ):
+                return True
+    return False
+
+
+def _inventory_add_block_reason(
+    route: ActionRouteResult | None,
+    mechanical_events: list[str],
+    inv: InventoryPatch,
+    character: Character,
+    in_combat: bool,
+) -> str:
+    item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
+    if _mechanical_already_settled_item(mechanical_events, item_name):
+        return f"跳过重复添加：{inv.item}（机械层已结算该物品）。"
+    if route and route.item_usage == "use" and character.has_inventory_item(item_name):
+        if route.referenced_items and any(
+            fuzzy_match_name(item_name, ref) for ref in route.referenced_items
+        ):
+            return f"跳过重复添加：{inv.item}（装备已有物品，不得重复入库）。"
+    if route and route.combat_action == "end_turn":
+        return f"跳过重复添加：{inv.item}（结束回合不会获得物品）。"
+    if route and route.item_usage == "pickup":
+        return f"跳过重复添加：{inv.item}（拾取未成功，不得凭空入库）。"
+    if in_combat:
+        return f"跳过重复添加：{inv.item}（战斗中须机械层拾取成功才可入库）。"
+    return f"跳过重复添加：{inv.item}（须与机械层结算一致）。"
 
 
 def _purchase_settled_from_route(route: ActionRouteResult, mechanical_events: list[str]) -> bool:
