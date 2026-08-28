@@ -297,10 +297,34 @@ def _ensure_deadline_id(label: str, proposed: str, existing_ids: set[str]) -> st
     return f"{base}_{uuid.uuid4().hex[:6]}"
 
 
+def parse_stated_action_minutes(text: str) -> int | None:
+    """解析玩家声明的本轮行动耗时（如「15分钟完成植入」）。"""
+    normalized = text.strip()
+    if not normalized:
+        return None
+    patterns = [
+        re.compile(rf"(?:需要|花|用|给我|耗时)\s*({_NUM_TOKEN})\s*分钟"),
+        re.compile(rf"(?:在|于)\s*({_NUM_TOKEN})\s*分钟内"),
+        re.compile(rf"({_NUM_TOKEN})\s*分钟内"),
+    ]
+    for pattern in patterns:
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        count = _parse_count_token(match.group(1))
+        if count is not None:
+            return count
+    return None
+
+
 def add_deadline(game_state: GameState, patch: DeadlinePatch) -> list[str]:
     label = patch.label.strip()
     if not label:
         return []
+
+    for existing in game_state.deadlines:
+        if existing.status == "pending" and existing.label == label:
+            return []
 
     existing_ids = {item.id for item in game_state.deadlines}
     deadline_id = _ensure_deadline_id(label, patch.id, existing_ids)
@@ -479,8 +503,6 @@ def apply_time_patch(
         return []
 
     events: list[str] = []
-    if patch.time_label.strip():
-        apply_story_clock_label(game_state, patch.time_label.strip())
 
     for deadline_id in patch.cancel_deadline_ids:
         message = cancel_deadline(game_state, deadline_id)
@@ -492,6 +514,8 @@ def apply_time_patch(
 
     if patch.advance_minutes > 0:
         events.extend(advance_narrative_clock(game_state, patch.advance_minutes, character))
+    elif patch.time_label.strip():
+        apply_story_clock_label(game_state, patch.time_label.strip())
 
     return events
 
@@ -572,6 +596,17 @@ def format_time_constraints_for_kp(game_state: GameState) -> str:
     return "\n".join(lines)
 
 
+def format_player_stated_duration_hint(user_input: str) -> str:
+    """供 State Agent 参考的玩家口头耗时声明（非权威，须 AI 裁定）。"""
+    minutes = parse_stated_action_minutes(user_input)
+    if minutes is None:
+        return "（无）"
+    return (
+        f"玩家声称约 {minutes} 分钟；须结合角色背景、能力、技能、已有装备、"
+        "世界观、场景条件与机械结算判断是否合理，不合理则按你的估算填写 advance_minutes"
+    )
+
+
 def resolve_turn_advance_minutes(
     time_patch: TimePatch | None,
     *,
@@ -580,10 +615,7 @@ def resolve_turn_advance_minutes(
     game_state: GameState,
     has_time_field: bool,
 ) -> int:
-    """决定本轮应推进的分钟数：优先 State Agent，其次显式等待，最后启发式兜底。"""
-    if time_patch is not None and time_patch.advance_minutes > 0:
-        return time_patch.advance_minutes
-
+    """决定本轮应推进的分钟数：显式等待 > State Agent 裁定 > 启发式兜底。"""
     explicit = parse_explicit_wait_minutes(
         user_input,
         elapsed_minutes=game_state.elapsed_minutes,
@@ -592,8 +624,10 @@ def resolve_turn_advance_minutes(
     if explicit is not None:
         return explicit
 
+    if time_patch is not None and time_patch.advance_minutes > 0:
+        return time_patch.advance_minutes
+
     if has_time_field and time_patch is not None:
-        # Agent 显式写了 time 但未推进：尊重 0（如开场定钟）
         if time_patch.time_label or time_patch.deadlines or time_patch.cancel_deadline_ids:
             return 0
         return 0

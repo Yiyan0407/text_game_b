@@ -7,6 +7,7 @@ from chain.llm import create_chat_llm
 from config.settings import PROMPTS_DIR
 from game.models import Character, ChatMessage, GameState
 from game.results import ActionRouteResult, StatePatch
+from game.narrative_time import format_player_stated_duration_hint
 from game.state_patch import patch_from_dict
 
 logger = logging.getLogger(__name__)
@@ -60,11 +61,14 @@ class StateAgent:
                     "【游戏状态】\n{game_state_context}\n\n"
                     "【玩家角色】\n"
                     "姓名：{character_name}\n"
+                    "背景：{character_background}\n"
+                    "属性：{character_abilities}\n"
                     "背包：{character_inventory}\n"
                     "持用：{character_active_gear}\n"
                     "技能：{character_skills}\n\n"
                     "【路由裁定】\n{route_summary}\n\n"
                     "【机械结算结果】\n{mechanical_events}\n\n"
+                    "【玩家声称耗时（须自行裁定是否合理）】\n{player_stated_duration}\n\n"
                     "【最近对话】\n{recent_history}\n\n"
                     "【玩家行动/指令】\n{user_input}\n\n"
                     "请输出状态补丁 JSON：",
@@ -114,12 +118,15 @@ class StateAgent:
         return {
             "game_state_context": game_state.format_for_prompt(),
             "character_name": character.name,
+            "character_background": character.background.strip() or "（未填写）",
+            "character_abilities": character.format_abilities(),
             "character_inventory": character.format_inventory(),
             "character_active_gear": character.format_active_gear(),
             "character_skills": character.format_skills(),
             "route_summary": _format_route_summary(route),
             "mechanical_events": _format_mechanical_events(mechanical_events),
             "recent_history": _format_recent_history(history),
+            "player_stated_duration": format_player_stated_duration_hint(user_input),
             "user_input": user_input.strip(),
         }
 

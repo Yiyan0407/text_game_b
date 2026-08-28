@@ -10,6 +10,7 @@ from game.narrative_time import (
     infer_opening_time_label,
     initialize_story_clock_from_scenario,
     parse_explicit_wait_minutes,
+    parse_stated_action_minutes,
     parse_time_label,
     resolve_turn_advance_minutes,
 )
@@ -68,6 +69,62 @@ def test_parse_explicit_wait_minutes():
     assert parse_explicit_wait_minutes("我在这里等三天", elapsed_minutes=0) == 3 * 24 * 60
     assert parse_explicit_wait_minutes("等待6小时", elapsed_minutes=120) == 360
     assert parse_explicit_wait_minutes("观察周围", elapsed_minutes=0) is None
+
+
+def test_parse_stated_action_minutes():
+    from game.narrative_time import parse_stated_action_minutes
+
+    assert parse_stated_action_minutes("我需要15分钟完成全部义体植入") == 15
+    assert parse_stated_action_minutes("机器人会在15分钟内帮我完成") == 15
+
+
+def test_apply_time_patch_ignores_conflicting_time_label():
+    state = GameState(story_start_absolute_minutes=8 * 60, elapsed_minutes=20)
+    apply_time_patch(
+        state,
+        TimePatch(advance_minutes=15, time_label="第1天 08:50"),
+    )
+    assert state.elapsed_minutes == 35
+    assert state.narrative_time_label == "第1天 08:35"
+
+
+def test_add_deadline_skips_duplicate_label():
+    from game.narrative_time import add_deadline
+
+    state = GameState(elapsed_minutes=10)
+    first = add_deadline(
+        state,
+        DeadlinePatch(label="传送倒计时", due_in_minutes=30),
+    )
+    second = add_deadline(
+        state,
+        DeadlinePatch(label="传送倒计时", due_in_minutes=24),
+    )
+    assert first
+    assert second == []
+    assert len(state.deadlines) == 1
+    assert state.deadlines[0].due_at_minutes == 40
+
+
+def test_resolve_turn_advance_minutes_prefers_agent_over_stated():
+    route = ActionRouteResult(approved=True, action_intent="义体植入")
+    minutes = resolve_turn_advance_minutes(
+        TimePatch(advance_minutes=30),
+        route=route,
+        user_input="我需要15分钟完成全部义体植入",
+        game_state=GameState(elapsed_minutes=20),
+        has_time_field=True,
+    )
+    assert minutes == 30
+
+
+def test_format_player_stated_duration_hint():
+    from game.narrative_time import format_player_stated_duration_hint
+
+    hint = format_player_stated_duration_hint("我需要15分钟完成")
+    assert "15" in hint
+    assert "合理" in hint
+    assert format_player_stated_duration_hint("观察周围") == "（无）"
 
 
 def test_advance_narrative_clock_triggers_deadline():
