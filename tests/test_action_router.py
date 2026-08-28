@@ -661,3 +661,24 @@ def test_narrative_brief_includes_failed_purchase_event():
     )
     assert "支付失败" in brief
     assert "买破禁符" in brief
+
+
+def test_action_router_prompt_formats_without_missing_variables():
+    router = ActionRouter()
+    formatted = router.prompt.format_messages(
+        world_rules="规则",
+        scenario_context="模组",
+        game_state_context="状态",
+        character_name="测试",
+        character_background="背景",
+        character_abilities="属性",
+        hp=10,
+        max_hp=10,
+        character_inventory="空",
+        character_equipment="无",
+        character_skills="无",
+        recent_history="",
+        user_input="攻击保安",
+    )
+    assert formatted
+    assert '"name"' in formatted[0].content

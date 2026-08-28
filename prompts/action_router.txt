@@ -112,8 +112,8 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 **enemy_defs 示例**（按当前世界观给合理 damage 与 SP）：
 ```json
 "enemy_defs": [
-  {"name": "保安", "hp": 12, "ac": 12, "attack_damage": "1d6", "sp": 0},
-  {"name": "战术组", "hp": 24, "ac": 14, "attack_damage": "2d8", "sp": 12}
+  {{"name": "保安", "hp": 12, "ac": 12, "attack_damage": "1d6", "sp": 0}},
+  {{"name": "战术组", "hp": 24, "ac": 14, "attack_damage": "2d8", "sp": 12}}
 ]
 ```
 | world_id | 典型 attack_damage | 典型 sp |
