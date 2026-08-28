@@ -9,7 +9,12 @@ from game.scenario import Scenario
 from game.kp_directive import is_kp_directive
 from game.session import append_tool_events, persist_save, reload_current_save_from_disk, sync_character_card_to_library
 from ui.character_sheet import render_character_sheet
-from ui.chat import render_chat_history, render_chat_input
+from ui.chat import (
+    AUTO_SEND_PROMPT_KEY,
+    render_chat_history,
+    render_chat_input,
+    render_live_user_message,
+)
 from ui.game_state_panel import render_game_state_panel
 from ui.combat_panel import render_combat_panel
 from ui.action_suggestions import render_action_suggestions
@@ -55,18 +60,12 @@ def init_session_state() -> None:
             st.session_state[key] = value
 
 
-def handle_player_message(user_input: str) -> None:
+def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> None:
     character: Character = st.session_state.character
     game_state: GameState = st.session_state.game_state
     scenario: Scenario = st.session_state.scenario
     orchestrator: GameOrchestrator = st.session_state.orchestrator
     settings = get_settings()
-
-    st.session_state.messages.append(
-        ChatMessage(role="user", content=user_input)
-    )
-
-    history = st.session_state.messages[:-1]
     summary_before = game_state.story_summary
     user_msg_index = len(st.session_state.messages) - 1
     turn_completed = False
@@ -234,7 +233,7 @@ def render_gameplay_hint(game_state: GameState) -> None:
         prefix = "刚进入新模组，" if game_state.turn_count == 0 else ""
         st.info(
             f"**玩法提示**：{prefix}在下方输入你想做的事（如「观察周围」「和 NPC 交谈」）。"
-            "KP 会描述结果并自动掷骰；也可点击 **💡 行动建议** 填入输入框，改好后再点发送。"
+            "KP 会描述结果并自动掷骰；也可点击 **💡 行动建议** 快速发送，或在下方输入框自行描述。"
             "若需与主持人沟通规则问题或申请回退错误结算，以 **【kp】** 开头输入（如「【kp】刚才任务不应失败，请恢复」）。"
         )
 
@@ -336,9 +335,9 @@ def render_game() -> None:
 
     render_gameplay_hint(game_state)
     render_chat_history(st.session_state.messages)
-
     render_action_suggestions(st.session_state.get("action_suggestions", []))
 
+    # chat_input 须为页面最后一个组件，提交后在下方即时渲染本轮对话。
     user_input = render_chat_input(
         disabled=not get_settings().openai_api_key,
         placeholder=(
@@ -347,8 +346,16 @@ def render_game() -> None:
             else None
         ),
     )
-    if user_input:
-        handle_player_message(user_input.strip())
+    turn_input = st.session_state.pop(AUTO_SEND_PROMPT_KEY, None) or user_input
+    if turn_input:
+        turn_input = turn_input.strip()
+    if turn_input:
+        history = list(st.session_state.messages)
+        st.session_state.messages.append(
+            ChatMessage(role="user", content=turn_input)
+        )
+        render_live_user_message(turn_input)
+        handle_player_message(turn_input, history=history)
         st.rerun()
 
 

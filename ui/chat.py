@@ -3,18 +3,14 @@ import streamlit as st
 from game.kp_directive import is_kp_directive, is_kp_meta_response
 from game.models import ChatMessage
 
-CHAT_DRAFT_KEY = "chat_draft"
+AUTO_SEND_PROMPT_KEY = "auto_send_prompt"
 _KP_USER_AVATAR = "🎙️"
 _KP_META_AVATAR = "🎙️"
 _STORY_KP_AVATAR = "🎲"
 
 
-def seed_chat_draft(text: str) -> None:
-    st.session_state[CHAT_DRAFT_KEY] = text
-
-
-def clear_chat_draft() -> None:
-    st.session_state[CHAT_DRAFT_KEY] = ""
+def queue_auto_send_prompt(text: str) -> None:
+    st.session_state[AUTO_SEND_PROMPT_KEY] = text
 
 
 def format_tool_event_content(content: str) -> str:
@@ -31,6 +27,15 @@ def render_tool_events_live(tool_events: list[str]) -> None:
             continue
         with st.chat_message("assistant", avatar=_STORY_KP_AVATAR):
             st.markdown(f"*{text}*")
+
+
+def render_live_user_message(content: str) -> None:
+    """本轮刚提交的用户消息，在写入 history 前即时展示。"""
+    if is_kp_directive(content):
+        _render_kp_meta_user_message(content)
+        return
+    with st.chat_message("user"):
+        st.markdown(content)
 
 
 def _render_kp_meta_user_message(content: str) -> None:
@@ -64,31 +69,9 @@ def render_chat_history(history: list[ChatMessage]) -> None:
 
 
 def render_chat_input(disabled: bool = False, placeholder: str | None = None) -> str | None:
+    """固定在页面底部的聊天输入框（须作为页面最后一个 Streamlit 组件调用）。"""
     hint = placeholder or (
         "描述你的行动，例如：检查手机里的匿名邮件……"
         "（规则申诉以 【kp】 开头，如「【kp】刚才任务不应失败」）"
     )
-    initial = str(st.session_state.get(CHAT_DRAFT_KEY, ""))
-
-    with st.form("player_action_form", clear_on_submit=True):
-        user_text = st.text_area(
-            "行动输入",
-            value=initial,
-            height=72,
-            placeholder=hint,
-            disabled=disabled,
-            label_visibility="collapsed",
-        )
-        submitted = st.form_submit_button(
-            "发送",
-            disabled=disabled,
-            use_container_width=True,
-            type="primary",
-        )
-
-    if submitted and not disabled:
-        text = user_text.strip()
-        if text:
-            clear_chat_draft()
-            return text
-    return None
+    return st.chat_input(hint, disabled=disabled, key="player_chat_input")
