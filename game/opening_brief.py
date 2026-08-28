@@ -8,6 +8,7 @@ class OpeningBrief(BaseModel):
     public_setup: str = ""
     secrets_from_npcs: list[str] = Field(default_factory=list)
     narrative_constraints: list[str] = Field(default_factory=list)
+    used_fallback: bool = False
 
     def format_for_kp(self) -> str:
         lines = [

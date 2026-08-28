@@ -406,13 +406,23 @@ def resolve_pickup_in_combat(
 def resolve_use_item_in_combat(
     character: Character,
     game_state: GameState,
+    item_refs: list[str] | None = None,
     cost: str = "bonus",
-) -> str:
+) -> list[str]:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
-        return "还没轮到你行动。"
+        return ["还没轮到你行动。"]
+
+    refs = item_refs or []
+    if not refs or not str(refs[0]).strip():
+        return ["未指定要使用的物品。"]
+    if not character.has_inventory_item(refs[0]):
+        return [f"背包中没有：{refs[0]}"]
+
     err = spend_action_or_error(combat, cost)
     if err:
-        return err
-    label = "附加动作" if cost == "bonus" else "主要动作"
-    return f"你使用了物品（消耗{label}，具体效果由 KP 叙事并调用 update_inventory）。"
+        return [err]
+
+    from game.item_use import resolve_use_item
+
+    return resolve_use_item(character, refs)

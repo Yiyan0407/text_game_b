@@ -41,12 +41,37 @@ INFILTRATION_ACTION_MARKERS = (
     "避开",
     "翻墙",
     "后门",
-    "隐匿",
-    "悄悄",
     "渗透",
     "非法进入",
     "溜入",
     "摸进",
+    "闯入",
+    "潜入",
+    "撬开",
+    "刷卡进入",
+    "溜进",
+)
+
+STEALTH_ACTION_MARKERS = (
+    "隐匿",
+    "悄悄",
+)
+
+DIALOGUE_ACTION_MARKERS = (
+    "询问",
+    "问",
+    "对话",
+    "交谈",
+    "聊天",
+    "说话",
+    "商谈",
+    "打听",
+    "回答",
+    "告诉",
+    "解释",
+    "说服",
+    "请求",
+    "求助",
 )
 
 RESTRICTED_AREA_SIGNALS = (
@@ -59,9 +84,9 @@ RESTRICTED_AREA_SIGNALS = (
     "技术中心",
     "运维中心",
     "星辰",
-    "公司",
-    "内部",
     "监控",
+    "禁止入内",
+    "重地",
 )
 
 
@@ -69,7 +94,12 @@ def _looks_like_infiltration_action(text: str) -> bool:
     normalized = text.strip()
     if not normalized:
         return False
-    return any(marker in normalized for marker in INFILTRATION_ACTION_MARKERS)
+    if any(marker in normalized for marker in DIALOGUE_ACTION_MARKERS):
+        if not any(marker in normalized for marker in INFILTRATION_ACTION_MARKERS):
+            return False
+    if any(marker in normalized for marker in INFILTRATION_ACTION_MARKERS):
+        return True
+    return any(marker in normalized for marker in STEALTH_ACTION_MARKERS)
 
 
 def _looks_like_restricted_area(context: str) -> bool:
@@ -520,11 +550,13 @@ class ActionRouter:
                     route.roll_type = "none"
                     return route
             else:
-                route.roll_type = "ability_check"
-                if route.ability not in ABILITY_FIELDS:
-                    route.ability = "cha"
-                if route.dc < 1:
-                    route.dc = 14
+                route.approved = False
+                route.rejection_reason = (
+                    "行动裁定异常（缺少掷骰类型），请重新描述你的行动。"
+                )
+                route.needs_roll = False
+                route.roll_type = "none"
+                return route
 
         if not route.needs_roll:
             route.proficiency_bonus = False

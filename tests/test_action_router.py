@@ -235,15 +235,29 @@ def test_orchestrator_reject_does_not_increment_turn(mock_settings):
     orchestrator.kp.anarrate.assert_not_called()
 
 
-def test_validate_defaults_roll_when_needs_roll_without_roll_type():
+def test_validate_rejects_roll_when_needs_roll_without_roll_type():
     route = _approved_route(needs_roll=True, roll_type="none")
     character = Character(name="测试", cha=14)
     result = ActionRouter.validate(route, character, GameState())
-    assert result.approved is True
-    assert result.needs_roll is True
-    assert result.roll_type == "ability_check"
-    assert result.ability == "cha"
-    assert result.dc == 14
+    assert result.approved is False
+    assert result.needs_roll is False
+    assert "缺少掷骰类型" in result.rejection_reason
+
+
+def test_infiltration_roll_skipped_for_dialogue_in_restricted_context():
+    route = _approved_route(action_intent="悄悄询问公司内部情况")
+    history = [
+        ChatMessage(
+            role="assistant",
+            content="你来到星辰科技大楼，安保在前台巡逻，非授权人员禁止入内。",
+        ),
+    ]
+    result = ActionRouter._maybe_require_infiltration_roll(
+        route,
+        "我悄悄问前台能否介绍一下公司内部架构",
+        history,
+    )
+    assert result.needs_roll is False
 
 
 def test_require_infiltration_roll_for_continue_deeper():

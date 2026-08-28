@@ -41,7 +41,8 @@ class OpeningIntegrator:
                 return brief
         except Exception:
             pass
-        return OpeningBrief.fallback(character.name, character.background, scenario)
+        fallback = OpeningBrief.fallback(character.name, character.background, scenario)
+        return fallback.model_copy(update={"used_fallback": True})
 
     @staticmethod
     def _parse_response(text: str) -> OpeningBrief:

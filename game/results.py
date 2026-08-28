@@ -121,6 +121,7 @@ class TurnResult(BaseModel):
     action_suggestions: list[str] = Field(default_factory=list)
     rejected: bool = False
     rejection_reason: str = ""
+    opening_used_fallback: bool = False
 
     @property
     def has_tool_events(self) -> bool:

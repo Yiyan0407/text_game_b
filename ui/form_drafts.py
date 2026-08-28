@@ -85,10 +85,37 @@ def rolled_abilities_from_dict(payload: dict | None) -> RolledAbilities | None:
     return RolledAbilities(details=tuple(details))
 
 
-def _character_fields_empty(fields: dict, *, default_world: str) -> bool:
+def rolled_abilities_session_key(scenario_id: str) -> str:
+    return f"rolled_abilities_{scenario_id}"
+
+
+def rolled_abilities_prev_total_key(scenario_id: str) -> str:
+    return f"rolled_abilities_prev_total_{scenario_id}"
+
+
+def get_rolled_abilities(scenario_id: str, *, default_factory):
+    key = rolled_abilities_session_key(scenario_id)
+    if key not in st.session_state:
+        st.session_state[key] = default_factory()
+    return st.session_state[key]
+
+
+def clear_rolled_abilities(scenario_id: str) -> None:
+    st.session_state.pop(rolled_abilities_session_key(scenario_id), None)
+    st.session_state.pop(rolled_abilities_prev_total_key(scenario_id), None)
+
+
+def _character_draft_has_content(
+    fields: dict,
+    *,
+    default_world: str,
+    rolled: RolledAbilities | None,
+) -> bool:
     if str(fields.get("name", "")).strip() or str(fields.get("background", "")).strip():
-        return False
-    return str(fields.get("world_id", default_world)) == default_world
+        return True
+    if str(fields.get("world_id", default_world)) != default_world:
+        return True
+    return rolled is not None
 
 
 def init_character_draft(scenario_id: str, default_world: str) -> None:
@@ -104,8 +131,9 @@ def init_character_draft(scenario_id: str, default_world: str) -> None:
 def restore_character_draft_extras(scenario_id: str) -> None:
     disk = draft_store().load(_character_draft_slug(scenario_id)) or {}
     rolled = rolled_abilities_from_dict(disk.get("rolled_abilities"))
-    if rolled is not None and "rolled_abilities" not in st.session_state:
-        st.session_state.rolled_abilities = rolled
+    rolled_key = rolled_abilities_session_key(scenario_id)
+    if rolled is not None and rolled_key not in st.session_state:
+        st.session_state[rolled_key] = rolled
 
 
 def sync_character_draft_to_disk(scenario_id: str, *, default_world: str) -> None:
@@ -117,7 +145,10 @@ def sync_character_draft_to_disk(scenario_id: str, *, default_world: str) -> Non
     }
     store = draft_store()
     slug = _character_draft_slug(scenario_id)
-    if _character_fields_empty(fields, default_world=default_world):
+    rolled_key = rolled_abilities_session_key(scenario_id)
+    rolled = st.session_state.get(rolled_key)
+    rolled_obj = rolled if isinstance(rolled, RolledAbilities) else None
+    if not _character_draft_has_content(fields, default_world=default_world, rolled=rolled_obj):
         store.delete(slug)
         return
 
@@ -126,15 +157,15 @@ def sync_character_draft_to_disk(scenario_id: str, *, default_world: str) -> Non
         "scenario_id": scenario_id,
         "fields": fields,
     }
-    rolled = st.session_state.get("rolled_abilities")
-    if isinstance(rolled, RolledAbilities):
-        payload["rolled_abilities"] = rolled_abilities_to_dict(rolled)
+    if rolled_obj is not None:
+        payload["rolled_abilities"] = rolled_abilities_to_dict(rolled_obj)
     store.save(slug, payload)
 
 
 def clear_character_draft(scenario_id: str) -> None:
     for key in character_draft_keys(scenario_id):
         st.session_state.pop(key, None)
+    clear_rolled_abilities(scenario_id)
     draft_store().delete(_character_draft_slug(scenario_id))
 
 

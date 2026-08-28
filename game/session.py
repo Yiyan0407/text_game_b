@@ -37,6 +37,8 @@ def apply_save_to_session(save_game: SaveGame, scenario: Scenario) -> None:
     st.session_state.current_character_id = save_game.character_id or None
     st.session_state.action_suggestions = get_action_suggestions(save_game)
     st.session_state.game_started = True
+    st.session_state.last_loaded_save_at = save_game.saved_at
+    sync_character_card_to_library()
 
 
 def reload_current_save_from_disk() -> SaveReloadResult:
@@ -49,12 +51,20 @@ def reload_current_save_from_disk() -> SaveReloadResult:
         return SaveReloadResult(success=False, error="存档管理器未初始化。")
 
     old_messages = len(st.session_state.get("messages", []))
-    old_turn = getattr(st.session_state.get("game_state"), "turn_count", 0)
+    old_saved_at = str(st.session_state.get("last_loaded_save_at") or "")
 
     try:
         save_game = save_manager.load(save_id)
     except (FileNotFoundError, ValueError, TypeError) as exc:
         return SaveReloadResult(success=False, error=f"存档读取失败：{exc}")
+
+    if save_game.saved_at == old_saved_at:
+        turn_count = getattr(st.session_state.get("game_state"), "turn_count", 0)
+        return SaveReloadResult(
+            success=True,
+            turn_count=turn_count,
+            already_latest=True,
+        )
 
     from game.scenario_loader import ScenarioNotFoundError, load_scenario
 
@@ -68,12 +78,11 @@ def reload_current_save_from_disk() -> SaveReloadResult:
 
     apply_save_to_session(save_game, scenario)
     new_messages = len(st.session_state.messages)
-    turn_count = save_game.game_state.turn_count
     return SaveReloadResult(
         success=True,
         new_messages=max(0, new_messages - old_messages),
-        turn_count=turn_count,
-        already_latest=new_messages == old_messages and turn_count == old_turn,
+        turn_count=save_game.game_state.turn_count,
+        already_latest=False,
     )
 
 
@@ -143,4 +152,5 @@ def persist_save() -> None:
     )
     save_manager.save(save_game)
     st.session_state.current_save_id = save_game.save_id
+    st.session_state.last_loaded_save_at = save_game.saved_at
     sync_character_card_to_library()

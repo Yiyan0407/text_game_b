@@ -67,19 +67,28 @@ def handle_player_message(user_input: str) -> None:
 
     history = st.session_state.messages[:-1]
     summary_before = game_state.story_summary
+    user_msg_index = len(st.session_state.messages) - 1
+    turn_completed = False
+    rollback_turn = None
 
     try:
         if settings.enable_streaming:
             progress = LoadingPlaceholder()
             progress.show("裁定行动中……")
-            rejection_turn, pre_tool_events, run_state_phase, text_stream, run_memory_finalize, finish_turn = (
-                orchestrator.player_turn_stream(
-                    character=character,
-                    game_state=game_state,
-                    scenario=scenario,
-                    user_input=user_input,
-                    history=history,
-                )
+            (
+                rejection_turn,
+                pre_tool_events,
+                run_state_phase,
+                text_stream,
+                run_memory_finalize,
+                finish_turn,
+                rollback_turn,
+            ) = orchestrator.player_turn_stream(
+                character=character,
+                game_state=game_state,
+                scenario=scenario,
+                user_input=user_input,
+                history=history,
             )
             if rejection_turn is not None:
                 progress.clear()
@@ -153,19 +162,23 @@ def handle_player_message(user_input: str) -> None:
             )
 
         st.session_state.action_suggestions = turn.action_suggestions
+        turn_completed = True
     except Exception as exc:
+        if rollback_turn:
+            rollback_turn()
+        st.session_state.messages = st.session_state.messages[: user_msg_index + 1]
         st.session_state.messages.append(
             ChatMessage(
                 role="system",
                 content=(
                     f"⚠️ 本轮处理出错：{exc}。"
-                    "请稍后重试；若背包或场景已变化，可先保存再刷新页面。"
+                    "状态已回滚，请稍后重试。"
                 ),
             )
         )
         st.error(f"处理失败：{exc}")
     finally:
-        if st.session_state.get("game_started") and st.session_state.get("character"):
+        if turn_completed and st.session_state.get("game_started") and st.session_state.get("character"):
             persist_save()
 
 
@@ -207,30 +220,40 @@ def render_gameplay_hint(game_state: GameState) -> None:
         )
 
 
-def _render_sync_save_button(*, button_key: str) -> bool:
-    clicked = st.button(
+def _render_sync_save_feedback() -> None:
+    error = st.session_state.pop("sync_save_error", None)
+    if error:
+        st.error(error)
+    feedback = st.session_state.pop("sync_save_feedback", None)
+    if feedback:
+        st.toast(feedback)
+
+
+def _handle_sync_save_click() -> None:
+    result = reload_current_save_from_disk()
+    if not result.success:
+        st.session_state.sync_save_error = result.error
+    elif result.already_latest:
+        st.session_state.sync_save_feedback = "已是最新进度"
+    elif result.new_messages:
+        st.session_state.sync_save_feedback = f"已同步，新增 {result.new_messages} 条记录"
+    else:
+        st.session_state.sync_save_feedback = f"已同步 · 回合 {result.turn_count}"
+    st.rerun()
+
+
+def _render_sync_save_button(*, button_key: str) -> None:
+    if st.button(
         "🔄 同步最新进度",
         key=button_key,
         use_container_width=True,
-        help="从磁盘重新加载当前存档。观战或多人轮流玩同一存档时，用此按钮查看最新回合，无需刷新网页。",
-    )
-    if not clicked:
-        return False
-
-    result = reload_current_save_from_disk()
-    if not result.success:
-        st.error(result.error)
-        return False
-    if result.already_latest:
-        st.toast("已是最新进度")
-    elif result.new_messages:
-        st.toast(f"已同步，新增 {result.new_messages} 条记录")
-    else:
-        st.toast(f"已同步 · 回合 {result.turn_count}")
-    return True
+        help="从磁盘重新加载当前存档。观战时用此按钮刷新页面查看最新回合，无需刷新浏览器。",
+    ):
+        _handle_sync_save_click()
 
 
 def render_game() -> None:
+    _render_sync_save_feedback()
     character: Character = st.session_state.character
     game_state: GameState = st.session_state.game_state
     scenario: Scenario = st.session_state.scenario
@@ -247,8 +270,9 @@ def render_game() -> None:
         if st.session_state.get("current_character_id"):
             st.caption("长期角色：进度会自动同步到角色卡")
         st.caption("每回合结束后自动存档")
-        if _render_sync_save_button(button_key="sync_save_sidebar"):
-            st.rerun()
+        if st.session_state.get("last_loaded_save_at"):
+            st.caption(f"存档时间：{st.session_state.last_loaded_save_at}")
+        _render_sync_save_button(button_key="sync_save_sidebar")
         if st.button("💾 立即存档", use_container_width=True):
             run_with_spinner("保存中……", persist_save)
             st.success("已保存")
@@ -289,8 +313,7 @@ def render_game() -> None:
     with title_col:
         st.title(f"🎲 {scenario.title}")
     with sync_col:
-        if _render_sync_save_button(button_key="sync_save_header"):
-            st.rerun()
+        _render_sync_save_button(button_key="sync_save_header")
 
     render_gameplay_hint(game_state)
     render_chat_history(st.session_state.messages)

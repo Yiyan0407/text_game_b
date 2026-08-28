@@ -128,7 +128,7 @@ def test_spend_action_or_error_blocks_double_main():
 def test_attack_then_use_item_does_not_end_turn():
     from game.combat import player_attack, resolve_use_item_in_combat
 
-    character = Character(name="测试", strength=16)
+    character = Character(name="测试", strength=16, inventory=["治疗药水"])
     state = GameState()
     state.combat = CombatState(
         active=True,
@@ -141,6 +141,10 @@ def test_attack_then_use_item_does_not_end_turn():
     assert state.combat.is_player_turn()
     assert not state.combat.has_main_action()
     assert state.combat.has_bonus_action()
-    resolve_use_item_in_combat(character, state, cost="bonus")
+    events = resolve_use_item_in_combat(
+        character, state, ["治疗药水"], cost="bonus"
+    )
+    assert events
+    assert "使用" in events[0]
     assert state.combat.is_player_turn()
     assert not state.combat.has_bonus_action()

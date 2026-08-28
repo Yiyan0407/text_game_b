@@ -108,6 +108,10 @@ def render_character_library(profile_manager: ProfileManager) -> None:
                 save_count = profile_manager.count_saves_for_character(profile_id, card.card_id)
                 if save_count:
                     st.caption(f"关联存档：{save_count} 个")
+                    if save_count > 1:
+                        st.caption(
+                            "同一角色可能有多条战役存档；继续冒险时请按模组与保存时间选择正确进度。"
+                        )
                 c1, c2 = st.columns(2)
                 if c1.button(
                     "用此角色开新模组",

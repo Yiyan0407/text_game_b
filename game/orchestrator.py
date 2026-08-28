@@ -8,6 +8,7 @@ from chain.state_agent import StateAgent
 from chain.suggestions import ActionSuggester
 from chain.summarizer import StorySummarizer
 from config.settings import get_settings
+from game.adventure_snapshot import restore_adventure, snapshot_adventure
 from game.combat import (
     advance_after_player_action,
     end_player_turn,
@@ -28,6 +29,7 @@ from game.combat import (
 )
 from game.dice import roll
 from game.inventory import item_name_from_ref
+from game.item_use import resolve_use_item
 from game.models import Character, ChatMessage, GameState
 from game.narrative_brief import (
     build_narrative_brief_static,
@@ -153,6 +155,7 @@ class GameOrchestrator:
             mechanical_events=[],
             enriched_input=user_input,
         )
+        turn.opening_used_fallback = brief.used_fallback
         return await self._afinalize_turn(
             turn, character, game_state, scenario, []
         )
@@ -175,7 +178,8 @@ class GameOrchestrator:
             self.opening_integrator,
             brief=brief,
         )
-        return self._stream_turn_phased(
+        char_snap, state_snap = snapshot_adventure(character, game_state)
+        rejection, pre_events, run_state, stream, mem, finish = self._stream_turn_phased(
             character=character,
             game_state=game_state,
             scenario=scenario,
@@ -188,6 +192,16 @@ class GameOrchestrator:
             enriched_input=user_input,
             mechanical_events=[],
         )
+
+        def rollback_turn() -> None:
+            restore_adventure(character, game_state, char_snap, state_snap)
+
+        def finish_with_opening(response: str) -> TurnResult:
+            turn = finish(response)
+            turn.opening_used_fallback = brief.used_fallback
+            return turn
+
+        return rejection, pre_events, run_state, stream, mem, finish_with_opening, rollback_turn
 
     def player_turn(
         self,
@@ -270,9 +284,11 @@ class GameOrchestrator:
                 iter([]),
                 run_memory_finalize_rejected,
                 finish_rejected,
+                lambda: None,
             )
 
-        return self._stream_turn_phased(
+        char_snap, state_snap = snapshot_adventure(character, game_state)
+        rejection, pre_events, run_state, stream, mem, finish = self._stream_turn_phased(
             character=character,
             game_state=game_state,
             scenario=scenario,
@@ -285,6 +301,11 @@ class GameOrchestrator:
             enriched_input=enriched_input,
             mechanical_events=pre_tool_events,
         )
+
+        def rollback_turn() -> None:
+            restore_adventure(character, game_state, char_snap, state_snap)
+
+        return rejection, pre_events, run_state, stream, mem, finish, rollback_turn
 
     def _stream_turn_phased(
         self,
@@ -504,7 +525,24 @@ class GameOrchestrator:
 
         if game_state.is_in_combat() and route.combat_action != "none":
             combat = game_state.combat
-            if combat and combat.is_player_turn():
+            if not combat or not combat.active:
+                pass
+            elif not combat.is_player_turn():
+                actor = combat.current_actor()
+                actor_label = character.name if actor == "player" else actor
+                action_label = route.combat_action
+                if route.trigger_combat:
+                    raise ValueError(
+                        f"战斗已开始，但当前仍是 {actor_label} 的回合，"
+                        f"无法在同一句话里立刻执行「{action_label}」。"
+                        "请先等待先攻轮次结束，轮到你时再行动。"
+                    )
+                raise ValueError(
+                    f"还没轮到你，当前是 {actor_label} 的回合，无法执行「{action_label}」。"
+                )
+            elif route.combat_action == "attack" and not route.attack_target.strip():
+                raise ValueError("请明确要攻击的敌人。")
+            else:
                 pre_tool_events.extend(
                     self._execute_combat_action(route, character, game_state)
                 )
@@ -529,6 +567,10 @@ class GameOrchestrator:
                         pre_tool_events.append(f"获得：{item}")
         elif route.item_usage == "purchase" and not game_state.is_in_combat():
             pre_tool_events.extend(self._execute_purchase(route, character))
+        elif route.item_usage == "use" and not (
+            game_state.is_in_combat() and route.combat_action == "use_item"
+        ):
+            pre_tool_events.extend(resolve_use_item(character, route.referenced_items))
 
         end_msg, _defeated = maybe_end_combat(game_state, character)
         if end_msg:
@@ -608,13 +650,12 @@ class GameOrchestrator:
             ),
             "defend": lambda: [resolve_defend(character, game_state)],
             "flee": lambda: [resolve_flee(character, game_state)],
-            "use_item": lambda: [
-                resolve_use_item_in_combat(
-                    character,
-                    game_state,
-                    cost=route.action_cost if route.action_cost != "free" else "bonus",
-                )
-            ],
+            "use_item": lambda: resolve_use_item_in_combat(
+                character,
+                game_state,
+                route.referenced_items,
+                cost=route.action_cost if route.action_cost != "free" else "bonus",
+            ),
             "interact": lambda: [
                 resolve_interact(
                     character,

@@ -1,3 +1,5 @@
+from collections import Counter
+
 from datetime import datetime, timezone
 
 import streamlit as st
@@ -10,8 +12,11 @@ from game.scenario_loader import delete_generated_scenario, list_scenarios
 from ui.form_drafts import (
     character_draft_keys,
     clear_character_draft,
+    get_rolled_abilities,
     init_character_draft,
     restore_character_draft_extras,
+    rolled_abilities_prev_total_key,
+    rolled_abilities_session_key,
     sync_character_draft_to_disk,
 )
 from ui.scenario_generator import clear_scenario_from_session
@@ -84,6 +89,19 @@ def render_load_save(save_manager: SaveManager) -> None:
             st.rerun()
         return
 
+    duplicate_keys = {
+        key
+        for key, count in Counter(
+            (meta.character_name, meta.scenario_id) for meta in saves
+        ).items()
+        if count > 1
+    }
+    if duplicate_keys:
+        st.info(
+            "同一角色在同一模组可能有多条存档（例如多次开新局）。"
+            "请根据**回合数**与**保存时间**选择要继续的那一条。"
+        )
+
     for meta in saves:
         with st.container(border=True):
             st.markdown(f"**{meta.character_name}** — {meta.scenario_title}")
@@ -91,6 +109,8 @@ def render_load_save(save_manager: SaveManager) -> None:
                 f"回合 {meta.turn_count} · 📍 {meta.current_scene} · "
                 f"{_format_saved_at(meta.saved_at)}"
             )
+            if (meta.character_name, meta.scenario_id) in duplicate_keys:
+                st.caption("⚠️ 该角色在本模组另有其他存档，请确认是否读错进度。")
             c1, c2 = st.columns(2)
             if c1.button("读取", key=f"load_{meta.save_id}", use_container_width=True):
                 ok = run_with_spinner(
@@ -187,16 +207,14 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
     restore_character_draft_extras(scenario.id)
     name_key, background_key, world_key = character_draft_keys(scenario.id)
 
-    if "rolled_abilities" not in st.session_state:
-        st.session_state.rolled_abilities = roll_ability_scores()
-
-    rolled = st.session_state.rolled_abilities
+    rolled = get_rolled_abilities(scenario.id, default_factory=roll_ability_scores)
+    prev_total_key = rolled_abilities_prev_total_key(scenario.id)
 
     st.subheader("属性掷骰")
     st.caption("每项属性均为 4d6 去掉最低一颗（经典创角规则），点数不可手动调整。")
 
     total = rolled.total_score()
-    prev_total = st.session_state.get("rolled_abilities_prev_total")
+    prev_total = st.session_state.get(prev_total_key)
     total_cols = st.columns([1, 2])
     with total_cols[0]:
         st.metric(
@@ -233,8 +251,8 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
     st.info(f"根据体质 CON，初始 HP 为 **{preview_hp}**（10 + 体质修正，最低 8）")
 
     if st.button("🎲 重新掷骰", use_container_width=True):
-        st.session_state.rolled_abilities_prev_total = rolled.total_score()
-        st.session_state.rolled_abilities = roll_ability_scores()
+        st.session_state[prev_total_key] = rolled.total_score()
+        st.session_state[rolled_abilities_session_key(scenario.id)] = roll_ability_scores()
         sync_character_draft_to_disk(scenario.id, default_world=default_world)
         st.rerun()
 
@@ -302,8 +320,6 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
             starter_skills=starter_skills,
         )
         active_scenario = scenario.model_copy(update={"world_id": selected_world})
-        st.session_state.pop("rolled_abilities", None)
-        st.session_state.pop("rolled_abilities_prev_total", None)
         clear_character_draft(scenario.id)
 
         saved_card = CharacterCard.from_character(
@@ -386,34 +402,58 @@ def start_new_game(
     if settings.enable_streaming:
         progress = LoadingPlaceholder()
         progress.show("编织入场逻辑……")
-        rejection, pre_tool_events, run_state_phase, text_stream, run_memory_finalize, finish_turn = (
-            orchestrator.start_game_stream(
-                character, game_state, scenario, career_context=career_context
-            )
-        )
-        from game.session import append_tool_events
-        from ui.streaming import finalize_streaming_turn, render_phased_turn
-
-        append_tool_events(pre_tool_events)
-
-        with st.chat_message("assistant"):
-            state_events, full = render_phased_turn(
+        opening_completed = False
+        rollback_turn = None
+        try:
+            (
+                rejection,
                 pre_tool_events,
                 run_state_phase,
                 text_stream,
-                loading=progress,
+                run_memory_finalize,
+                finish_turn,
+                rollback_turn,
+            ) = orchestrator.start_game_stream(
+                character, game_state, scenario, career_context=career_context
             )
-        append_tool_events(state_events)
-        turn = finalize_streaming_turn(
-            full,
-            run_memory_finalize=run_memory_finalize,
-            finish_turn=finish_turn,
-        )
-        progress.clear()
-        st.session_state.messages.append(
-            ChatMessage(role="assistant", content=full or turn.response)
-        )
-        st.session_state.action_suggestions = turn.action_suggestions
+            from game.session import append_tool_events
+            from ui.streaming import finalize_streaming_turn, render_phased_turn
+
+            append_tool_events(pre_tool_events)
+
+            with st.chat_message("assistant"):
+                state_events, full = render_phased_turn(
+                    pre_tool_events,
+                    run_state_phase,
+                    text_stream,
+                    loading=progress,
+                )
+            append_tool_events(state_events)
+            turn = finalize_streaming_turn(
+                full,
+                run_memory_finalize=run_memory_finalize,
+                finish_turn=finish_turn,
+            )
+            progress.clear()
+            st.session_state.messages.append(
+                ChatMessage(role="assistant", content=full or turn.response)
+            )
+            st.session_state.action_suggestions = turn.action_suggestions
+            opening_completed = True
+            if turn.opening_used_fallback:
+                st.warning(
+                    "入场逻辑 AI 生成失败，已改用通用模板衔接开场。"
+                    "若身份与背景不符，可在侧边栏查看角色信息并自行修正叙事理解。"
+                )
+        except Exception as exc:
+            if rollback_turn:
+                rollback_turn()
+            st.session_state.game_started = False
+            st.session_state.page = "menu"
+            st.error(f"开场生成失败：{exc}")
+            return
+        if not opening_completed:
+            return
     else:
         with st.spinner("正在生成入场逻辑并编织开场……"):
             turn = orchestrator.start_game(
@@ -423,6 +463,11 @@ def start_new_game(
 
         append_turn_result(turn)
         st.session_state.action_suggestions = turn.action_suggestions
+        if turn.opening_used_fallback:
+            st.warning(
+                "入场逻辑 AI 生成失败，已改用通用模板衔接开场。"
+                "若身份与背景不符，可在侧边栏查看角色信息并自行修正叙事理解。"
+            )
 
     persist_save()
     st.rerun()
