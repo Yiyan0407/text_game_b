@@ -1,5 +1,6 @@
 import streamlit as st
 
+from game.equipment import SLOT_LABELS
 from game.models import ABILITY_ORDER, Character
 
 
@@ -21,13 +22,24 @@ def render_character_sheet(character: Character) -> None:
 
     st.progress(character.hp / character.max_hp, text=f"HP {character.hp}/{character.max_hp}")
 
-    equipment = character.format_equipment()
-    if equipment != "（无）":
-        st.markdown(f"**装备** · {equipment}")
+    grouped = character.equipment_by_slot()
+    has_equipment = any(grouped.get(slot) for slot in SLOT_LABELS)
+    with st.expander("装备", expanded=has_equipment):
+        for slot, label in SLOT_LABELS.items():
+            items = grouped.get(slot, [])
+            if items:
+                st.markdown(f"**{label}** · {'；'.join(items)}")
+            else:
+                st.caption(f"{label} · （空）")
+        if not has_equipment:
+            st.caption("穿戴/植入/挂载的物品会显示在此；须先进入背包再装备。")
 
     active = character.format_active_gear()
-    if active != "（无）":
-        st.markdown(f"**持用** · {active}")
+    with st.expander("持用", expanded=active != "（无）"):
+        if active != "（无）":
+            st.markdown(active)
+        else:
+            st.caption("正在手里使用或拔出的物品（如照明中、握持中）。")
 
     if character.inventory:
         with st.expander("背包", expanded=False):

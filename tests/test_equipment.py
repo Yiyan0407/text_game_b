@@ -96,6 +96,62 @@ def test_apply_state_patch_blocks_remove_on_unequip():
     assert any("跳过移除" in event for event in events)
 
 
+def test_auto_equip_on_implant_completion():
+    character = Character(name="测试")
+    game_state = GameState()
+    patch = StatePatch(
+        inventory=[
+            InventoryPatch(action="add", item="军用义眼", quantity=1, unit="套"),
+            InventoryPatch(action="add", item="斯安威斯坦", quantity=1, unit="套"),
+        ],
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        user_input="躺上手术台，十五分钟内完成全部义体植入",
+    )
+    assert character.is_item_equipped("军用义眼")
+    assert character.is_item_equipped("斯安威斯坦")
+    assert any("装备" in event for event in events)
+
+
+def test_auto_equip_skipped_on_observe_only():
+    character = Character(name="测试")
+    game_state = GameState()
+    patch = StatePatch(
+        inventory=[
+            InventoryPatch(action="add", item="多功能扫描仪", quantity=1, unit="把"),
+        ],
+    )
+    apply_state_patch(
+        patch,
+        character,
+        game_state,
+        user_input="检查一下身上装备的状态",
+    )
+    assert character.has_inventory_item("多功能扫描仪")
+    assert not character.is_item_equipped("多功能扫描仪")
+
+
+def test_auto_equip_from_inventory_description():
+    character = Character(name="测试")
+    game_state = GameState()
+    patch = StatePatch(
+        inventory=[
+            InventoryPatch(
+                action="add",
+                item="战术夹克",
+                quantity=1,
+                unit="件",
+                description="已植入完成",
+            ),
+        ],
+    )
+    apply_state_patch(patch, character, game_state, user_input="好的")
+    assert character.is_item_equipped("战术夹克")
+
+
 def test_remove_inventory_clears_equipment():
     character = Character(name="测试")
     character.add_inventory_item("短剑", quantity=1, unit="把")

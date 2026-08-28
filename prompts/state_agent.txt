@@ -87,7 +87,8 @@
 - 玩家**穿戴、挂载、植入、装配完成**的物品须 `action=equip`；**卸下/拆除**时 `action=unequip`
 - **卸下 = 回背包**：`unequip` 只从装备栏移除，物品**仍在背包**；**禁止**对刚卸下的物品写 `inventory remove`（remove 仅用于丢弃/消耗/交出）
 - 若要丢弃已装备物品：同轮先 `equipment unequip` 再 `inventory remove`
-- **须先在背包**：同轮先 `inventory add` 再 `equipment equip`（顺序在 JSON 中 inventory 写在 equipment 前）
+- **须先在背包**：同轮先 `inventory add`；系统会在**植入/穿戴/装配完成**时自动 equip（见下），也可手动写 `equipment equip`
+- **自动 equip**：玩家本轮明确完成植入/穿戴/装配，或 inventory description 含「已植入/已装备」等时，**仅写 inventory add 即可**，系统会自动写入装备栏；纯检查/观察/拾取/购买不会自动 equip
 - **槽位 slot**（可省略，系统会按名称推断；**只用以下三类**）：
   - `hand` **手持**：武器、盾牌、工具等拿在手里/挂载的快速使用物
   - `body` **身体**：防具、义体、植入物、义眼、脊柱、操作系统、AI 等穿戴/植入全身的
@@ -103,6 +104,7 @@
 
 ### memory_facts
 - 必须长期记住的事件：关键承诺、重大真相、NPC 秘密、玩家长期目标
+- 写入的身份/伪装/技术描述须与模组**年代/时间线**一致；勿把「义体维修」等未来产业名词写入真实 2020 年场景，除非模组明确该线义体已公开化
 
 ### end_combat
 - 叙事上战斗已结束且所有敌人被击倒时设为 true（系统也可能已自动结束）

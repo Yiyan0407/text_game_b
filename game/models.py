@@ -105,6 +105,16 @@ class Character(BaseModel):
             return "（无）"
         return "；".join(entry.format_line() for entry in self.equipment)
 
+    def equipment_by_slot(self) -> dict[str, list[str]]:
+        """按槽位分组的装备名称（用于界面展示）。"""
+        from game.equipment import SLOT_LABELS
+
+        self.prune_equipment()
+        grouped: dict[str, list[str]] = {slot: [] for slot in SLOT_LABELS}
+        for entry in self.equipment:
+            grouped.setdefault(entry.slot, []).append(entry.item_name)
+        return grouped
+
     def inventory_displays(self) -> list[str]:
         return [item.format_detail() for item in self.inventory]
 
