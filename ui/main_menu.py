@@ -242,6 +242,7 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
         st.caption(
             "背景应描述身份与动机，不要写开局无敌、满级、神器或巨额资源。"
             "职业不必与模组默认开场一致，开局会自动衔接你的身份。"
+            "背景审核通过后会由 AI 生成 1–3 项初始技能。"
         )
         submitted = st.form_submit_button("开始冒险", type="primary", use_container_width=True)
 
@@ -253,24 +254,38 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
             st.error("缺少 OPENAI_API_KEY，无法启动游戏。")
             return
 
-        custom_background = background.strip()
-        if custom_background:
-            from chain.background_validator import BackgroundValidator
+        final_background = background.strip() or "一位初到灰港的冒险者。"
+        from chain.background_validator import BackgroundValidator
+        from chain.starter_skills_generator import (
+            StarterSkillsGenerationError,
+            StarterSkillsGenerator,
+        )
 
-            with st.spinner("正在审核角色背景……"):
-                bg_result = BackgroundValidator().evaluate(
-                    custom_background,
+        with st.spinner("正在审核角色背景……"):
+            bg_result = BackgroundValidator().evaluate(
+                final_background,
+                world_id=selected_world,
+                scenario=scenario,
+            )
+        if not bg_result.approved:
+            st.error(f"背景无法通过审核：{bg_result.rejection_reason}")
+            return
+
+        try:
+            with st.spinner("正在根据背景生成初始技能……"):
+                starter_skills = StarterSkillsGenerator().generate(
+                    final_background,
                     world_id=selected_world,
-                    scenario=scenario,
                 )
-            if not bg_result.approved:
-                st.error(f"背景无法通过审核：{bg_result.rejection_reason}")
-                return
+        except StarterSkillsGenerationError as exc:
+            st.error(str(exc))
+            return
 
         character = build_character(
             name=name.strip(),
-            background=custom_background or "一位初到灰港的冒险者。",
+            background=final_background,
             rolled=rolled,
+            starter_skills=starter_skills,
         )
         active_scenario = scenario.model_copy(update={"world_id": selected_world})
         st.session_state.pop("rolled_abilities", None)

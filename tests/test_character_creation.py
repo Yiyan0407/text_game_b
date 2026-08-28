@@ -42,6 +42,18 @@ def test_build_character_sets_hp_from_constitution():
     assert character.hp == expected_hp
 
 
+def test_build_character_applies_starter_skills():
+    rolled = roll_ability_scores()
+    character = build_character(
+        "测试",
+        "一位初到灰港的冒险者。",
+        rolled,
+        starter_skills=["观察（留意细节）", "交涉"],
+    )
+    assert character.skill_names() == ["观察", "交涉"]
+    assert character.skills[0].description == "留意细节"
+
+
 def test_compute_max_hp_minimum():
     assert compute_max_hp(3) == 8
     assert compute_max_hp(10) == 10

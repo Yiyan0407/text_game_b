@@ -20,6 +20,4 @@
 
 ## 输出 JSON
 role_in_story, why_at_scene, hook_alignment, public_setup,
-secrets_from_npcs (string[]), narrative_constraints (string[]),
-starter_skills — 0–3 项基础职业技能。每项可为字符串「技能名」或「技能名（一句说明）」；
-或对象 {"name":"技能名","description":"一句说明"}。勿写超模技能
+secrets_from_npcs (string[]), narrative_constraints (string[])

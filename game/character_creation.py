@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from game.dice import roll_4d6_drop_lowest
 from game.models import ABILITY_ORDER, Character, compute_max_hp
+from game.skills import sync_starter_skills
 
 
 @dataclass(frozen=True)
@@ -43,13 +44,22 @@ def roll_ability_scores() -> RolledAbilities:
     return RolledAbilities(details=tuple(details))
 
 
-def build_character(name: str, background: str, rolled: RolledAbilities) -> Character:
+def build_character(
+    name: str,
+    background: str,
+    rolled: RolledAbilities,
+    *,
+    starter_skills: list[str] | None = None,
+) -> Character:
     fields = rolled.to_character_fields()
     max_hp = compute_max_hp(fields["constitution"])
-    return Character(
+    character = Character(
         name=name,
         background=background,
         hp=max_hp,
         max_hp=max_hp,
         **fields,
     )
+    if starter_skills:
+        sync_starter_skills(character, starter_skills)
+    return character

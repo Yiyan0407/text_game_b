@@ -63,27 +63,4 @@ class OpeningIntegrator:
             narrative_constraints=[
                 str(item).strip() for item in constraints if str(item).strip()
             ],
-            starter_skills=_coerce_skill_list(data.get("starter_skills")),
         )
-
-
-def _coerce_skill_list(value) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        stripped = value.strip()
-        return [stripped] if stripped else []
-    if isinstance(value, list):
-        skills: list[str] = []
-        for item in value:
-            if isinstance(item, dict):
-                name = str(item.get("name", "")).strip()
-                desc = str(item.get("description", "")).strip()
-                if name:
-                    skills.append(f"{name}（{desc}）" if desc else name)
-            else:
-                stripped = str(item).strip()
-                if stripped:
-                    skills.append(stripped)
-        return skills
-    return []

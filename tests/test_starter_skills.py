@@ -7,7 +7,7 @@ from game.results import StatePatch, TurnResult
 from game.scenario import Scenario
 
 
-def test_start_game_syncs_starter_skills_from_background(monkeypatch):
+def test_start_game_does_not_sync_starter_skills(monkeypatch):
     scenario = Scenario(
         id="missing_fishermen",
         title="雾港失踪案",
@@ -19,7 +19,7 @@ def test_start_game_syncs_starter_skills_from_background(monkeypatch):
 
     class FakeIntegrator:
         def generate(self, _character, _scenario):
-            return OpeningBrief(starter_skills=[])
+            return OpeningBrief()
 
     fake_kp = MagicMock()
     fake_kp.anarrate = AsyncMock(
@@ -33,6 +33,7 @@ def test_start_game_syncs_starter_skills_from_background(monkeypatch):
         opening_integrator=FakeIntegrator(),
         state_agent=fake_state,
     )
+
     async def _fake_finalize(turn, *args, **kwargs):
         return turn
 
@@ -40,6 +41,6 @@ def test_start_game_syncs_starter_skills_from_background(monkeypatch):
 
     orchestrator.start_game(character, game_state, scenario)
 
-    assert "航海" in character.skill_names()
+    assert character.skill_names() == []
     invoke_input = fake_kp.anarrate.call_args.kwargs["user_input"]
-    assert "【背景技能已同步】" in invoke_input
+    assert "【背景技能已同步】" not in invoke_input

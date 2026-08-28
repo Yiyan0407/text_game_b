@@ -37,7 +37,6 @@ from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
 from game.rules import ability_check, format_check_for_kp
 from game.scenario import Scenario
-from game.skills import infer_starter_skills, merge_starter_skill_candidates, sync_starter_skills
 from game.state_patch import apply_state_patch
 
 START_GAME_INSTRUCTION = """\
@@ -75,7 +74,6 @@ def _build_start_instruction(
     career_context: str = "",
     integrator: OpeningIntegrator | None = None,
     brief: OpeningBrief | None = None,
-    synced_starter_skills: list[str] | None = None,
 ) -> str:
     if brief is None:
         brief = (integrator or OpeningIntegrator()).generate(character, scenario)
@@ -87,12 +85,6 @@ def _build_start_instruction(
             "不要假设玩家已知道该做什么。"
         )
     lines.append(brief.format_for_kp())
-    if synced_starter_skills:
-        lines.append(
-            "【背景技能已同步】"
-            + "、".join(synced_starter_skills)
-            + " — 已写入【游戏状态】，开场勿重复 update_skills(add)。"
-        )
     lines.append(START_GAME_INSTRUCTION)
     lines.append(_OPENING_CONSISTENCY_RULE)
     return "\n\n".join(lines)
@@ -144,21 +136,12 @@ class GameOrchestrator:
         scenario.apply_to_game_state(game_state)
         game_state.started = True
         brief = self.opening_integrator.generate(character, scenario)
-        synced_starter_skills: list[str] = []
-        if not character.skills:
-            candidates = merge_starter_skill_candidates(
-                brief.starter_skills,
-                infer_starter_skills(character.background, world_id=scenario.world_id),
-            )
-            synced_starter_skills = sync_starter_skills(character, candidates)
-
         user_input = _build_start_instruction(
             character,
             scenario,
             career_context,
             self.opening_integrator,
             brief=brief,
-            synced_starter_skills=synced_starter_skills,
         )
         turn = await self._run_kp_turn_async(
             character=character,
@@ -185,20 +168,12 @@ class GameOrchestrator:
         scenario.apply_to_game_state(game_state)
         game_state.started = True
         brief = self.opening_integrator.generate(character, scenario)
-        synced_starter_skills: list[str] = []
-        if not character.skills:
-            candidates = merge_starter_skill_candidates(
-                brief.starter_skills,
-                infer_starter_skills(character.background, world_id=scenario.world_id),
-            )
-            synced_starter_skills = sync_starter_skills(character, candidates)
         user_input = _build_start_instruction(
             character,
             scenario,
             career_context,
             self.opening_integrator,
             brief=brief,
-            synced_starter_skills=synced_starter_skills,
         )
         return self._stream_turn_phased(
             character=character,
