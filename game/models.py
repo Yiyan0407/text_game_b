@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from game.inventory import (
@@ -244,6 +246,15 @@ class Quest(BaseModel):
     description: str = ""
 
 
+class NarrativeDeadline(BaseModel):
+    id: str
+    label: str
+    due_at_minutes: int = 0
+    status: Literal["pending", "triggered", "cancelled"] = "pending"
+    consequence: str = ""
+    created_at_minutes: int = 0
+
+
 class CombatEnemy(BaseModel):
     name: str
     hp: int
@@ -364,6 +375,9 @@ class GameState(BaseModel):
     last_chapter_turn: int = 0
     combat: CombatState | None = None
     scene_image_url: str = ""
+    elapsed_minutes: int = 0
+    narrative_time_label: str = ""
+    deadlines: list[NarrativeDeadline] = Field(default_factory=list)
 
     def add_memory_facts(self, new_facts: list[str], max_facts: int) -> None:
         for fact in new_facts:
@@ -377,8 +391,12 @@ class GameState(BaseModel):
             self.memory_facts = self.memory_facts[-max_facts:]
 
     def format_for_prompt(self) -> str:
+        from game.narrative_time import format_narrative_time_context
+
         lines = [f"当前场景：{self.current_scene}（ID: {self.scene_id}）"]
         lines.append(f"已进行回合：{self.turn_count}")
+        lines.append("【叙事时间】")
+        lines.append(format_narrative_time_context(self))
 
         if self.combat and self.combat.active:
             lines.append(self.combat.format_for_prompt())
@@ -422,14 +440,30 @@ class GameState(BaseModel):
                 return quest
         return None
 
+    def find_npc(self, name_ref: str) -> NPCRelation | None:
+        from game.npc_merge import find_npc_by_name
+
+        return find_npc_by_name(self.npcs, name_ref)
+
+    def dedupe_npcs(self) -> None:
+        from game.npc_merge import dedupe_npc_list
+
+        self.npcs = dedupe_npc_list(self.npcs)
+
     def upsert_npc(self, name: str, attitude: str, notes: str = "") -> None:
-        for npc in self.npcs:
-            if npc.name == name:
-                npc.attitude = attitude
-                if notes:
-                    npc.notes = notes
-                return
-        self.npcs.append(NPCRelation(name=name, attitude=attitude, notes=notes))
+        from game.npc_merge import find_npc_by_name, merge_npc_notes, preferred_npc_name
+
+        cleaned = name.strip()
+        if not cleaned:
+            return
+        existing = find_npc_by_name(self.npcs, cleaned)
+        if existing is not None:
+            existing.name = preferred_npc_name(existing.name, cleaned)
+            existing.attitude = attitude
+            if notes.strip():
+                existing.notes = merge_npc_notes(existing.notes, notes)
+            return
+        self.npcs.append(NPCRelation(name=cleaned, attitude=attitude, notes=notes.strip()))
 
     def upsert_quest(
         self,

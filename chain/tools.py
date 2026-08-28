@@ -174,7 +174,8 @@ def create_kp_tools(
             description=(
                 "进行属性检定。行动结果不确定时必须调用，不要让玩家自行掷骰。"
                 f"ability 为六维属性：{_ABILITY_HINT}；"
-                "dc 为难度值，简单 10、中等 14、困难 18。"
+                "dc 为难度值，须结合情境在 5–30 之间裁定（参考：Routine 8–10，"
+                "有挑战 13–16，高压 17–22，几乎不可能 23+）。"
             ),
         ),
         StructuredTool.from_function(

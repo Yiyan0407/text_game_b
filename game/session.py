@@ -38,6 +38,7 @@ def apply_save_to_session(save_game: SaveGame, scenario: Scenario) -> None:
     st.session_state.action_suggestions = get_action_suggestions(save_game)
     st.session_state.game_started = True
     st.session_state.last_loaded_save_at = save_game.saved_at
+    st.session_state.game_state.dedupe_npcs()
     sync_character_card_to_library()
 
 

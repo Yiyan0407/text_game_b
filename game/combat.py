@@ -279,9 +279,14 @@ def resolve_combat_ability_check(
     label: str,
     *,
     proficiency_bonus: bool = False,
+    skill_bonus: int = 0,
 ) -> str:
     result = ability_check(
-        character, ability, dc, proficiency_bonus=proficiency_bonus
+        character,
+        ability,
+        dc,
+        proficiency_bonus=proficiency_bonus,
+        skill_bonus=skill_bonus,
     )
     outcome = "成功" if result.success else "失败"
     return f"{label}：{format_check_for_kp(result, character)} → {outcome}"
@@ -294,6 +299,7 @@ def resolve_interact(
     dc: int,
     *,
     proficiency_bonus: bool = False,
+    skill_bonus: int = 0,
 ) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
@@ -302,12 +308,27 @@ def resolve_interact(
     if err:
         return err
     ability = ability if ability in ("str", "dex", "int", "wis", "cha") else "str"
+    from game.difficulty import ensure_ability_check_dc
+    from game.results import ActionRouteResult
+
+    route = ActionRouteResult(
+        approved=True,
+        needs_roll=True,
+        roll_type="ability_check",
+        ability=ability,
+        dc=dc,
+        combat_action="interact",
+        mode="combat",
+        proficiency_bonus=proficiency_bonus,
+    )
+    ensure_ability_check_dc(route, user_input="场景互动")
     return resolve_combat_ability_check(
         character,
         ability,
-        dc or 14,
+        route.dc,
         "场景互动",
         proficiency_bonus=proficiency_bonus,
+        skill_bonus=skill_bonus,
     )
 
 
@@ -318,6 +339,7 @@ def resolve_talk(
     dc: int,
     *,
     proficiency_bonus: bool = False,
+    skill_bonus: int = 0,
 ) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
@@ -326,16 +348,36 @@ def resolve_talk(
     if err:
         return err
     label = f"对 {target} 交涉" if target else "战斗交涉"
+    from game.difficulty import ensure_ability_check_dc
+    from game.results import ActionRouteResult
+
+    route = ActionRouteResult(
+        approved=True,
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="cha",
+        dc=dc,
+        combat_action="talk",
+        mode="combat",
+        proficiency_bonus=proficiency_bonus,
+    )
+    ensure_ability_check_dc(route, user_input=label)
     return resolve_combat_ability_check(
         character,
         "cha",
-        dc or 14,
+        route.dc,
         label,
         proficiency_bonus=proficiency_bonus,
+        skill_bonus=skill_bonus,
     )
 
 
-def resolve_grapple(character: Character, game_state: GameState, target: str) -> str:
+def resolve_grapple(
+    character: Character,
+    game_state: GameState,
+    target: str,
+    dc: int = 0,
+) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
         return "还没轮到你行动。"
@@ -345,10 +387,30 @@ def resolve_grapple(character: Character, game_state: GameState, target: str) ->
     err = spend_action_or_error(combat, "main")
     if err:
         return err
-    return resolve_combat_ability_check(character, "str", 14, f"擒抱 {enemy.name}")
+    from game.difficulty import ensure_ability_check_dc
+    from game.results import ActionRouteResult
+
+    route = ActionRouteResult(
+        approved=True,
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="str",
+        dc=dc,
+        combat_action="grapple",
+        mode="combat",
+    )
+    ensure_ability_check_dc(route, user_input=f"擒抱 {enemy.name}")
+    return resolve_combat_ability_check(
+        character, "str", route.dc, f"擒抱 {enemy.name}"
+    )
 
 
-def resolve_shove(character: Character, game_state: GameState, target: str) -> str:
+def resolve_shove(
+    character: Character,
+    game_state: GameState,
+    target: str,
+    dc: int = 0,
+) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
         return "还没轮到你行动。"
@@ -358,7 +420,22 @@ def resolve_shove(character: Character, game_state: GameState, target: str) -> s
     err = spend_action_or_error(combat, "main")
     if err:
         return err
-    return resolve_combat_ability_check(character, "str", 12, f"推撞 {enemy.name}")
+    from game.difficulty import ensure_ability_check_dc
+    from game.results import ActionRouteResult
+
+    route = ActionRouteResult(
+        approved=True,
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="str",
+        dc=dc,
+        combat_action="shove",
+        mode="combat",
+    )
+    ensure_ability_check_dc(route, user_input=f"推撞 {enemy.name}")
+    return resolve_combat_ability_check(
+        character, "str", route.dc, f"推撞 {enemy.name}"
+    )
 
 
 def resolve_help(character: Character, game_state: GameState, target: str) -> str:
@@ -372,14 +449,33 @@ def resolve_help(character: Character, game_state: GameState, target: str) -> st
     return f"你协助 {subject}，其下次攻击获得优势（由 KP 叙事体现）。"
 
 
-def resolve_search_in_combat(character: Character, game_state: GameState) -> str:
+def resolve_search_in_combat(
+    character: Character,
+    game_state: GameState,
+    dc: int = 0,
+) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
         return "还没轮到你行动。"
     err = spend_action_or_error(combat, "main")
     if err:
         return err
-    return resolve_combat_ability_check(character, "wis", 13, "战斗中搜索观察")
+    from game.difficulty import ensure_ability_check_dc
+    from game.results import ActionRouteResult
+
+    route = ActionRouteResult(
+        approved=True,
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="wis",
+        dc=dc,
+        combat_action="search",
+        mode="combat",
+    )
+    ensure_ability_check_dc(route, user_input="战斗中搜索观察")
+    return resolve_combat_ability_check(
+        character, "wis", route.dc, "战斗中搜索观察"
+    )
 
 
 def resolve_pickup_in_combat(

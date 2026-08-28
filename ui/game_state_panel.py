@@ -1,12 +1,27 @@
 import streamlit as st
 
 from game.models import GameState
+from game.narrative_time import format_duration, narrative_time_display
 
 
 def render_game_state_panel(game_state: GameState) -> None:
     st.subheader("冒险进度")
     st.caption(
-        f"回合：{game_state.turn_count} · "
+        f"🕐 {narrative_time_display(game_state)} · "
+        f"已过去 {format_duration(game_state.elapsed_minutes)} · "
+        f"回合 {game_state.turn_count}"
+    )
+    pending = [d for d in game_state.deadlines if d.status == "pending"]
+    if pending:
+        st.markdown("**待兑现时限**")
+        for deadline in pending[:5]:
+            remaining = deadline.due_at_minutes - game_state.elapsed_minutes
+            if remaining < 0:
+                st.caption(f"⏰ {deadline.label} · 已逾期 {format_duration(-remaining)}")
+            else:
+                st.caption(f"⏰ {deadline.label} · 还剩 {format_duration(remaining)}")
+
+    st.caption(
         f"记忆事实：{len(game_state.memory_facts)} · "
         f"章节：{len(game_state.chapter_summaries)}"
     )

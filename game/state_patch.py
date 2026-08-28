@@ -8,14 +8,17 @@ from game.inventory import item_name_from_ref
 from game.models import Character, GameState
 from game.results import (
     ActionRouteResult,
+    DeadlinePatch,
     InventoryPatch,
     NpcPatch,
     QuestPatch,
     ScenePatch,
     SkillPatch,
     StatePatch,
+    TimePatch,
 )
 from game.text_match import fuzzy_match_name
+from game.narrative_time import apply_time_patch
 
 
 def apply_inventory_change(
@@ -138,6 +141,8 @@ def apply_state_patch(
             game_state.add_memory_facts([cleaned], settings.max_memory_facts)
             events.append(f"已记录关键事实：{cleaned}")
 
+    events.extend(apply_time_patch(game_state, patch.time))
+
     if patch.end_combat and game_state.is_in_combat():
         events.append(end_combat(game_state))
 
@@ -223,6 +228,7 @@ def patch_from_dict(data: dict) -> StatePatch:
     skills = _coerce_skill_list(data.get("skills"))
     memory_facts = _coerce_str_list(data.get("memory_facts"))
     end_combat = bool(data.get("end_combat", False))
+    time = _coerce_time_patch(data.get("time"))
 
     return StatePatch(
         scene=scene,
@@ -231,6 +237,7 @@ def patch_from_dict(data: dict) -> StatePatch:
         inventory=inventory,
         skills=skills,
         memory_facts=memory_facts,
+        time=time,
         end_combat=end_combat,
     )
 
@@ -332,3 +339,52 @@ def _coerce_skill_list(value) -> list[SkillPatch]:
             )
         )
     return [s for s in skills if s.skill]
+
+
+def _coerce_deadline_list(value) -> list[DeadlinePatch]:
+    if not isinstance(value, list):
+        return []
+    deadlines: list[DeadlinePatch] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status", "pending")).strip().lower()
+        if status not in ("pending", "cancelled"):
+            status = "pending"
+        due_at_raw = item.get("due_at_minutes")
+        due_at = None
+        if due_at_raw is not None and due_at_raw != "":
+            try:
+                due_at = max(0, int(due_at_raw))
+            except (TypeError, ValueError):
+                due_at = None
+        try:
+            due_in = max(0, int(item.get("due_in_minutes", 0) or 0))
+        except (TypeError, ValueError):
+            due_in = 0
+        deadlines.append(
+            DeadlinePatch(
+                id=str(item.get("id", "")).strip(),
+                label=str(item.get("label", "")).strip(),
+                due_in_minutes=due_in,
+                due_at_minutes=due_at,
+                consequence=str(item.get("consequence", "")).strip(),
+                status=status,  # type: ignore[arg-type]
+            )
+        )
+    return [d for d in deadlines if d.label]
+
+
+def _coerce_time_patch(value) -> TimePatch | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        advance = max(0, int(value.get("advance_minutes", 0) or 0))
+    except (TypeError, ValueError):
+        advance = 0
+    return TimePatch(
+        time_label=str(value.get("time_label", "")).strip(),
+        advance_minutes=advance,
+        deadlines=_coerce_deadline_list(value.get("deadlines")),
+        cancel_deadline_ids=_coerce_str_list(value.get("cancel_deadline_ids")),
+    )

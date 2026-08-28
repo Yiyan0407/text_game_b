@@ -58,6 +58,14 @@ def test_game_state_upsert_npc():
     assert state.npcs[0].attitude == "neutral"
 
 
+def test_game_state_upsert_npc_merges_fuzzy_names():
+    state = GameState()
+    state.upsert_npc("清洁工张某", "unknown", "火灾当晚清洁工")
+    state.upsert_npc("张某", "unknown", "证词有争议")
+    assert len(state.npcs) == 1
+    assert state.npcs[0].name == "清洁工张某"
+
+
 def test_game_state_upsert_quest():
     state = GameState()
     state.upsert_quest("new_quest", "新任务", "active", "描述")

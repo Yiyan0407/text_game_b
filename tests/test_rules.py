@@ -22,6 +22,18 @@ def test_ability_check_proficiency_bonus():
     assert result.success == (result.check_total >= 15)
 
 
+def test_ability_check_skill_bonus_stacks():
+    character = Character(name="测试", dex=18, skills=["潜行"])
+    result = ability_check(
+        character,
+        "dex",
+        dc=20,
+        proficiency_bonus=True,
+        skill_bonus=4,
+    )
+    assert result.check_total == result.roll.total + 2 + 4
+
+
 def test_format_check_for_kp_shows_proficiency_bonus():
     character = Character(name="测试", dex=14)
     result = ability_check(character, "dex", dc=14, proficiency_bonus=True)

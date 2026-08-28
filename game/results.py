@@ -10,6 +10,7 @@ class AbilityCheckResult(BaseModel):
     dc: int
     roll: DiceRoll
     proficiency_bonus: int = 0
+    skill_bonus: int = 0
     check_total: int = 0
     success: bool
 
@@ -17,9 +18,10 @@ class AbilityCheckResult(BaseModel):
         ability_label = self.ability.upper()
         outcome = "成功 ✓" if self.success else "失败 ✗"
         prof_part = f"+{self.proficiency_bonus}专业 " if self.proficiency_bonus else ""
+        skill_part = f"+{self.skill_bonus}技能 " if self.skill_bonus else ""
         total = self.check_total if self.check_total else self.roll.total
         return (
-            f"{ability_label} 检定 {self.roll.describe()} {prof_part}"
+            f"{ability_label} 检定 {self.roll.describe()} {prof_part}{skill_part}"
             f"= {total} vs DC {self.dc} → {outcome}"
         )
 
@@ -96,6 +98,22 @@ class SkillPatch(BaseModel):
     description: str = ""
 
 
+class DeadlinePatch(BaseModel):
+    id: str = ""
+    label: str = ""
+    due_in_minutes: int = 0
+    due_at_minutes: int | None = None
+    consequence: str = ""
+    status: Literal["pending", "cancelled"] = "pending"
+
+
+class TimePatch(BaseModel):
+    time_label: str = ""
+    advance_minutes: int = 0
+    deadlines: list[DeadlinePatch] = Field(default_factory=list)
+    cancel_deadline_ids: list[str] = Field(default_factory=list)
+
+
 class StatePatch(BaseModel):
     scene: ScenePatch | None = None
     npcs: list[NpcPatch] = Field(default_factory=list)
@@ -103,6 +121,7 @@ class StatePatch(BaseModel):
     inventory: list[InventoryPatch] = Field(default_factory=list)
     skills: list[SkillPatch] = Field(default_factory=list)
     memory_facts: list[str] = Field(default_factory=list)
+    time: TimePatch | None = None
     end_combat: bool = False
 
 

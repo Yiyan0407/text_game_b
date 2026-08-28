@@ -34,10 +34,10 @@
 
 ### 购买/交易（探索模式）
 - 玩家**买、购买、付、支付、换**物品 → `item_usage=purchase`
-- `referenced_items`：本轮**获得的全部商品**（可多项；写清楚数量单位，如 `["止血凝胶（3瓶）", "开锁器（2套）"]`，**禁止**「若干」）
+- `referenced_items`：本轮**获得的全部商品**（可多项；**只写纯名称**，如 `["止血凝胶", "开锁器"]`；买 3 瓶同款可写 `["止血凝胶", "止血凝胶", "止血凝胶"]`，**禁止**「若干」或把数量写进名称如 `止血凝胶（3瓶）`）
 - 若同时**询价/询问有无**某物但未购买，`approved=true`；在 `action_intent` 中写清「询价 + 购买」或「仅询价」
 - 多件商品一次购买：全部写入 `referenced_items`，系统会一并交付
-- `payment_items`：玩家**付出的货币/物品**（例：`["定金币"]`、`["银行卡"]`，须与【背包】名称可匹配）
+- `payment_items`：玩家**付出的货币/物品**（例：`["金币"]`、`["铜板"]`、`["银行卡"]`；只写纯名称，须与【背包】中 item 名称可匹配，**不要**写 `金币（15枚）` 这类带数量的字符串）
 - `payment_quantity`：本次**扣款数额**（默认 1）。付 2500 信用点则写 **2500**（不是商品件数、也不是引用背包显示里的「19万」字面——系统按背包余额校验）
 - 背包中货币/银行卡通常以「数量+单位」存余额（如 银行卡 190000 信用点）；`payment_quantity` 须 ≤ 该余额
 - 系统会先扣款并交付商品；KP 叙事中若有**找零/找补**，须再 `update_inventory(add)` 记录零钱
@@ -45,7 +45,7 @@
 
 ### 技能（探索模式）
 - **使用已有技能**（「用潜行溜进去」「施展急救」）→ `skill_usage=use`，`referenced_skills` 填技能名；玩家须已掌握，否则驳回。
-- **学习/请教/训练**（「向老周学开锁」「请 NPC 教潜行」「练习急救」）→ `skill_usage=learn`，`referenced_skills` 填欲习得的技能名；**即使尚未掌握也批准**；通常 `needs_roll=true`（int/wis/dex，DC 12–16）；KP 在成功/NPC 同意后须 `update_skills(add)`。
+- 学习/请教/训练（「向老周学开锁」「请 NPC 教潜行」「练习急救」）→ `skill_usage=learn`，`referenced_skills` 填欲习得的技能名；**即使尚未掌握也批准**；通常 `needs_roll=true`（int/wis/dex，**dc 由难度裁定 10–20**）；KP 在成功/NPC 同意后须 `update_skills(add)`。
 - **普通行动**（观察、询问、搜查、走路）**不要**填 referenced_skills，也不要因缺技能驳回——用属性检定即可。
 
 ### 口语短回复（必须结合【最近对话】）
@@ -56,11 +56,29 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 - 布尔用 `true`/`false`；`dc` 必须是数字；数组字段（如 `must_not_narrate`）必须是 JSON 数组。
 
 ### 掷骰
-不确定 → `needs_roll=true` 且必须指定 `roll_type`（`ability_check` 或 `dice`）及对应字段；随机 → `roll_type=dice` + `dice_notation`；说服/交涉类通常用 `cha` + DC 12–16
+不确定 → `needs_roll=true` 且必须指定 `roll_type`（`ability_check` 或 `dice`）及对应字段；纯随机 → `roll_type=dice` + `dice_notation`
 
-**专业加值（proficiency_bonus）**：属性检定时，若行动明显符合玩家**背景**或**已掌握技能**的本职范畴，设 `proficiency_bonus=true`（系统自动 +2，勿自行改骰点）。例：黑客黑入常规系统、医生做基础急救、持有「潜行」且正在潜行。普通属性检定、跨界高难动作、与背景无关时不要加。
+### DC（目标难度 — 由你根据情境裁定，勿无脑 14）
+- `needs_roll=true` 且 `roll_type=ability_check` 时，**必须**输出整数 `dc`（**5–30**）
+- 综合以下因素自行判断，**不要**对所有行动都用 14：
+  - 行动本身难度、风险、时间压力、信息完整度
+  - 场景环境（黑暗/混乱/安保/监控/公开场合/熟悉度）
+  - 目标 NPC 的态度、地位、是否专业对口
+  - 玩家背景与技能：本职内常规任务可 **8–12**；有挑战 **13–16**；高压/高安保 **17–22**；近乎不可能 **23–28**
+- 参考锚点（非硬性）：Routine **8–10** | 常人认真尝试 **11–13** | 专业挑战 **14–16** | 高压局面 **17–20** | 传奇/几乎不可能 **21–26**
+- 说服/交涉/欺骗：视对方态度与诉求，**cha** + **10–22** 均可
+- 潜入/渗透/撬锁/黑入：视安保等级，**dex/int** + **12–24**
+- 学习技能：视导师态度与课题难度，**12–18**
 
-**须掷骰（探索）**：潜入/渗透/继续深入受限区域/走消防通道等非公开入口/避开安保/撬锁/黑入/尾随——`needs_roll=true`，通常 `dex` DC 14（有巡逻/监控/门禁则 16）；若玩家在用对应专业技能，`proficiency_bonus=true`
+**专业加值（proficiency_bonus）**：属性检定时，若行动明显符合玩家**背景**的本职范畴，设 `proficiency_bonus=true`（系统 +2）。
+
+**技能加值（自动，勿手写进 JSON）**：系统在掷骰时自动结算——
+- `skill_usage=use` 且 `referenced_skills` 中有角色**已掌握**的技能 → **+4 技能**
+- 仅 `referenced_skills` 匹配已掌握技能 → **+2 技能**
+- 专业与技能加值**可叠加**；满属性(+4)+专业(+2)+主动技能(+4)+掷出20 = **30**，故极高 DC（25–30）应留给「专家用对口技能挑战极限」的场景
+- 使用技能检定时务必填 `referenced_skills`；施展技能时设 `skill_usage=use`
+
+**须掷骰（探索）**：潜入/渗透/继续深入受限区域/走消防通道等非公开入口/避开安保/撬锁/黑入/尾随——`needs_roll=true`，`dex` 或 `int`，**dc 由安保强度裁定（通常 12–22）**；若玩家在用对应专业技能，`proficiency_bonus=true`
 
 **不必掷骰**：已在公开合法区域的普通移动、明确无需躲藏的对话、信息已确定的纯观察（无风险）、**本职范围内轻而易举的日常动作**（如渔民辨认渔网、黑客看常规报错）
 
@@ -87,12 +105,12 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 | attack | 攻击存活敌人，attack_target 必填 | false |
 | defend | 防御 AC+2 | false |
 | flee | 撤退（消耗主要动作；失败仍可继续本回合） | false（系统掷骰） |
-| interact | 推物体、打翻掩体、拉杠杆等场景互动 | true，ability/dc |
-| talk | 威胁/说服敌人，attack_target 可为 NPC 名 | true，cha，dc 12-16 |
-| grapple | 擒抱敌人，attack_target 必填 | true，str，dc 14 |
-| shove | 推撞敌人，attack_target 必填 | true，str，dc 12 |
+| interact | 推物体、打翻掩体、拉杠杆等场景互动 | true，ability + **你裁定的 dc** |
+| talk | 威胁/说服敌人，attack_target 可为 NPC 名 | true，cha + **你裁定的 dc** |
+| grapple | 擒抱敌人，attack_target 必填 | true，str + **你裁定的 dc**（可参考敌人 AC/体型） |
+| shove | 推撞敌人，attack_target 必填 | true，str + **你裁定的 dc** |
 | help | 协助他人，attack_target 可选 | false |
-| search | 战斗中观察弱点/环境 | true，wis，dc 13 |
+| search | 战斗中观察弱点/环境 | true，wis + **你裁定的 dc** |
 | end_turn | 结束本回合 | free，ends_turn=true |
 
 ### 可以批准 — 附加动作（action_cost=bonus）

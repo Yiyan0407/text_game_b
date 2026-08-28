@@ -216,7 +216,7 @@ def render_gameplay_hint(game_state: GameState) -> None:
         prefix = "刚进入新模组，" if game_state.turn_count == 0 else ""
         st.info(
             f"**玩法提示**：{prefix}在下方输入你想做的事（如「观察周围」「和 NPC 交谈」）。"
-            "KP 会描述结果并自动掷骰；也可以直接点击 **💡 行动建议** 按钮快速开始。"
+            "KP 会描述结果并自动掷骰；也可点击 **💡 行动建议** 填入输入框，改好后再点发送。"
         )
 
 
@@ -318,10 +318,7 @@ def render_game() -> None:
     render_gameplay_hint(game_state)
     render_chat_history(st.session_state.messages)
 
-    suggested = render_action_suggestions(st.session_state.get("action_suggestions", []))
-    if suggested:
-        handle_player_message(suggested)
-        st.rerun()
+    render_action_suggestions(st.session_state.get("action_suggestions", []))
 
     user_input = render_chat_input(
         disabled=not get_settings().openai_api_key,

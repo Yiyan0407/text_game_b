@@ -31,6 +31,7 @@ from game.dice import roll
 from game.inventory import item_name_from_ref
 from game.item_use import resolve_use_item
 from game.models import Character, ChatMessage, GameState
+from game.narrative_time import advance_narrative_time_for_turn
 from game.narrative_brief import (
     build_narrative_brief_static,
     merge_narrative_brief_with_state,
@@ -38,6 +39,7 @@ from game.narrative_brief import (
 from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
 from game.rules import ability_check, format_check_for_kp
+from game.skill_check import skill_bonus_for_route
 from game.scenario import Scenario
 from game.state_patch import apply_state_patch
 
@@ -478,6 +480,9 @@ class GameOrchestrator:
             return enriched_input, [], route
         try:
             pre_tool_events = self._resolve_mechanics(route, character, game_state)
+            pre_tool_events.extend(
+                advance_narrative_time_for_turn(route, enriched_input, game_state)
+            )
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
                 approved=False,
@@ -502,6 +507,9 @@ class GameOrchestrator:
             return enriched_input, [], route
         try:
             pre_tool_events = self._resolve_mechanics(route, character, game_state)
+            pre_tool_events.extend(
+                advance_narrative_time_for_turn(route, enriched_input, game_state)
+            )
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
                 approved=False,
@@ -663,6 +671,7 @@ class GameOrchestrator:
                     route.ability,
                     route.dc,
                     proficiency_bonus=route.proficiency_bonus,
+                    skill_bonus=skill_bonus_for_route(character, route),
                 )
             ],
             "talk": lambda: [
@@ -672,18 +681,19 @@ class GameOrchestrator:
                     route.attack_target,
                     route.dc,
                     proficiency_bonus=route.proficiency_bonus,
+                    skill_bonus=skill_bonus_for_route(character, route),
                 )
             ],
             "grapple": lambda: [
-                resolve_grapple(character, game_state, route.attack_target)
+                resolve_grapple(character, game_state, route.attack_target, route.dc)
             ],
             "shove": lambda: [
-                resolve_shove(character, game_state, route.attack_target)
+                resolve_shove(character, game_state, route.attack_target, route.dc)
             ],
             "help": lambda: [
                 resolve_help(character, game_state, route.attack_target)
             ],
-            "search": lambda: [resolve_search_in_combat(character, game_state)],
+            "search": lambda: [resolve_search_in_combat(character, game_state, route.dc)],
         }
         handler = handlers.get(action)
         return handler() if handler else []
@@ -712,6 +722,7 @@ class GameOrchestrator:
                 route.ability,
                 route.dc,
                 proficiency_bonus=route.proficiency_bonus,
+                skill_bonus=skill_bonus_for_route(character, route),
             )
             return format_check_for_kp(result, character)
         if route.roll_type == "dice":

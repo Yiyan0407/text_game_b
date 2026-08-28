@@ -2,6 +2,16 @@ import streamlit as st
 
 from game.models import ChatMessage
 
+CHAT_DRAFT_KEY = "chat_draft"
+
+
+def seed_chat_draft(text: str) -> None:
+    st.session_state[CHAT_DRAFT_KEY] = text
+
+
+def clear_chat_draft() -> None:
+    st.session_state[CHAT_DRAFT_KEY] = ""
+
 
 def format_tool_event_content(content: str) -> str:
     text = str(content).strip()
@@ -31,5 +41,28 @@ def render_chat_history(history: list[ChatMessage]) -> None:
 
 
 def render_chat_input(disabled: bool = False, placeholder: str | None = None) -> str | None:
-    text = placeholder or "描述你的行动，例如：检查手机里的匿名邮件……"
-    return st.chat_input(text, disabled=disabled)
+    hint = placeholder or "描述你的行动，例如：检查手机里的匿名邮件……"
+    if CHAT_DRAFT_KEY not in st.session_state:
+        st.session_state[CHAT_DRAFT_KEY] = ""
+
+    with st.form("player_action_form", clear_on_submit=True):
+        draft = st.text_area(
+            "行动输入",
+            key=CHAT_DRAFT_KEY,
+            height=72,
+            placeholder=hint,
+            disabled=disabled,
+            label_visibility="collapsed",
+        )
+        submitted = st.form_submit_button(
+            "发送",
+            disabled=disabled,
+            use_container_width=True,
+            type="primary",
+        )
+
+    if submitted and not disabled:
+        text = draft.strip()
+        if text:
+            return text
+    return None

@@ -312,7 +312,8 @@ def test_orchestrator_pre_roll_before_kp(mock_settings):
     )
 
     assert turn.rejected is False
-    assert len(turn.tool_events) == 1
+    assert any("检定" in event for event in turn.tool_events)
+    assert any("时间推进" in event for event in turn.tool_events)
     assert "敏捷检定" in turn.tool_events[0]
     kp.anarrate.assert_called_once()
     kp_input = kp.anarrate.call_args.kwargs["user_input"]

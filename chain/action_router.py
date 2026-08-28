@@ -5,6 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from chain.json_utils import extract_json_dict
 from chain.llm import create_chat_llm
 from config.settings import PROMPTS_DIR
+from game.difficulty import ensure_ability_check_dc
 from game.models import ABILITY_FIELDS, Character, ChatMessage, GameState
 from game.results import ActionRouteResult
 from game.scenario import Scenario
@@ -270,7 +271,7 @@ class ActionRouter:
         route = self._parse_route(text)
         if not route.approved and route.rejection_reason == _PARSE_FAILURE_REASON:
             route = self._fallback_route(user_input.strip(), game_state)
-        route = self.validate(route, character, game_state)
+        route = self.validate(route, character, game_state, user_input=user_input.strip(), history=history)
         route = self._maybe_require_infiltration_roll(route, user_input.strip(), history)
         ActionRouter._finalize_scope(route)
         return route
@@ -331,7 +332,11 @@ class ActionRouter:
         route.needs_roll = True
         route.roll_type = "ability_check"
         route.ability = "dex"
-        route.dc = 16 if any(x in context for x in ("巡逻", "安保", "监控", "门禁")) else 14
+        ensure_ability_check_dc(
+            route,
+            user_input=user_input,
+            context=context,
+        )
         if not route.action_intent:
             route.action_intent = user_input.strip()
         return route
@@ -373,8 +378,12 @@ class ActionRouter:
         route: ActionRouteResult,
         character: Character,
         game_state: GameState,
+        *,
+        user_input: str = "",
+        history: list[ChatMessage] | None = None,
     ) -> ActionRouteResult:
         in_combat = game_state.is_in_combat()
+        roll_context = _format_recent_history(history or [], limit=6)
 
         if in_combat:
             route.mode = "combat"
@@ -526,8 +535,11 @@ class ActionRouter:
                     route.approved = False
                     route.rejection_reason = "行动裁定异常（无效属性），请重新描述。"
                     return route
-                if route.dc < 1:
-                    route.dc = 14
+                ensure_ability_check_dc(
+                    route,
+                    user_input=user_input,
+                    context=roll_context,
+                )
             else:
                 route.needs_roll = False
                 route.roll_type = "none"
@@ -540,8 +552,11 @@ class ActionRouter:
                     route.needs_roll = False
                     route.roll_type = "none"
                     return route
-                if route.dc < 1:
-                    route.dc = 14
+                ensure_ability_check_dc(
+                    route,
+                    user_input=user_input,
+                    context=roll_context,
+                )
             elif route.roll_type == "dice":
                 if not route.dice_notation:
                     route.approved = False

@@ -31,6 +31,8 @@ def build_narrative_brief_static(
         lines.append("【已发生的结果】（无机械结算，直接叙事）")
     lines.append(
         "【写作要求】第二人称「你」，遵守叙事收笔与禁止推进；勿复述本简报字段；勿列编号选项。"
+        "叙事须与下方【当前状态】背包、技能一致：已有照明/工具时不可写「没有照明」；"
+        "检定失败写察觉不足或环境干扰，勿否定玩家持有物。"
     )
     lines.append("")
     lines.append(user_input.strip())
@@ -44,12 +46,24 @@ def merge_narrative_brief_with_state(
     state_events: list[str] | None = None,
 ) -> str:
     """合并补丁应用后的状态快照。"""
+    from game.narrative_time import (
+        format_narrative_time_context,
+        format_time_constraints_for_kp,
+    )
+
     lines = [brief_static.rstrip()]
     if state_events:
         lines.append("")
         lines.append("【状态同步事件】")
         for event in state_events:
             lines.append(f"- {event}")
+    lines.append("")
+    lines.append("【叙事时间 — 必须一致，禁止与下列时钟矛盾】")
+    lines.append(format_narrative_time_context(game_state))
+    constraints = format_time_constraints_for_kp(game_state)
+    if constraints:
+        lines.append("")
+        lines.append(constraints)
     lines.append("")
     lines.append("【当前状态】")
     lines.append(f"场景：{game_state.current_scene or '（未知）'}")
