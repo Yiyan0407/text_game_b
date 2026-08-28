@@ -146,6 +146,10 @@ def render_character_selection(scenario) -> None:
     st.title(f"🎭 选择角色 · {scenario.title}")
     st.markdown("使用已有长期角色，或创建新角色。")
 
+    from ui.game_options import render_game_options
+
+    game_config = render_game_options(show_background_validation=False)
+
     if cards:
         st.subheader("已有角色卡")
         for card in cards:
@@ -161,7 +165,7 @@ def render_character_selection(scenario) -> None:
                 ):
                     from ui.main_menu import start_new_game_with_card
 
-                    start_new_game_with_card(scenario, card)
+                    start_new_game_with_card(scenario, card, game_config=game_config)
 
     st.divider()
     st.subheader("创建新角色")

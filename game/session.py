@@ -1,5 +1,6 @@
 import streamlit as st
 
+from game.game_config import GameConfig, default_game_config
 from game.models import Character, ChatMessage, GameState
 from game.results import TurnResult
 from game.profile import sync_card_from_adventure
@@ -36,6 +37,7 @@ def apply_save_to_session(save_game: SaveGame, scenario: Scenario) -> None:
     st.session_state.current_save_id = save_game.save_id
     st.session_state.current_character_id = save_game.character_id or None
     st.session_state.action_suggestions = get_action_suggestions(save_game)
+    st.session_state.game_config = save_game.game_config
     st.session_state.game_started = True
     st.session_state.last_loaded_save_at = save_game.saved_at
     st.session_state.game_state.dedupe_npcs()
@@ -150,6 +152,7 @@ def persist_save() -> None:
         profile_id=st.session_state.get("current_profile_id") or "",
         character_id=st.session_state.get("current_character_id") or "",
         world_id=scenario.world_id,
+        game_config=st.session_state.get("game_config") or default_game_config(),
     )
     save_manager.save(save_game)
     st.session_state.current_save_id = save_game.save_id

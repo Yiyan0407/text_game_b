@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator, Iterator
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from chain.llm import create_chat_llm
+from game.game_config import KpGuidance
 from game.models import Character, ChatMessage, GameState
 from game.results import TurnResult
 from prompts.templates import build_narrative_prompt
@@ -20,9 +21,17 @@ class KPChain:
         world_id: str,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        kp_guidance: KpGuidance = "balanced",
     ) -> TurnResult:
         messages = self._build_narrative_messages(
-            character, game_state, scenario_context, world_id, user_input, history
+            character,
+            game_state,
+            scenario_context,
+            world_id,
+            user_input,
+            history,
+            kp_guidance=kp_guidance,
         )
         response = self.llm.invoke(messages)
         content = (response.content or "").strip()
@@ -36,9 +45,17 @@ class KPChain:
         world_id: str,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        kp_guidance: KpGuidance = "balanced",
     ) -> TurnResult:
         messages = self._build_narrative_messages(
-            character, game_state, scenario_context, world_id, user_input, history
+            character,
+            game_state,
+            scenario_context,
+            world_id,
+            user_input,
+            history,
+            kp_guidance=kp_guidance,
         )
         response = await self.llm.ainvoke(messages)
         content = (response.content or "").strip()
@@ -52,9 +69,17 @@ class KPChain:
         world_id: str,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        kp_guidance: KpGuidance = "balanced",
     ) -> Iterator[str]:
         messages = self._build_narrative_messages(
-            character, game_state, scenario_context, world_id, user_input, history
+            character,
+            game_state,
+            scenario_context,
+            world_id,
+            user_input,
+            history,
+            kp_guidance=kp_guidance,
         )
 
         def _stream() -> Iterator[str]:
@@ -72,9 +97,17 @@ class KPChain:
         world_id: str,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        kp_guidance: KpGuidance = "balanced",
     ) -> AsyncIterator[str]:
         messages = self._build_narrative_messages(
-            character, game_state, scenario_context, world_id, user_input, history
+            character,
+            game_state,
+            scenario_context,
+            world_id,
+            user_input,
+            history,
+            kp_guidance=kp_guidance,
         )
         async for chunk in self.llm.astream(messages):
             if chunk.content:
@@ -88,8 +121,10 @@ class KPChain:
         world_id: str,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        kp_guidance: KpGuidance = "balanced",
     ) -> list[BaseMessage]:
-        prompt = build_narrative_prompt(world_id)
+        prompt = build_narrative_prompt(world_id, kp_guidance=kp_guidance)
         prompt_value = prompt.invoke(
             {
                 "character_name": character.name,

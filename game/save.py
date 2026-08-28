@@ -9,6 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from config.settings import SAVES_DIR
+from game.game_config import GameConfig, default_game_config
 from game.models import Character, ChatMessage, GameState
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ def _normalize_save_payload(raw: dict) -> dict:
     payload.setdefault("profile_id", "")
     payload.setdefault("character_id", "")
     payload.setdefault("world_id", "")
+    payload.setdefault("game_config", default_game_config().model_dump())
     return payload
 
 
@@ -52,6 +54,7 @@ class SaveGame(BaseModel):
     game_state: GameState
     messages: list[ChatMessage] = Field(default_factory=list)
     action_suggestions: list[str] = Field(default_factory=list)
+    game_config: GameConfig = Field(default_factory=default_game_config)
 
     @classmethod
     def create(
@@ -66,6 +69,7 @@ class SaveGame(BaseModel):
         profile_id: str = "",
         character_id: str = "",
         world_id: str = "",
+        game_config: GameConfig | None = None,
     ) -> "SaveGame":
         return cls(
             save_id=save_id or str(uuid.uuid4()),
@@ -79,6 +83,7 @@ class SaveGame(BaseModel):
             game_state=_fresh_model(GameState, game_state),
             messages=[_fresh_model(ChatMessage, msg) for msg in messages],
             action_suggestions=list(action_suggestions or []),
+            game_config=game_config or default_game_config(),
         )
 
 
@@ -147,6 +152,7 @@ class SaveManager:
             game_state=_fresh_model(GameState, data.game_state),
             messages=[_fresh_model(ChatMessage, msg) for msg in data.messages],
             action_suggestions=list(data.action_suggestions),
+            game_config=_fresh_model(GameConfig, data.game_config),
         )
 
     def delete(self, save_id: str) -> None:

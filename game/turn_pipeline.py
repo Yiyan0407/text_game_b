@@ -15,6 +15,7 @@ from chain.stat_forge_agent import StatForgeAgent
 from chain.suggestions import ActionSuggester
 from chain.world_state_agent import WorldStateAgent
 from config.settings import get_settings
+from game.game_config import apply_guidance_hint
 from game.models import Character, GameState
 from game.narrative_brief import (
     build_narrative_brief_static,
@@ -33,7 +34,6 @@ ResolveMechanics = Callable[
     [ActionRouteResult, Character, GameState, Scenario], list[str]
 ]
 DeliveredItems = Callable[[ActionRouteResult | None, list[str]], frozenset[str]]
-GuidanceHint = Callable[[str, int], str]
 
 
 class TurnPipeline:
@@ -52,7 +52,6 @@ class TurnPipeline:
         window_memory: ConversationWindowMemory,
         resolve_mechanics: ResolveMechanics,
         delivered_item_names: DeliveredItems,
-        guidance_hint: GuidanceHint,
     ):
         self.router = router
         self.world_state = world_state
@@ -64,11 +63,14 @@ class TurnPipeline:
         self.window_memory = window_memory
         self._resolve_mechanics = resolve_mechanics
         self._delivered_item_names = delivered_item_names
-        self._guidance_hint = guidance_hint
 
     async def prepare(self, ctx: TurnContext) -> bool:
         """阶段 1–2：行动路由（async）+ 机械结算（sync）。"""
-        ctx.enriched_input = self._guidance_hint(ctx.user_input, ctx.game_state.turn_count)
+        ctx.enriched_input = apply_guidance_hint(
+            ctx.user_input,
+            ctx.game_state.turn_count,
+            ctx.game_config,
+        )
         ctx.route = await self.router.aevaluate(
             ctx.enriched_input,
             ctx.character,
@@ -125,6 +127,7 @@ class TurnPipeline:
             world_id=ctx.scenario.world_id,
             user_input=ctx.narrative_brief,
             history=ctx.windowed_history or ctx.history,
+            kp_guidance=ctx.game_config.kp_guidance,
         )
         ctx.kp_response = turn.response
         return ctx.kp_response

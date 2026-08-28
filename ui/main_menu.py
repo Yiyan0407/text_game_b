@@ -300,11 +300,16 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
         key=background_key,
     )
     st.caption(
-        "背景应描述身份与动机，不要写开局无敌、满级、神器或巨额资源。"
+        "背景应描述身份与动机。"
+        "若启用审核，请勿写开局无敌、满级、神器或巨额资源。"
         "职业不必与模组默认开场一致，开局会自动衔接你的身份。"
         "背景审核通过后会由 AI 生成 1–3 项初始技能。"
         "草稿会自动保存到本机，切换页面或刷新浏览器后可继续编辑。"
     )
+
+    from ui.game_options import render_game_options
+
+    game_config = render_game_options(show_background_validation=True)
     sync_character_draft_to_disk(scenario.id, default_world=default_world)
     start_clicked = st.button("开始冒险", type="primary", use_container_width=True)
 
@@ -324,11 +329,16 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
         )
 
         with st.spinner("正在审核角色背景……"):
-            bg_result = BackgroundValidator().evaluate(
-                final_background,
-                world_id=selected_world,
-                scenario=scenario,
-            )
+            if game_config.enable_background_validation:
+                bg_result = BackgroundValidator().evaluate(
+                    final_background,
+                    world_id=selected_world,
+                    scenario=scenario,
+                )
+            else:
+                from game.background_validator import BackgroundValidationResult
+
+                bg_result = BackgroundValidationResult(approved=True)
         if not bg_result.approved:
             st.error(f"背景无法通过审核：{bg_result.rejection_reason}")
             return
@@ -362,7 +372,7 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
                 saved_card,
             )
         st.session_state.pop("selected_character_card", None)
-        start_new_game(active_scenario, character, character_card=saved_card)
+        start_new_game(active_scenario, character, character_card=saved_card, game_config=game_config)
 
     if st.button("返回", key="back_from_character"):
         if st.session_state.get("generated_scenario"):
@@ -374,12 +384,20 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
         st.rerun()
 
 
-def start_new_game_with_card(scenario: Scenario, card: CharacterCard) -> None:
+def start_new_game_with_card(
+    scenario: Scenario,
+    card: CharacterCard,
+    *,
+    game_config=None,
+) -> None:
+    from game.game_config import GameConfig, default_game_config
+
     world_id = card.preferred_world_id or scenario.world_id
     active_scenario = scenario.model_copy(update={"world_id": world_id})
     character = card.to_runtime_character()
     st.session_state.pop("selected_character_card", None)
-    start_new_game(active_scenario, character, character_card=card)
+    config = game_config or default_game_config()
+    start_new_game(active_scenario, character, character_card=card, game_config=config)
 
 
 def start_new_game(
@@ -388,12 +406,16 @@ def start_new_game(
     *,
     character_card: CharacterCard | None = None,
     career_context: str = "",
+    game_config=None,
 ) -> None:
     from config.settings import get_settings
+    from game.game_config import GameConfig, default_game_config
     from game.models import ChatMessage, GameState
     from game.save import SaveGame
     from game.profile import prepare_card_for_new_campaign
     from game.session import append_tool_events, persist_save
+
+    config: GameConfig = game_config or default_game_config()
 
     game_state = GameState()
     orchestrator = st.session_state.orchestrator
@@ -417,11 +439,13 @@ def start_new_game(
         profile_id=st.session_state.current_profile_id or "",
         character_id=character_card.card_id if character_card else "",
         world_id=scenario.world_id,
+        game_config=config,
     )
 
     st.session_state.character = character
     st.session_state.game_state = game_state
     st.session_state.scenario = scenario
+    st.session_state.game_config = config
     st.session_state.current_save_id = save_game.save_id
     st.session_state.current_character_id = character_card.card_id if character_card else None
     st.session_state.messages = []
@@ -445,7 +469,7 @@ def start_new_game(
                 finish_turn,
                 rollback_turn,
             ) = orchestrator.start_game_stream(
-                character, game_state, scenario, career_context=career_context
+                character, game_state, scenario, career_context=career_context, game_config=config
             )
             from game.session import append_tool_events
             from ui.streaming import finalize_streaming_turn, render_phased_turn
@@ -496,7 +520,7 @@ def start_new_game(
     else:
         with st.spinner("正在生成入场逻辑并编织开场……"):
             turn = orchestrator.start_game(
-                character, game_state, scenario, career_context=career_context
+                character, game_state, scenario, career_context=career_context, game_config=config
             )
         from game.session import append_turn_result
 

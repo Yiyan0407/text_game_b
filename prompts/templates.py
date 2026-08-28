@@ -3,8 +3,8 @@ from pathlib import Path
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from config.settings import PROMPTS_DIR
-
 from config.worlds import DEFAULT_WORLD_ID
+from game.game_config import KpGuidance
 
 
 def load_kp_base_prompt() -> str:
@@ -18,12 +18,39 @@ def load_world_prompt(world_id: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def load_kp_system_prompt(world_id: str = DEFAULT_WORLD_ID) -> str:
-    return f"{load_kp_base_prompt()}\n\n{load_world_prompt(world_id)}"
+def load_kp_guidance_mode_prompt(kp_guidance: KpGuidance = "balanced") -> str:
+    modes = (PROMPTS_DIR / "kp_guidance_modes.txt").read_text(encoding="utf-8")
+    section_map = {
+        "freeform": "### 自由即兴",
+        "balanced": "### 平衡引导",
+        "script_guided": "### 按剧本推进",
+    }
+    marker = section_map.get(kp_guidance, section_map["balanced"])
+    start = modes.find(marker)
+    if start < 0:
+        return ""
+    rest = modes[start + len(marker) :]
+    next_heading = rest.find("\n### ")
+    body = rest[:next_heading].strip() if next_heading >= 0 else rest.strip()
+    return f"## 本局 KP 引导模式\n{body}" if body else ""
 
 
-def build_kp_prompt(world_id: str = DEFAULT_WORLD_ID) -> ChatPromptTemplate:
-    system = load_kp_system_prompt(world_id)
+def load_kp_system_prompt(
+    world_id: str = DEFAULT_WORLD_ID,
+    kp_guidance: KpGuidance = "balanced",
+) -> str:
+    parts = [load_kp_base_prompt(), load_world_prompt(world_id)]
+    mode_prompt = load_kp_guidance_mode_prompt(kp_guidance)
+    if mode_prompt:
+        parts.append(mode_prompt)
+    return "\n\n".join(parts)
+
+
+def build_kp_prompt(
+    world_id: str = DEFAULT_WORLD_ID,
+    kp_guidance: KpGuidance = "balanced",
+) -> ChatPromptTemplate:
+    system = load_kp_system_prompt(world_id, kp_guidance=kp_guidance)
     return ChatPromptTemplate.from_messages(
         [
             ("system", system),
@@ -52,6 +79,9 @@ def build_kp_prompt(world_id: str = DEFAULT_WORLD_ID) -> ChatPromptTemplate:
     )
 
 
-def build_narrative_prompt(world_id: str = DEFAULT_WORLD_ID) -> ChatPromptTemplate:
+def build_narrative_prompt(
+    world_id: str = DEFAULT_WORLD_ID,
+    kp_guidance: KpGuidance = "balanced",
+) -> ChatPromptTemplate:
     """纯叙事 KP 使用的 Prompt。"""
-    return build_kp_prompt(world_id)
+    return build_kp_prompt(world_id, kp_guidance=kp_guidance)

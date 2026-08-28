@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from game.models import Character, ChatMessage, GameState
+from game.game_config import GameConfig, default_game_config
 from game.results import ActionRouteResult, StatePatch
 from game.scenario import Scenario
 
@@ -16,6 +17,7 @@ class TurnContext:
     game_state: GameState
     scenario: Scenario
     history: list[ChatMessage]
+    game_config: GameConfig = field(default_factory=default_game_config)
     windowed_history: list[ChatMessage] = field(default_factory=list)
     enriched_input: str = ""
     route: ActionRouteResult | None = None

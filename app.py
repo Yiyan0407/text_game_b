@@ -1,6 +1,7 @@
 import streamlit as st
 
 from config.settings import get_settings
+from game.game_config import default_game_config
 from game.models import Character, ChatMessage, GameState
 from game.orchestrator import GameOrchestrator
 from game.profile import ProfileManager
@@ -54,6 +55,7 @@ def init_session_state() -> None:
         "orchestrator": GameOrchestrator(),
         "profile_manager": ProfileManager(),
         "save_manager": SaveManager(),
+        "game_config": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -66,6 +68,7 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
     scenario: Scenario = st.session_state.scenario
     orchestrator: GameOrchestrator = st.session_state.orchestrator
     settings = get_settings()
+    game_config = st.session_state.get("game_config") or default_game_config()
     summary_before = game_state.story_summary
     user_msg_index = len(st.session_state.messages) - 1
     turn_completed = False
@@ -92,6 +95,7 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
                 scenario=scenario,
                 user_input=user_input,
                 history=history,
+                game_config=game_config,
             )
             if rejection_turn is not None:
                 progress.clear()
@@ -142,6 +146,7 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
                     scenario=scenario,
                     user_input=user_input,
                     history=history,
+                    game_config=game_config,
                 )
             if not turn.rejected:
                 append_tool_events(turn.tool_events)

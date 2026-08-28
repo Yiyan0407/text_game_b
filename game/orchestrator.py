@@ -35,6 +35,7 @@ from game.combat import (
 from game.dice import roll
 from game.inventory import item_name_from_ref
 from game.item_use import resolve_use_item
+from game.game_config import GameConfig, apply_guidance_hint, default_game_config
 from game.models import Character, ChatMessage, GameState
 from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
@@ -85,6 +86,7 @@ def _build_start_instruction(
     career_context: str = "",
     integrator: OpeningIntegrator | None = None,
     brief: OpeningBrief | None = None,
+    game_config: GameConfig | None = None,
 ) -> str:
     if brief is None:
         brief = (integrator or OpeningIntegrator()).generate(character, scenario)
@@ -97,6 +99,17 @@ def _build_start_instruction(
         )
     lines.append(brief.format_for_kp())
     lines.append(START_GAME_INSTRUCTION)
+    config = game_config or default_game_config()
+    if config.kp_guidance == "script_guided":
+        lines.append(
+            "【按剧本推进】本局为剧本引导模式：开场须自然引出 initial_quests，"
+            "并在叙事中铺设第一个 key_node 的入口线索；仍禁止抢戏。"
+        )
+    elif config.kp_guidance == "freeform":
+        lines.append(
+            "【自由即兴】本局为自由模式：尊重玩家背景与当前情境即可，"
+            "不必主动往 key_nodes 推；开场结尾可省略方向提示。"
+        )
     lines.append(_OPENING_CONSISTENCY_RULE)
     return "\n\n".join(lines)
 
@@ -143,7 +156,6 @@ class GameOrchestrator:
             window_memory=self.window_memory,
             resolve_mechanics=self._resolve_mechanics,
             delivered_item_names=self._delivered_item_names,
-            guidance_hint=self._maybe_add_guidance_hint,
         )
 
     def start_game(
@@ -153,9 +165,16 @@ class GameOrchestrator:
         scenario: Scenario,
         *,
         career_context: str = "",
+        game_config: GameConfig | None = None,
     ) -> TurnResult:
         return run_async(
-            self.astart_game(character, game_state, scenario, career_context=career_context)
+            self.astart_game(
+                character,
+                game_state,
+                scenario,
+                career_context=career_context,
+                game_config=game_config,
+            )
         )
 
     async def astart_game(
@@ -165,7 +184,9 @@ class GameOrchestrator:
         scenario: Scenario,
         *,
         career_context: str = "",
+        game_config: GameConfig | None = None,
     ) -> TurnResult:
+        config = game_config or default_game_config()
         scenario.apply_to_game_state(game_state)
         game_state.started = True
         brief = self.opening_integrator.generate(character, scenario)
@@ -175,6 +196,7 @@ class GameOrchestrator:
             career_context,
             self.opening_integrator,
             brief=brief,
+            game_config=config,
         )
         turn = await self._run_turn_via_pipeline(
             character=character,
@@ -184,6 +206,7 @@ class GameOrchestrator:
             history=[],
             increment_turn=False,
             is_opening=True,
+            game_config=config,
         )
         turn.opening_used_fallback = brief.used_fallback
         return turn
@@ -195,7 +218,9 @@ class GameOrchestrator:
         scenario: Scenario,
         *,
         career_context: str = "",
+        game_config: GameConfig | None = None,
     ):
+        config = game_config or default_game_config()
         scenario.apply_to_game_state(game_state)
         game_state.started = True
         brief = self.opening_integrator.generate(character, scenario)
@@ -205,6 +230,7 @@ class GameOrchestrator:
             career_context,
             self.opening_integrator,
             brief=brief,
+            game_config=config,
         )
         char_snap, state_snap = snapshot_adventure(character, game_state)
         ctx = TurnContext(
@@ -218,6 +244,7 @@ class GameOrchestrator:
             is_opening=True,
             enriched_input=user_input,
             mechanical_events=[],
+            game_config=config,
         )
         rejection, pre_events, run_state, stream, item_sync, mem, finish = (
             self._stream_turn_phased(ctx)
@@ -240,9 +267,18 @@ class GameOrchestrator:
         scenario: Scenario,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        game_config: GameConfig | None = None,
     ) -> TurnResult:
         return run_async(
-            self.aplayer_turn(character, game_state, scenario, user_input, history)
+            self.aplayer_turn(
+                character,
+                game_state,
+                scenario,
+                user_input,
+                history,
+                game_config=game_config,
+            )
         )
 
     async def aplayer_turn(
@@ -252,6 +288,8 @@ class GameOrchestrator:
         scenario: Scenario,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        game_config: GameConfig | None = None,
     ) -> TurnResult:
         if is_kp_directive(user_input):
             windowed = self.window_memory.get_history(history)
@@ -268,6 +306,7 @@ class GameOrchestrator:
                 user_input=user_input,
                 history=history,
                 windowed_history=windowed,
+                game_config=game_config,
             )
         except Exception:
             restore_adventure(character, game_state, char_snap, state_snap)
@@ -354,7 +393,9 @@ class GameOrchestrator:
         increment_turn: bool = True,
         is_opening: bool = False,
         prebuilt_ctx: TurnContext | None = None,
+        game_config: GameConfig | None = None,
     ) -> TurnResult:
+        config = game_config or default_game_config()
         ctx = prebuilt_ctx or TurnContext(
             user_input=user_input,
             character=character,
@@ -364,6 +405,7 @@ class GameOrchestrator:
             windowed_history=windowed_history or history,
             increment_turn=increment_turn,
             is_opening=is_opening,
+            game_config=config,
         )
         if is_opening:
             ctx.route = None
@@ -383,11 +425,14 @@ class GameOrchestrator:
         scenario: Scenario,
         user_input: str,
         history: list[ChatMessage],
+        *,
+        game_config: GameConfig | None = None,
     ):
         if is_kp_directive(user_input):
             return self._stream_kp_meta_turn(
                 character, game_state, scenario, user_input, history
             )
+        config = game_config or default_game_config()
         windowed = self.window_memory.get_history(history)
         char_snap, state_snap = snapshot_adventure(character, game_state)
         ctx = TurnContext(
@@ -398,6 +443,7 @@ class GameOrchestrator:
             history=history,
             windowed_history=windowed,
             increment_turn=True,
+            game_config=config,
         )
         if not run_async(self.pipeline.prepare(ctx)):
             rejected_turn = TurnResult(
@@ -531,6 +577,7 @@ class GameOrchestrator:
                         world_id=ctx.scenario.world_id,
                         user_input=str(brief),
                         history=ctx.windowed_history or ctx.history,
+                        kp_guidance=ctx.game_config.kp_guidance,
                     ):
                         yield chunk
 
@@ -577,7 +624,9 @@ class GameOrchestrator:
         history: list[ChatMessage],
         windowed: list[ChatMessage],
     ) -> tuple[str, list[str], ActionRouteResult]:
-        enriched_input = self._maybe_add_guidance_hint(user_input, game_state.turn_count)
+        enriched_input = apply_guidance_hint(
+            user_input, game_state.turn_count, default_game_config()
+        )
         route = await self.router.aevaluate(
             enriched_input, character, game_state, scenario, windowed or history
         )
@@ -601,7 +650,9 @@ class GameOrchestrator:
         history: list[ChatMessage],
         windowed: list[ChatMessage],
     ) -> tuple[str, list[str], ActionRouteResult]:
-        enriched_input = self._maybe_add_guidance_hint(user_input, game_state.turn_count)
+        enriched_input = apply_guidance_hint(
+            user_input, game_state.turn_count, default_game_config()
+        )
         route = self.router.evaluate(
             enriched_input, character, game_state, scenario, windowed or history
         )
@@ -946,22 +997,3 @@ class GameOrchestrator:
         game_state: GameState,
     ) -> list[str]:
         return default_opening_suggestions(scenario, game_state)
-
-    @staticmethod
-    def _maybe_add_guidance_hint(user_input: str, turn_count: int) -> str:
-        text = user_input.strip()
-        if not text:
-            return user_input
-        confused_markers = ("怎么办", "接下来", "不知道", "该怎么", "做什么", "help", "?")
-        needs_guidance = (
-            turn_count <= 3
-            or len(text) <= 4
-            or any(marker in text.lower() for marker in confused_markers)
-        )
-        if not needs_guidance:
-            return user_input
-        return (
-            f"{user_input}\n\n"
-            "[KP 引导：玩家可能需要方向。请用叙事方式给出 2–3 个具体可尝试的行动方向，"
-            "可让 NPC/环境主动接话，不要出戏，不要列编号选项。]"
-        )
