@@ -45,11 +45,12 @@
 - **time_label**：**常规回合留空**（系统按 `advance_minutes` 自动更新）；**仅开场定钟**时填写
 - **deadlines**：当叙事**首次出现**倒计时/约定时刻时登记（如「30分钟后传送」）：
   - `due_in_minutes`：从**当前故事时间**起多少分钟后到期（30 分钟写 30，6 小时写 360）
-  - `consequence`：到期后应发生的后果（供 KP 叙事）
-  - `fail_quest_ids`：到期后应自动判失败的任务 id（与 quests 中 quest_id 对应；若 id 与 deadline.id 相同可省略）
-  - `hp_loss`：到期后对玩家造成的伤害点数；爆炸/遇袭等后果建议写 5–15
+  - `consequence`：若**未能阻止**时可能发生的后果（供 KP 叙事参考）
+  - `fail_quest_ids`：仅当后果**确实发生**且你输出 `enforce_deadline_ids` 时才会判失败的任务 id
+  - `hp_loss`：后果确实发生时的伤害点数；爆炸/遇袭等建议写 5–15
   - 若之前已登记同类时限，**禁止重复 add**（KP 复述剩余时间不算新时限）；改期时先 cancel 再 add
-- **cancel_deadline_ids**：任务取消、炸弹被拆除、约定改期时取消对应 id
+- **cancel_deadline_ids**：玩家已化解威胁（拆弹、改日志、贿赂、伪装等）或约定取消/改期时取消对应 id
+- **enforce_deadline_ids**：仅当结合 memory_facts 与最近对话确认到期后果**确实发生**时写入；到期**不会**自动 enforce
 
 ## 何时写入
 

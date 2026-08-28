@@ -318,6 +318,14 @@ def _deadline_remaining(deadline: NarrativeDeadline, elapsed_minutes: int) -> in
     return deadline.due_at_minutes - elapsed_minutes
 
 
+def _deadline_is_due(deadline: NarrativeDeadline) -> bool:
+    return deadline.status in ("due", "triggered")
+
+
+def _deadline_is_open(deadline: NarrativeDeadline) -> bool:
+    return deadline.status == "pending" or _deadline_is_due(deadline)
+
+
 def _ensure_deadline_id(label: str, proposed: str, existing_ids: set[str]) -> str:
     if proposed.strip():
         base = proposed.strip()
@@ -395,13 +403,61 @@ def narrative_time_display_at(game_state: GameState, due_at_minutes: int) -> str
 
 
 def cancel_deadline(game_state: GameState, deadline_id: str) -> str | None:
-    target_id = deadline_id.strip()
-    if not target_id:
+    target = deadline_id.strip()
+    if not target:
         return None
+    deadline = _find_open_deadline(game_state, target)
+    if deadline is None:
+        return None
+    was_due = _deadline_is_due(deadline)
+    deadline.status = "cancelled"
+    if was_due:
+        return f"⏰ 已化解时限：{deadline.label}"
+    return f"⏰ 已取消时限：{deadline.label}"
+
+
+def enforce_deadline(
+    game_state: GameState,
+    deadline_id: str,
+    character: Character | None = None,
+) -> list[str]:
+    target = deadline_id.strip()
+    if not target:
+        return []
+    deadline = _find_due_deadline(game_state, target)
+    if deadline is None:
+        return []
+    deadline.status = "resolved"
+    events = [f"⏰ 时限后果成立：{deadline.label}"]
+    events.extend(_apply_deadline_penalties(game_state, deadline, character))
+    return events
+
+
+def _find_open_deadline(game_state: GameState, ref: str) -> NarrativeDeadline | None:
     for deadline in game_state.deadlines:
-        if deadline.id == target_id and deadline.status == "pending":
-            deadline.status = "cancelled"
-            return f"⏰ 已取消时限：{deadline.label}"
+        if not _deadline_is_open(deadline):
+            continue
+        if deadline.id == ref or deadline.label == ref:
+            return deadline
+    for deadline in game_state.deadlines:
+        if not _deadline_is_open(deadline):
+            continue
+        if ref in deadline.label or ref in deadline.id:
+            return deadline
+    return None
+
+
+def _find_due_deadline(game_state: GameState, ref: str) -> NarrativeDeadline | None:
+    for deadline in game_state.deadlines:
+        if not _deadline_is_due(deadline):
+            continue
+        if deadline.id == ref or deadline.label == ref:
+            return deadline
+    for deadline in game_state.deadlines:
+        if not _deadline_is_due(deadline):
+            continue
+        if ref in deadline.label or ref in deadline.id:
+            return deadline
     return None
 
 
@@ -470,14 +526,16 @@ def _trigger_deadline(
 ) -> list[str]:
     from config.settings import get_settings
 
-    deadline.status = "triggered"
+    if _deadline_is_due(deadline):
+        return []
+
+    deadline.status = "due"
     overdue = format_duration(max(0, game_state.elapsed_minutes - deadline.due_at_minutes))
-    events = [f"⏰ 时限已到：{deadline.label}（逾期 {overdue}）"]
-    fact = f"时限「{deadline.label}」已到期"
+    events = [f"⏰ 时限已到：{deadline.label}（逾期 {overdue}，待叙事裁定后果）"]
+    fact = f"时限「{deadline.label}」已到期，后果是否发生须结合剧情裁定"
     if deadline.consequence.strip():
-        fact = f"{fact}；后果：{deadline.consequence.strip()}"
+        fact = f"{fact}；若未能阻止，可能后果：{deadline.consequence.strip()}"
     game_state.add_memory_facts([fact], get_settings().max_memory_facts)
-    events.extend(_apply_deadline_penalties(game_state, deadline, character))
     return events
 
 
@@ -547,6 +605,9 @@ def apply_time_patch(
         if message:
             events.append(message)
 
+    for deadline_id in patch.enforce_deadline_ids:
+        events.extend(enforce_deadline(game_state, deadline_id, character))
+
     for deadline_patch in patch.deadlines:
         events.extend(add_deadline(game_state, deadline_patch))
 
@@ -578,32 +639,40 @@ def format_narrative_time_context(game_state: GameState) -> str:
             remaining = _deadline_remaining(deadline, game_state.elapsed_minutes)
             if remaining < 0:
                 lines.append(
-                    f"- {deadline.label}：已逾期 {format_duration(-remaining)}，"
-                    "系统已执行失败/伤害等惩罚，本轮必须体现后果"
+                    f"- [{deadline.id}] {deadline.label}：已逾期 {format_duration(-remaining)}，"
+                    "须在本轮或下轮裁定后果是否发生"
                 )
             elif remaining == 0:
-                lines.append(f"- {deadline.label}：此刻到期")
+                lines.append(f"- [{deadline.id}] {deadline.label}：此刻到期")
             else:
                 lines.append(
-                    f"- {deadline.label}：还剩 {format_duration(remaining)}"
+                    f"- [{deadline.id}] {deadline.label}：还剩 {format_duration(remaining)}"
                     f"（约 {narrative_time_display_at(game_state, deadline.due_at_minutes)}）"
                 )
                 if deadline.consequence.strip():
-                    lines.append(f"  到期后果：{deadline.consequence.strip()}")
+                    lines.append(f"  若未能阻止，可能后果：{deadline.consequence.strip()}")
                 penalty_parts: list[str] = []
                 if deadline.fail_quest_ids:
-                    penalty_parts.append(f"失败任务 {', '.join(deadline.fail_quest_ids)}")
+                    penalty_parts.append(f"可能失败任务 {', '.join(deadline.fail_quest_ids)}")
                 if deadline.hp_loss > 0:
-                    penalty_parts.append(f"伤害 {deadline.hp_loss}")
+                    penalty_parts.append(f"可能伤害 {deadline.hp_loss}")
                 elif any(keyword in deadline.consequence for keyword in _INJURY_KEYWORDS):
-                    penalty_parts.append("伤害（默认 5）")
+                    penalty_parts.append("可能伤害（默认 5）")
                 if penalty_parts:
-                    lines.append(f"  到期惩罚：{'；'.join(penalty_parts)}")
+                    lines.append(f"  到期后若后果成立：{'；'.join(penalty_parts)}")
 
-    triggered = [d for d in game_state.deadlines if d.status == "triggered"][-3:]
-    if triggered:
-        lines.append("近期已触发时限：")
-        for deadline in triggered:
+    due = [d for d in game_state.deadlines if _deadline_is_due(d)]
+    if due:
+        lines.append("已到期待裁定（须结合关键事实与本轮行动决定后果是否发生）：")
+        for deadline in due:
+            lines.append(f"- [{deadline.id}] {deadline.label}")
+            if deadline.consequence.strip():
+                lines.append(f"  若后果成立：{deadline.consequence.strip()}")
+
+    resolved = [d for d in game_state.deadlines if d.status == "resolved"][-3:]
+    if resolved:
+        lines.append("近期已裁定时限：")
+        for deadline in resolved:
             lines.append(f"- {deadline.label}")
 
     return "\n".join(lines)
@@ -611,6 +680,7 @@ def format_narrative_time_context(game_state: GameState) -> str:
 
 def format_time_constraints_for_kp(game_state: GameState) -> str:
     pending = [d for d in game_state.deadlines if d.status == "pending"]
+    due = [d for d in game_state.deadlines if _deadline_is_due(d)]
     overdue = [
         d for d in pending if _deadline_remaining(d, game_state.elapsed_minutes) < 0
     ]
@@ -619,17 +689,27 @@ def format_time_constraints_for_kp(game_state: GameState) -> str:
         for d in pending
         if 0 <= _deadline_remaining(d, game_state.elapsed_minutes) <= _IMMINENT_MINUTES
     ]
-    if not overdue and not imminent:
+    if not overdue and not imminent and not due:
         return ""
 
     lines = ["【时限约束 — 本轮叙事必须遵守】"]
-    for deadline in overdue:
+    for deadline in due:
         lines.append(
-            f"- 「{deadline.label}」已过期：必须写到期后果，禁止假装尚未发生。"
+            f"- 「{deadline.label}」已到期：须结合【关键事实】与玩家已采取的对策裁定后果是否发生。"
         )
         if deadline.consequence.strip():
-            lines.append(f"  建议后果：{deadline.consequence.strip()}")
-        lines.append("  系统已执行相关任务失败/伤害惩罚，叙事须与之吻合。")
+            lines.append(f"  若未能阻止时的后果：{deadline.consequence.strip()}")
+        lines.append(
+            "  若玩家已提前化解（如远程改日志、拆弹、贿赂、伪装维护），写化解过程，"
+            "勿写失败后果；若确实未能阻止，才写到期后果。"
+        )
+        lines.append("  任务成败不由系统自动判定，须与上述裁定一致。")
+    for deadline in overdue:
+        lines.append(
+            f"- 「{deadline.label}」已过期：须在本轮裁定该事件是否发生，禁止假装尚未到期。"
+        )
+        if deadline.consequence.strip():
+            lines.append(f"  若未能阻止时的后果：{deadline.consequence.strip()}")
     for deadline in imminent:
         remaining = _deadline_remaining(deadline, game_state.elapsed_minutes)
         lines.append(
@@ -674,7 +754,7 @@ def resolve_turn_time(
         return time_patch.advance_minutes, reason
 
     if has_time_field and time_patch is not None:
-        if time_patch.time_label or time_patch.deadlines or time_patch.cancel_deadline_ids:
+        if time_patch.time_label or time_patch.deadlines or time_patch.cancel_deadline_ids or time_patch.enforce_deadline_ids:
             return 0, ""
         return 0, ""
 
@@ -725,7 +805,7 @@ def apply_turn_time_from_patch(
     elif minutes > 0 and patch.advance_minutes > 0 and not patch.advance_reason.strip():
         patch = patch.model_copy(update={"advance_reason": reason})
     elif minutes <= 0 and not (
-        patch.time_label or patch.deadlines or patch.cancel_deadline_ids
+        patch.time_label or patch.deadlines or patch.cancel_deadline_ids or patch.enforce_deadline_ids
     ):
         return []
 

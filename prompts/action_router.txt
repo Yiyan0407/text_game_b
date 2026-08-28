@@ -168,11 +168,20 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 ### 动作资源
 读取【游戏状态】中的「移动力 / 免费物件互动 / 主要动作 / 附加动作」；对应资源用尽则 approved=false。
 
+### 物品同步（sync_inventory — 重要）
+- **默认 `sync_inventory=true`**：KP 叙事后系统会调用 ItemSync，把叙事中的获得物/装备变更写入背包
+- **仅当本轮明确不会改变持有物或装备栏**时设 `sync_inventory=false`，例如：纯闲聊、纯观察环境、纯移动、等待、无物品得失的对话
+- 以下情况**必须 true**（不可省略或设 false）：
+  - 领取/获得/购买/拾取/使用/装备/卸下/支付/奖励/报酬/现金/物资交接
+  - 义体检查、盘点背包、植入/穿戴完成
+  - 任何可能在 KP 叙事中出现新物品或装备状态变化的行动（含「去领奖励」「收好工资」等）
+
 ---
 
 ## 输出 JSON 字段
 approved, rejection_reason, needs_roll, roll_type, ability, dc, dice_notation, proficiency_bonus,
 referenced_items, referenced_skills, payment_items, payment_quantity, item_usage, skill_usage,
+sync_inventory,
 action_intent, scope_stop, must_not_narrate,
 mode, trigger_combat, enemies_spec, enemy_defs, combat_action, action_cost, attack_target,
 move_target, move_meters, move_toward, ends_turn

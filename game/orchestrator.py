@@ -3,6 +3,7 @@ from chain.async_utils import run_async
 from chain.item_sync_agent import ItemSyncAgent
 from chain.opening_integrator import OpeningIntegrator
 from chain.kp_chain import KPChain
+from chain.kp_meta_agent import KpMetaAgent, KpMetaResult
 from chain.memory import ConversationWindowMemory
 from chain.memory_manager import LongTermMemoryManager
 from chain.suggestions import ActionSuggester
@@ -37,6 +38,10 @@ from game.item_use import resolve_use_item
 from game.models import Character, ChatMessage, GameState
 from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
+from game.kp_directive import parse_kp_directive
+from game.narrative_time import apply_time_patch
+from game.results import TimePatch
+from game.state_patch import apply_state_patch
 from game.turn_context import TurnContext
 from game.turn_pipeline import TurnPipeline
 from game.check_consequences import apply_check_failure_consequences
@@ -109,8 +114,10 @@ class GameOrchestrator:
         item_sync_agent: ItemSyncAgent | None = None,
         stat_forge_agent: StatForgeAgent | None = None,
         state_agent: WorldStateAgent | None = None,
+        kp_meta_agent: KpMetaAgent | None = None,
     ):
         self.kp = kp_chain if kp_chain is not None else KPChain()
+        self.kp_meta = kp_meta_agent if kp_meta_agent is not None else KpMetaAgent()
         self.summarizer = summarizer if summarizer is not None else StorySummarizer()
         self.suggester = suggester if suggester is not None else ActionSuggester()
         self.memory = LongTermMemoryManager(self.summarizer) if memory_manager is None else memory_manager
@@ -246,6 +253,11 @@ class GameOrchestrator:
         user_input: str,
         history: list[ChatMessage],
     ) -> TurnResult:
+        if parse_kp_directive(user_input) is not None:
+            windowed = self.window_memory.get_history(history)
+            return await self._akp_meta_turn(
+                character, game_state, scenario, user_input, history, windowed
+            )
         windowed = self.window_memory.get_history(history)
         return await self._run_turn_via_pipeline(
             character=character,
@@ -255,6 +267,73 @@ class GameOrchestrator:
             history=history,
             windowed_history=windowed,
         )
+
+    async def _akp_meta_turn(
+        self,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        user_input: str,
+        history: list[ChatMessage],
+        windowed_history: list[ChatMessage],
+    ) -> TurnResult:
+        meta_message = parse_kp_directive(user_input)
+        if not meta_message:
+            return TurnResult(
+                response="**【KP 沟通】**\n\n请在 【kp】 后面写上你想沟通的内容。",
+                tool_events=[],
+            )
+        result = await self.kp_meta.arespond(
+            meta_message, character, game_state, windowed_history or history
+        )
+        events, response = self._apply_kp_meta_result(result, character, game_state)
+        return TurnResult(response=response, tool_events=events)
+
+    def _apply_kp_meta_result(
+        self,
+        result: KpMetaResult,
+        character: Character,
+        game_state: GameState,
+    ) -> tuple[list[str], str]:
+        events = apply_state_patch(
+            result.patch,
+            character,
+            game_state,
+            apply_time=False,
+            user_input="",
+        )
+        time_patch = result.patch.time
+        if time_patch is not None and (
+            time_patch.cancel_deadline_ids or time_patch.enforce_deadline_ids
+        ):
+            events.extend(
+                apply_time_patch(
+                    game_state,
+                    TimePatch(
+                        cancel_deadline_ids=list(time_patch.cancel_deadline_ids),
+                        enforce_deadline_ids=list(time_patch.enforce_deadline_ids),
+                    ),
+                    character,
+                )
+            )
+        if result.character_hp is not None:
+            before = character.hp
+            character.hp = max(1, min(int(result.character_hp), character.max_hp))
+            if character.hp != before:
+                events.append(
+                    f"💚 KP 修正：HP {before} → {character.hp}/{character.max_hp}"
+                )
+        response = self._format_kp_meta_response(result.response)
+        return events, response
+
+    @staticmethod
+    def _format_kp_meta_response(text: str) -> str:
+        cleaned = text.strip()
+        if not cleaned:
+            return "**【KP 沟通】**\n\n收到。"
+        if cleaned.startswith("**【KP") or cleaned.startswith("【KP"):
+            return cleaned
+        return f"**【KP 沟通】**\n\n{cleaned}"
 
     async def _run_turn_via_pipeline(
         self,
@@ -298,6 +377,10 @@ class GameOrchestrator:
         user_input: str,
         history: list[ChatMessage],
     ):
+        if parse_kp_directive(user_input) is not None:
+            return self._stream_kp_meta_turn(
+                character, game_state, scenario, user_input, history
+            )
         windowed = self.window_memory.get_history(history)
         ctx = TurnContext(
             user_input=user_input,
@@ -347,6 +430,62 @@ class GameOrchestrator:
             restore_adventure(character, game_state, char_snap, state_snap)
 
         return rejection, pre_events, run_state, stream, item_sync, mem, finish, rollback_turn
+
+    def _stream_kp_meta_turn(
+        self,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        user_input: str,
+        history: list[ChatMessage],
+    ):
+        windowed = self.window_memory.get_history(history)
+        meta_message = parse_kp_directive(user_input) or ""
+        char_snap, state_snap = snapshot_adventure(character, game_state)
+        holder: dict[str, object] = {"events": [], "response": ""}
+
+        def run_state_phase() -> list[str]:
+            result = run_async(
+                self.kp_meta.arespond(
+                    meta_message, character, game_state, windowed or history
+                )
+            )
+            events, response = self._apply_kp_meta_result(result, character, game_state)
+            holder["events"] = events
+            holder["response"] = response
+            return events
+
+        def text_stream():
+            response = str(holder.get("response") or "")
+            if response:
+                yield response
+
+        def run_item_sync_phase(_kp_response: str) -> list[str]:
+            return []
+
+        def run_memory_finalize() -> bool:
+            return False
+
+        def finish(_response: str) -> TurnResult:
+            response = str(holder.get("response") or _response).strip()
+            return TurnResult(
+                response=response or self._format_kp_meta_response("收到。"),
+                tool_events=list(holder.get("events") or []),
+            )
+
+        def rollback_turn() -> None:
+            restore_adventure(character, game_state, char_snap, state_snap)
+
+        return (
+            None,
+            [],
+            run_state_phase,
+            text_stream(),
+            run_item_sync_phase,
+            run_memory_finalize,
+            finish,
+            rollback_turn,
+        )
 
     def _stream_turn_phased(
         self,

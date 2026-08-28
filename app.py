@@ -6,6 +6,7 @@ from game.orchestrator import GameOrchestrator
 from game.profile import ProfileManager
 from game.save import SaveManager
 from game.scenario import Scenario
+from game.kp_directive import is_kp_directive
 from game.session import append_tool_events, persist_save, reload_current_save_from_disk, sync_character_card_to_library
 from ui.character_sheet import render_character_sheet
 from ui.chat import render_chat_history, render_chat_input
@@ -75,7 +76,9 @@ def handle_player_message(user_input: str) -> None:
     try:
         if settings.enable_streaming:
             progress = LoadingPlaceholder()
-            progress.show("裁定行动中……")
+            progress.show(
+                "KP 沟通中……" if is_kp_directive(user_input) else "裁定行动中……"
+            )
             (
                 rejection_turn,
                 pre_tool_events,
@@ -129,7 +132,9 @@ def handle_player_message(user_input: str) -> None:
             append_tool_events(item_events)
             progress.clear()
         else:
-            with st.spinner("KP 思考中……"):
+            with st.spinner(
+                "KP 沟通中……" if is_kp_directive(user_input) else "KP 思考中……"
+            ):
                 turn = orchestrator.player_turn(
                     character=character,
                     game_state=game_state,
@@ -228,6 +233,7 @@ def render_gameplay_hint(game_state: GameState) -> None:
         st.info(
             f"**玩法提示**：{prefix}在下方输入你想做的事（如「观察周围」「和 NPC 交谈」）。"
             "KP 会描述结果并自动掷骰；也可点击 **💡 行动建议** 填入输入框，改好后再点发送。"
+            "若需与主持人沟通规则问题或申请回退错误结算，以 **【kp】** 开头输入（如「【kp】刚才任务不应失败，请恢复」）。"
         )
 
 

@@ -709,4 +709,5 @@ def _coerce_time_patch(value) -> TimePatch | None:
         advance_reason=str(value.get("advance_reason", "")).strip(),
         deadlines=_coerce_deadline_list(value.get("deadlines")),
         cancel_deadline_ids=_coerce_str_list(value.get("cancel_deadline_ids")),
+        enforce_deadline_ids=_coerce_str_list(value.get("enforce_deadline_ids")),
     )

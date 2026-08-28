@@ -226,6 +226,18 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
     approved = data.get("approved", False)
     if isinstance(approved, str):
         approved = approved.strip().lower() in ("true", "1", "yes", "是", "批准", "通过")
+    sync_inventory_raw = data.get("sync_inventory", True)
+    if sync_inventory_raw is None:
+        sync_inventory = True
+    elif isinstance(sync_inventory_raw, str):
+        sync_inventory = sync_inventory_raw.strip().lower() in (
+            "true",
+            "1",
+            "yes",
+            "是",
+        )
+    else:
+        sync_inventory = bool(sync_inventory_raw)
     enemy_defs: list[EnemyDefPatch] = []
     for item in data.get("enemy_defs") or []:
         if isinstance(item, dict):
@@ -262,6 +274,7 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
         move_toward=_coerce_bool(data.get("move_toward"), True),
         ends_turn=bool(data.get("ends_turn", False)),
         proficiency_bonus=_coerce_bool(data.get("proficiency_bonus"), False),
+        sync_inventory=sync_inventory,
     )
 
 

@@ -12,6 +12,7 @@ def _ctx(**kwargs) -> TurnContext:
         "game_state": GameState(),
         "scenario": Scenario(id="t", title="测试"),
         "history": [],
+        "kp_response": "你观察四周。",
     }
     defaults.update(kwargs)
     return TurnContext(**defaults)
@@ -20,6 +21,19 @@ def _ctx(**kwargs) -> TurnContext:
 def test_item_sync_skipped_when_rejected():
     ctx = _ctx(rejected=True, kp_response="你获得了短剑。")
     assert should_run_item_sync(ctx) is False
+
+
+def test_item_sync_skipped_when_no_kp_response():
+    ctx = _ctx(kp_response="")
+    assert should_run_item_sync(ctx) is False
+
+
+def test_item_sync_runs_by_default():
+    ctx = _ctx(
+        user_input="一口吃完三明治，把外包的工资放进口袋",
+        kp_response="你在前台领了薄薄一沓现金。",
+    )
+    assert should_run_item_sync(ctx) is True
 
 
 def test_item_sync_runs_on_mechanical_gain():
@@ -31,17 +45,30 @@ def test_item_sync_runs_on_mechanical_gain():
     assert should_run_item_sync(ctx) is True
 
 
-def test_item_sync_runs_on_kp_implant_narrative():
+def test_item_sync_skipped_when_router_sets_false():
     ctx = _ctx(
-        user_input="检查义体",
-        kp_response="体内有反应增强层与视觉辅助芯片。",
+        user_input="这里天气怎么样？",
+        kp_response="雨还在下，海风很冷。",
+        route=ActionRouteResult(approved=True, sync_inventory=False),
+    )
+    assert should_run_item_sync(ctx) is False
+
+
+def test_item_sync_runs_on_pickup_route():
+    ctx = _ctx(
+        user_input="捡起地上的钥匙",
+        kp_response="你捡起了钥匙。",
+        route=ActionRouteResult(
+            approved=True,
+            item_usage="pickup",
+            referenced_items=["钥匙"],
+        ),
     )
     assert should_run_item_sync(ctx) is True
 
 
-def test_item_sync_skipped_on_pure_dialogue():
-    ctx = _ctx(
-        user_input="这里天气怎么样？",
-        kp_response="雨还在下，海风很冷。",
-    )
-    assert should_run_item_sync(ctx) is False
+def test_route_parses_sync_inventory():
+    from chain.action_router import _route_from_dict
+
+    assert _route_from_dict({"approved": True, "sync_inventory": False}).sync_inventory is False
+    assert _route_from_dict({"approved": True}).sync_inventory is True

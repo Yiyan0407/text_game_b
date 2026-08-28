@@ -144,11 +144,40 @@ def test_advance_narrative_clock_triggers_deadline():
     events = advance_narrative_clock(state, 35)
     assert state.elapsed_minutes == 35
     assert any("时限已到" in event for event in events)
-    assert state.deadlines[0].status == "triggered"
+    assert state.deadlines[0].status == "due"
+    assert not any("任务失败" in event for event in events)
     assert any("炸弹爆炸" in fact for fact in state.memory_facts)
 
 
-def test_deadline_penalties_fail_quest_and_damage():
+def test_deadline_penalties_only_on_enforce():
+    from game.narrative_time import enforce_deadline
+
+    state = GameState(
+        elapsed_minutes=15,
+        active_quests=[Quest(id="rescue", title="解救人质", status="active")],
+        deadlines=[
+            {
+                "id": "rescue",
+                "label": "解救人质",
+                "due_at_minutes": 10,
+                "status": "due",
+                "consequence": "爆炸导致受伤",
+                "created_at_minutes": 0,
+                "fail_quest_ids": ["rescue"],
+                "hp_loss": 7,
+            }
+        ],
+    )
+    character = Character(name="测试", hp=20, max_hp=20)
+    events = enforce_deadline(state, "rescue", character)
+    assert state.active_quests[0].status == "failed"
+    assert character.hp == 13
+    assert state.deadlines[0].status == "resolved"
+    assert any("任务失败" in event for event in events)
+    assert any("伤害" in event for event in events)
+
+
+def test_advance_narrative_clock_does_not_auto_fail_quest():
     state = GameState(
         elapsed_minutes=0,
         active_quests=[Quest(id="rescue", title="解救人质", status="active")],
@@ -167,10 +196,74 @@ def test_deadline_penalties_fail_quest_and_damage():
     )
     character = Character(name="测试", hp=20, max_hp=20)
     events = advance_narrative_clock(state, 15, character)
+    assert state.active_quests[0].status == "active"
+    assert character.hp == 20
+    assert state.deadlines[0].status == "due"
+    assert not any("任务失败" in event for event in events)
+
+
+def test_cancel_deadline_works_for_due_status():
+    state = GameState(
+        elapsed_minutes=20,
+        deadlines=[
+            {
+                "id": "log_check",
+                "label": "安保检查日志",
+                "due_at_minutes": 10,
+                "status": "due",
+                "consequence": "暴露入侵",
+                "created_at_minutes": 0,
+            }
+        ],
+    )
+    from game.narrative_time import cancel_deadline
+
+    message = cancel_deadline(state, "log_check")
+    assert message is not None
+    assert "化解" in message
+    assert state.deadlines[0].status == "cancelled"
+
+
+def test_cancel_deadline_matches_label():
+    state = GameState(
+        elapsed_minutes=20,
+        deadlines=[
+            {
+                "id": "abc123",
+                "label": "安保人员检查B2-07异常日志",
+                "due_at_minutes": 10,
+                "status": "due",
+                "consequence": "暴露",
+                "created_at_minutes": 0,
+            }
+        ],
+    )
+    from game.narrative_time import cancel_deadline
+
+    message = cancel_deadline(state, "安保人员检查B2-07异常日志")
+    assert message is not None
+    assert state.deadlines[0].status == "cancelled"
+
+
+def test_apply_time_patch_enforce_deadline():
+    state = GameState(
+        elapsed_minutes=20,
+        active_quests=[Quest(id="q1", title="任务", status="active")],
+        deadlines=[
+            {
+                "id": "bomb",
+                "label": "炸弹爆炸",
+                "due_at_minutes": 10,
+                "status": "due",
+                "consequence": "爆炸",
+                "created_at_minutes": 0,
+                "fail_quest_ids": ["q1"],
+            }
+        ],
+    )
+    events = apply_time_patch(state, TimePatch(enforce_deadline_ids=["bomb"]))
     assert state.active_quests[0].status == "failed"
-    assert character.hp == 13
-    assert any("任务失败" in event for event in events)
-    assert any("伤害" in event for event in events)
+    assert any("后果成立" in event for event in events)
 
 
 def test_apply_time_patch_adds_deadline():

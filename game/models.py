@@ -444,7 +444,7 @@ class NarrativeDeadline(BaseModel):
     id: str
     label: str
     due_at_minutes: int = 0
-    status: Literal["pending", "triggered", "cancelled"] = "pending"
+    status: Literal["pending", "due", "triggered", "resolved", "cancelled"] = "pending"
     consequence: str = ""
     created_at_minutes: int = 0
     fail_quest_ids: list[str] = Field(default_factory=list)

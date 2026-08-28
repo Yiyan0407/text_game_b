@@ -71,6 +71,7 @@ class ActionRouteResult(BaseModel):
     ends_turn: bool = False
     proficiency_bonus: bool = False
     enemy_defs: list["EnemyDefPatch"] = Field(default_factory=list)
+    sync_inventory: bool = True
 
 
 class EnemyDefPatch(BaseModel):
@@ -159,6 +160,7 @@ class TimePatch(BaseModel):
     advance_reason: str = ""
     deadlines: list[DeadlinePatch] = Field(default_factory=list)
     cancel_deadline_ids: list[str] = Field(default_factory=list)
+    enforce_deadline_ids: list[str] = Field(default_factory=list)
 
 
 class StatePatch(BaseModel):

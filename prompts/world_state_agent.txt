@@ -27,7 +27,8 @@
         "hp_loss": 8
       }}
     ],
-    "cancel_deadline_ids": ["old_event"]
+    "cancel_deadline_ids": ["old_event"],
+    "enforce_deadline_ids": ["bomb"]
   }},
   "end_combat": false
 }}
@@ -39,7 +40,12 @@
 - 量级参考：简短问答 1–3；观察 2–5；搜查/谈判 10–30；短距离移动 15–45；战斗一轮 5–8
 - 开场定钟、无时间流逝：**0**
 - **time_label**：常规回合留空；**仅开场定钟**时填写
-- **deadlines** / **cancel_deadline_ids**：见原规则；勿重复登记同类时限
+- **deadlines** / **cancel_deadline_ids** / **enforce_deadline_ids**（时限裁定 — 重要）：
+  - **deadlines**：叙事**首次出现**倒计时时登记；`consequence` 与 `fail_quest_ids` 仅表示「若未能阻止时」的可能后果，**到期不会自动判失败**
+  - **cancel_deadline_ids**：威胁已被玩家化解时取消对应 id（如远程改日志、拆弹成功、贿赂过关、伪装维护）；**到期前或到期待裁定**均可 cancel
+  - **enforce_deadline_ids**：仅当结合【关键事实】与【最近对话】确认后果**确实发生**时写入，系统才执行任务失败/伤害；**禁止**在到期时默认 enforce
+  - 若之前已登记同类时限，**禁止重复 add**；改期时先 cancel 再 add
+  - 使用【游戏状态】中 `[id=...]` 填写 cancel/enforce 的 id
 
 ### scene
 - 玩家明确进入新地点时；**战斗中禁止** scene 变更
