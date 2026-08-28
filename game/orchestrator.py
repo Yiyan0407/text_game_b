@@ -333,6 +333,7 @@ class GameOrchestrator:
             meta_message, character, game_state, windowed_history or history
         )
         events, response = self._apply_kp_meta_result(result, character, game_state)
+        events.extend(await self._forge_pending_entities_async(character, scenario))
         return TurnResult(response=response, tool_events=events)
 
     def _apply_kp_meta_result(
@@ -377,6 +378,27 @@ class GameOrchestrator:
             )
         response = self._format_kp_meta_response(result.response)
         return events, response
+
+    async def _forge_pending_entities_async(
+        self,
+        character: Character,
+        scenario: Scenario,
+    ) -> list[str]:
+        from game.stat_forge import collect_forge_targets
+
+        targets = collect_forge_targets(character)
+        if not targets:
+            return []
+        return await self.stat_forge.aforge(character, scenario, targets)
+
+    def _forge_pending_entities_sync(
+        self,
+        character: Character,
+        scenario: Scenario,
+    ) -> list[str]:
+        from chain.async_utils import run_async
+
+        return run_async(self._forge_pending_entities_async(character, scenario))
 
     @staticmethod
     def _format_kp_meta_response(text: str) -> str:
@@ -516,6 +538,7 @@ class GameOrchestrator:
                 )
             )
             events, response = self._apply_kp_meta_result(result, character, game_state)
+            events.extend(self._forge_pending_entities_sync(character, scenario))
             holder["events"] = events
             holder["response"] = response
             return events

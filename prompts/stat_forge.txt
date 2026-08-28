@@ -25,10 +25,19 @@
 | 烟雾弹 | — | use_tag: smoke |
 | 回血丹 / 回春符 | — | heal_dice |
 | 光学迷彩斗篷 | — | ac_bonus（被动） |
+| 战斗义体 / 合金骨架 / 战术义眼 / 纳米修复 | sp、ac_bonus、max_hp_bonus（被动，body 装备） | — |
 | 地雷 | — | use_tag: trap（布置；触发靠叙事/场景） |
 | 钥匙 / 食物 | skip: true | — |
 
 非战斗、无机械：skip: true。
+
+### 义体 / 植入物（body 装备，cyberpunk 量级）
+- **须填写被动通道**，不可 skip；根据名称语义分配 SP/AC/HP，勿全部 skip
+- 合金骨架 / 战斗义体 / 护甲类：偏重 `sp/sp_max`（15–22）
+- 战术义眼 / 扫描阵列：可 `ac_bonus` +1~+2（感知/威胁预警）
+- 纳米修复 / 循环修复单元：可 `max_hp_bonus`（+2~+8）或较低 SP
+- 神经反应增幅：可 `ac_bonus` +1 或中等 SP；**无**直接「检定加值」字段，勿编造
+- 多件 body 义体各自填 SP；战斗时**有效 SP 取最高值，不叠加**
 
 ## 字段一览
 attack_damage, attack_bonus, use_dex, sp, sp_max, ac_bonus, max_hp_bonus,
@@ -73,6 +82,23 @@ heal_dice, use_damage, use_aoe, use_auto_hit, use_tag, consumes_on_use, gear_slo
       "name": "头戴式手电筒",
       "effects": {{
         "gear_slot": "light"
+      }}
+    }},
+    {{
+      "kind": "item",
+      "name": "皮下合金骨架强化",
+      "effects": {{
+        "sp": 18,
+        "sp_max": 18
+      }}
+    }},
+    {{
+      "kind": "item",
+      "name": "循环系统纳米修复单元",
+      "effects": {{
+        "max_hp_bonus": 5,
+        "sp": 8,
+        "sp_max": 8
       }}
     }}
   ]

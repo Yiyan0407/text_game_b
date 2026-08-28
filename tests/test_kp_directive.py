@@ -157,6 +157,54 @@ def test_kp_meta_turn_applies_patch_without_router():
     kp_meta.arespond.assert_awaited_once()
 
 
+def test_kp_meta_turn_runs_stat_forge_for_new_items():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from chain.stat_forge_agent import StatForgeAgent
+    from game.results import EquipmentPatch, InventoryPatch
+
+    character = Character(name="里昂")
+    game_state = GameState()
+    kp_meta = MagicMock(spec=KpMetaAgent)
+    kp_meta.arespond = AsyncMock(
+        return_value=KpMetaResult(
+            response="已补登记义体。",
+            patch=StatePatch(
+                inventory=[
+                    InventoryPatch(
+                        action="add",
+                        item="皮下合金骨架强化",
+                        quantity=1,
+                        unit="套",
+                        kind="durable",
+                        description="已植入",
+                    ),
+                ],
+                equipment=[
+                    EquipmentPatch(
+                        action="equip", item="皮下合金骨架强化", slot="body"
+                    ),
+                ],
+            ),
+        )
+    )
+    stat_forge = MagicMock(spec=StatForgeAgent)
+    stat_forge.aforge = AsyncMock(return_value=["StatForge·皮下合金骨架强化：SP 18/18"])
+
+    orchestrator = GameOrchestrator(kp_meta_agent=kp_meta, stat_forge_agent=stat_forge)
+    turn = orchestrator.player_turn(
+        character,
+        game_state,
+        MagicMock(format_for_prompt=lambda: "", world_id="cyberpunk"),
+        "【kp】补登记义体",
+        [],
+    )
+
+    assert character.is_item_equipped("皮下合金骨架强化")
+    stat_forge.aforge.assert_awaited_once()
+    assert any("StatForge" in event for event in turn.tool_events)
+
+
 def test_kp_meta_empty_body_skips_router_and_llm():
     router = MagicMock()
     router.aevaluate = AsyncMock()
