@@ -191,3 +191,49 @@ def ensure_weapon_ready(character: Character, profile: WeaponProfile) -> None:
     if item is None:
         return
     character.set_active_gear(item)
+
+
+def _is_unarmed_profile(profile: WeaponProfile) -> bool:
+    return profile.label == "徒手" or profile.label.startswith("徒手（")
+
+
+def weapon_is_active(character: Character, profile: WeaponProfile) -> bool:
+    if _is_unarmed_profile(profile):
+        return True
+    item = character.find_inventory_item(profile.label)
+    if item is None:
+        return False
+    return character.is_item_active(item.name)
+
+
+def weapon_needs_draw(character: Character, profile: WeaponProfile) -> bool:
+    if _is_unarmed_profile(profile):
+        return False
+    if weapon_is_active(character, profile):
+        return False
+    return character.has_inventory_item(profile.label)
+
+
+def draw_weapon_for_attack(
+    character: Character,
+    combat,
+    profile: WeaponProfile,
+) -> tuple[bool, str]:
+    """尝试拔武器/换装备。返回 (成功与否, 说明)。"""
+    if not weapon_needs_draw(character, profile):
+        ensure_weapon_ready(character, profile)
+        return True, ""
+
+    item = character.find_inventory_item(profile.label)
+    if item is None:
+        return False, f"你没有携带 {profile.label}，无法用于攻击。"
+
+    if combat is None or not combat.has_free_interact():
+        return False, (
+            f"本回合免费物件互动已用尽，无法拔出/切换 {profile.label}。"
+            "可先拾取并握在手中，或下回合再拔武器。"
+        )
+
+    combat.spend_free_interact()
+    character.set_active_gear(item)
+    return True, f"拔武器：{item.name}"

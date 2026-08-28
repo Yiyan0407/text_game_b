@@ -43,6 +43,7 @@ def test_player_attack():
         enemies=[CombatEnemy(name="靶子", hp=20, max_hp=20, ac=5)],
         turn_order=["player", "靶子"],
         turn_index=0,
+        enemy_distances={"靶子": 2},
     )
     result = player_attack(character, state, "靶子")
     assert "攻击" in result
@@ -59,7 +60,7 @@ def test_end_combat():
     assert state.combat is None
 
 
-def test_resolve_pickup_in_combat_uses_bonus_action():
+def test_resolve_pickup_in_combat_uses_free_interact():
     character = Character(name="测试")
     state = GameState()
     state.combat = CombatState(
@@ -72,5 +73,6 @@ def test_resolve_pickup_in_combat_uses_bonus_action():
     events = resolve_pickup_in_combat(character, state, ["药瓶"])
     assert any("药瓶" in event for event in events)
     assert character.has_inventory_item("药瓶")
-    assert state.combat.bonus_action_used is True
+    assert state.combat.free_interact_used is True
     assert state.combat.has_main_action() is True
+    assert state.combat.has_bonus_action() is True

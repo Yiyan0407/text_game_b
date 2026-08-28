@@ -22,15 +22,22 @@ def render_combat_panel(game_state: GameState) -> None:
         )
         main = "✓" if combat.has_main_action() else "✗"
         bonus = "✓" if combat.has_bonus_action() else "✗"
-        st.caption(f"主要动作 {main} · 附加动作 {bonus}")
+        move = "✓" if combat.has_movement() else "✗"
+        free = "✓" if combat.has_free_interact() else "✗"
+        st.caption(
+            f"移动力 {move} ({combat.movement_remaining_m}/{combat.movement_speed_m}m) · "
+            f"免费互动 {free} · 主要动作 {main} · 附加动作 {bonus}"
+        )
     else:
         st.warning(f"等待 {actor_label} 的回合（敌人行动已在后台结算）")
 
     for enemy in combat.enemies:
         if enemy.hp > 0:
+            dist = combat.enemy_distances.get(enemy.name)
+            dist_label = f" · {dist}m" if dist is not None else ""
             st.progress(
                 enemy.hp / enemy.max_hp,
-                text=f"{enemy.name} HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}",
+                text=f"{enemy.name} HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}{dist_label}",
             )
         else:
             st.markdown(f"~~{enemy.name}~~ 已倒")

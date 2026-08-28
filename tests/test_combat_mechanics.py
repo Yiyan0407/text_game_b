@@ -55,6 +55,7 @@ def test_player_attack_uses_martial_profile_label():
         enemies=[CombatEnemy(name="靶子", hp=20, max_hp=20, ac=5, attack_bonus=0)],
         turn_order=["player", "靶子"],
         turn_index=0,
+        enemy_distances={"靶子": 2},
     )
     route = _approved_route(
         combat_action="attack",
@@ -158,4 +159,208 @@ def test_orchestrator_pickup_branch_in_combat():
     route = _approved_route(item_usage="pickup", referenced_items=["格洛克手枪"])
     events = orchestrator._resolve_mechanics(route, character, game_state)
     assert any("获得：格洛克手枪" in event for event in events)
+    assert game_state.combat.free_interact_used is True
+    assert game_state.combat.has_bonus_action() is True
+
+
+def test_pickup_weapon_equips_without_extra_draw():
+    from game.combat import resolve_pickup_in_combat, player_attack
+
+    character = Character(name="测试", inventory=[], skills=["射击"])
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=20, max_hp=20, ac=5, start_distance_m=10)],
+        turn_order=["player"],
+        turn_index=0,
+        enemy_distances={"敌人": 10},
+    )
+    pickup_events = resolve_pickup_in_combat(character, game_state, ["格洛克手枪"])
+    assert any("握持" in event for event in pickup_events)
+    assert game_state.combat.free_interact_used is True
+
+    route = _approved_route(
+        combat_action="attack",
+        attack_target="敌人",
+        referenced_items=["格洛克手枪"],
+        move_meters=8,
+        move_target="敌人",
+    )
+    result = player_attack(character, game_state, "敌人", route=route)
+    assert "免费物件互动" not in result
+    assert game_state.combat.has_bonus_action() is True
+
+
+def test_attack_from_inventory_requires_free_interact():
+    character = Character(
+        name="测试",
+        inventory=["格洛克手枪（1把）"],
+        skills=["射击"],
+    )
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=20, max_hp=20, ac=5)],
+        turn_order=["player"],
+        turn_index=0,
+        enemy_distances={"敌人": 10},
+        free_interact_used=True,
+    )
+    route = _approved_route(
+        combat_action="attack",
+        attack_target="敌人",
+        referenced_items=["格洛克手枪"],
+        move_meters=8,
+        move_target="敌人",
+    )
+    result = player_attack(character, game_state, "敌人", route=route)
+    assert "免费物件互动已用尽" in result
+    assert game_state.combat.has_main_action() is True
+
+
+def test_validate_forces_combat_use_item_cost():
+    route = _approved_route(
+        mode="combat",
+        item_usage="use",
+        referenced_items=["治疗药水"],
+        action_intent="喝治疗药水",
+    )
+    character = Character(name="测试", inventory=["治疗药水"])
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=10, max_hp=10, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+    )
+    result = ActionRouter.validate(route, character, game_state)
+    assert result.approved is True
+    assert result.combat_action == "use_item"
+    assert result.action_cost == "bonus"
+
+
+def test_orchestrator_combat_use_item_spends_bonus():
+    from unittest.mock import MagicMock
+
+    from game.orchestrator import GameOrchestrator
+
+    orchestrator = GameOrchestrator(
+        kp_chain=MagicMock(),
+        action_router=MagicMock(),
+        state_agent=MagicMock(),
+    )
+    character = Character(name="测试", inventory=["治疗药水"])
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=10, max_hp=10, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+    )
+    route = _approved_route(item_usage="use", referenced_items=["治疗药水"])
+    events = orchestrator._resolve_mechanics(route, character, game_state)
+    assert any("使用" in event for event in events)
     assert game_state.combat.bonus_action_used is True
+
+
+def test_player_move_does_not_use_main_action():
+    from game.combat import player_move
+
+    character = Character(name="测试", dexterity=14)
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=10, max_hp=10, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+        movement_speed_m=9,
+        movement_remaining_m=9,
+        enemy_distances={"敌人": 15},
+    )
+    result = player_move(character, game_state, "敌人", 5)
+    assert "靠近 5m" in result
+    assert game_state.combat.enemy_distances["敌人"] == 10
+    assert game_state.combat.movement_remaining_m == 4
+    assert game_state.combat.has_main_action() is True
+
+
+def test_player_attack_rejects_out_of_range():
+    character = Character(
+        name="测试",
+        inventory=["格洛克手枪（1把）"],
+        skills=["射击"],
+    )
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="远敌", hp=10, max_hp=10, ac=10)],
+        turn_order=["player"],
+        turn_index=0,
+        enemy_distances={"远敌": 60},
+    )
+    route = _approved_route(
+        combat_action="attack",
+        attack_target="远敌",
+        referenced_items=["格洛克手枪"],
+    )
+    result = player_attack(character, game_state, "远敌", route=route)
+    assert "无法攻击" in result
+    assert game_state.combat.has_main_action() is True
+
+
+def test_validate_move_action_free_cost():
+    route = _approved_route(
+        mode="combat",
+        combat_action="move",
+        move_target="敌人",
+        move_meters=3,
+        action_intent="靠近敌人 3 米",
+    )
+    character = Character(name="测试")
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=10, max_hp=10, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+        movement_speed_m=9,
+        movement_remaining_m=9,
+        enemy_distances={"敌人": 12},
+    )
+    result = ActionRouter.validate(route, character, game_state)
+    assert result.approved is True
+    assert result.action_cost == "free"
+
+
+def test_parse_enemies_with_distance():
+    from game.combat import parse_enemies
+
+    enemies = parse_enemies("守卫:12:12:20")
+    assert enemies[0].start_distance_m == 20
+
+
+def test_resolve_dash_adds_movement():
+    from game.combat import resolve_dash
+
+    character = Character(name="测试")
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=10, max_hp=10, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+        movement_speed_m=9,
+        movement_remaining_m=3,
+    )
+    result = resolve_dash(character, game_state)
+    assert "疾跑" in result
+    assert game_state.combat.movement_remaining_m == 12
+    assert game_state.combat.has_main_action() is False

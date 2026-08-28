@@ -313,6 +313,7 @@ class CombatEnemy(BaseModel):
     initiative: int = 0
     attack_bonus: int = 3
     damage_notation: str = "1d6"
+    start_distance_m: int = 10
 
 
 class CombatState(BaseModel):
@@ -325,6 +326,10 @@ class CombatState(BaseModel):
     defending: bool = False
     action_used: bool = False
     bonus_action_used: bool = False
+    movement_speed_m: int = 9
+    movement_remaining_m: int = 9
+    enemy_distances: dict[str, int] = Field(default_factory=dict)
+    free_interact_used: bool = False
 
     def current_actor(self) -> str:
         if not self.turn_order:
@@ -344,12 +349,49 @@ class CombatState(BaseModel):
         if self.is_player_turn():
             self.action_used = False
             self.bonus_action_used = False
+            self.movement_remaining_m = self.movement_speed_m
+            self.free_interact_used = False
+
+    def distance_to(self, enemy_name: str) -> int | None:
+        enemy = self.get_enemy(enemy_name)
+        if enemy is None:
+            return None
+        if enemy.name in self.enemy_distances:
+            return self.enemy_distances[enemy.name]
+        return enemy.start_distance_m
+
+    def set_distance_to(self, enemy_name: str, meters: int) -> None:
+        enemy = self.get_enemy(enemy_name)
+        if enemy is None:
+            return
+        self.enemy_distances[enemy.name] = max(0, int(meters))
+
+    def has_movement(self) -> bool:
+        return self.movement_remaining_m > 0
+
+    def spend_movement(self, meters: int) -> int:
+        """消耗移动力，返回实际移动米数。"""
+        meters = max(0, int(meters))
+        if meters <= 0:
+            return 0
+        actual = min(meters, self.movement_remaining_m)
+        self.movement_remaining_m -= actual
+        return actual
 
     def has_main_action(self) -> bool:
         return not self.action_used
 
     def has_bonus_action(self) -> bool:
         return not self.bonus_action_used
+
+    def has_free_interact(self) -> bool:
+        return not self.free_interact_used
+
+    def spend_free_interact(self) -> bool:
+        if self.free_interact_used:
+            return False
+        self.free_interact_used = True
+        return True
 
     def spend_action(self, cost: str) -> bool:
         if cost == "free":
@@ -369,7 +411,11 @@ class CombatState(BaseModel):
     def format_action_economy(self) -> str:
         main = "可用" if self.has_main_action() else "已用"
         bonus = "可用" if self.has_bonus_action() else "已用"
-        return f"主要动作：{main} | 附加动作：{bonus}"
+        move = f"{self.movement_remaining_m}/{self.movement_speed_m}m"
+        free = "可用" if self.has_free_interact() else "已用"
+        return (
+            f"移动力：{move} | 免费互动：{free} | 主要动作：{main} | 附加动作：{bonus}"
+        )
 
     def format_for_prompt(self) -> str:
         if not self.active:
@@ -386,7 +432,12 @@ class CombatState(BaseModel):
         if self.defending:
             lines.append("玩家处于防御姿态（AC+2）")
         for enemy in self.enemies:
-            status = "已倒" if enemy.hp <= 0 else f"HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}"
+            if enemy.hp <= 0:
+                status = "已倒"
+            else:
+                dist = self.enemy_distances.get(enemy.name)
+                dist_text = f" · {dist}m" if dist is not None else ""
+                status = f"HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}{dist_text}"
             lines.append(f"- {enemy.name}：{status}")
         return "\n".join(lines)
 

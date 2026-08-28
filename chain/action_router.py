@@ -21,6 +21,39 @@ def _payment_sufficient(character: Character, payment: str, quantity: int) -> bo
     return character.has_sufficient_inventory(payment, quantity)
 
 
+def _pickup_covers_attack_weapon(route: ActionRouteResult) -> bool:
+    if route.item_usage != "pickup" or route.combat_action != "attack":
+        return False
+    from game.weapon_combat import _weapon_from_item_name
+
+    return any(_weapon_from_item_name(item) for item in route.referenced_items if item.strip())
+
+
+def _attack_needs_weapon_draw(character: Character, route: ActionRouteResult) -> bool:
+    if route.combat_action != "attack":
+        return False
+    if _pickup_covers_attack_weapon(route):
+        return False
+    from game.weapon_combat import resolve_weapon_profile, weapon_needs_draw
+
+    weapon = resolve_weapon_profile(character, route)
+    return weapon_needs_draw(character, weapon)
+
+
+def _free_interact_uses_for_route(
+    character: Character,
+    route: ActionRouteResult,
+) -> int:
+    uses = 0
+    if route.item_usage == "pickup":
+        uses += 1
+    if route.combat_action == "use_item" and route.action_cost == "free":
+        uses += 1
+    if _attack_needs_weapon_draw(character, route):
+        uses += 1
+    return uses
+
+
 def _format_recent_history(history: list[ChatMessage], limit: int = 6) -> str:
     if not history:
         return "（无）"
@@ -173,7 +206,8 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
     combat_action = data.get("combat_action", "none")
     valid_actions = {
         "none", "attack", "flee", "defend", "use_item",
-        "interact", "talk", "grapple", "shove", "help", "search", "end_turn",
+        "interact", "talk", "grapple", "shove", "help", "search",
+        "move", "dash", "end_turn",
     }
     if combat_action not in valid_actions:
         combat_action = "none"
@@ -206,6 +240,9 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
         combat_action=combat_action,
         action_cost=action_cost,
         attack_target=str(data.get("attack_target", "")).strip(),
+        move_target=str(data.get("move_target", "")).strip(),
+        move_meters=max(0, _coerce_int(data.get("move_meters"), 0)),
+        move_toward=_coerce_bool(data.get("move_toward"), True),
         ends_turn=bool(data.get("ends_turn", False)),
         proficiency_bonus=_coerce_bool(data.get("proficiency_bonus"), False),
     )
@@ -398,6 +435,10 @@ class ActionRouter:
                 route.rejection_reason = f"还没轮到你，当前是 {label} 的回合。"
                 return route
             if combat and route.approved and route.combat_action not in ("none", "end_turn"):
+                if route.combat_action == "move" and not combat.has_movement():
+                    route.approved = False
+                    route.rejection_reason = "本回合移动力已用尽。"
+                    return route
                 if route.action_cost == "main" and not combat.has_main_action():
                     route.approved = False
                     route.rejection_reason = (
@@ -408,7 +449,9 @@ class ActionRouter:
                     route.approved = False
                     route.rejection_reason = "本回合附加动作已用尽。"
                     return route
-            mechanical_actions = {"attack", "defend", "flee", "help", "end_turn", "use_item"}
+            mechanical_actions = {
+                "attack", "defend", "flee", "help", "end_turn", "use_item", "move", "dash",
+            }
             if route.combat_action in mechanical_actions:
                 route.needs_roll = False
                 route.roll_type = "none"
@@ -453,6 +496,73 @@ class ActionRouter:
                 if resolved:
                     route.attack_target = resolved
 
+            if route.combat_action == "move":
+                route.action_cost = "free"
+                route.needs_roll = False
+                route.roll_type = "none"
+                if not route.move_target.strip():
+                    route.approved = False
+                    route.rejection_reason = "移动须指定目标（move_target，通常为敌人名）。"
+                    return route
+                living = game_state.combat.living_enemy_names() if game_state.combat else []
+                if living and not fuzzy_in_list(route.move_target, living):
+                    route.approved = False
+                    route.rejection_reason = (
+                        f"找不到存活的敌人「{route.move_target}」。"
+                        f"当前敌人：{'、'.join(living) or '无'}"
+                    )
+                    return route
+                resolved = resolve_fuzzy_name(route.move_target, living)
+                if resolved:
+                    route.move_target = resolved
+                if route.move_meters <= 0:
+                    route.approved = False
+                    route.rejection_reason = "请说明移动米数（move_meters）。"
+                    return route
+                combat = game_state.combat
+                if combat and route.move_meters > combat.movement_remaining_m:
+                    route.approved = False
+                    route.rejection_reason = (
+                        f"移动力不足：剩余 {combat.movement_remaining_m}m，"
+                        f"无法移动 {route.move_meters}m。"
+                    )
+                    return route
+
+            if route.combat_action == "dash":
+                route.action_cost = "main"
+                route.needs_roll = False
+                route.roll_type = "none"
+
+            if route.combat_action == "attack" and game_state.combat:
+                from game.combat_range import DEFAULT_START_DISTANCE_M, attack_range_status
+                from game.weapon_combat import resolve_weapon_profile
+
+                combat = game_state.combat
+                weapon = resolve_weapon_profile(character, route)
+                dist = combat.distance_to(route.attack_target) or DEFAULT_START_DISTANCE_M
+                if route.move_meters > 0 and route.move_toward:
+                    dist = max(0, dist - route.move_meters)
+                elif route.move_meters > 0 and not route.move_toward:
+                    dist = dist + route.move_meters
+                in_range, _, note = attack_range_status(dist, weapon)
+                if not in_range:
+                    route.approved = False
+                    route.rejection_reason = (
+                        f"射程不足：{note}。"
+                        f"可先移动（combat_action=move，不耗主要动作）或疾跑（dash）。"
+                    )
+                    return route
+                if route.move_meters > 0:
+                    move_target = route.move_target.strip() or route.attack_target
+                    if route.move_meters > combat.movement_remaining_m:
+                        route.approved = False
+                        route.rejection_reason = (
+                            f"移动力不足：剩余 {combat.movement_remaining_m}m，"
+                            f"无法先移动 {route.move_meters}m 再攻击。"
+                        )
+                        return route
+                    route.move_target = move_target
+
         if in_combat and route.item_usage == "purchase":
             route.approved = False
             route.rejection_reason = "战斗中无法进行购买，请战斗结束后再交易。"
@@ -462,11 +572,43 @@ class ActionRouter:
 
         if in_combat and route.item_usage == "pickup":
             combat = game_state.combat
-            route.action_cost = "bonus"
-            if combat and route.approved and not combat.has_bonus_action():
+            route.action_cost = "free"
+            if combat and route.approved and not combat.has_free_interact():
                 route.approved = False
-                route.rejection_reason = "本回合附加动作已用尽，无法拾取。"
+                route.rejection_reason = "本回合免费物件互动已用尽，无法拾取。"
                 return route
+
+        if in_combat and route.item_usage == "use":
+            from game.combat_item_use import combat_use_item_cost
+
+            route.combat_action = "use_item"
+            route.mode = "combat"
+            if route.referenced_items:
+                route.action_cost = combat_use_item_cost(
+                    character, route.referenced_items[0]
+                )
+            else:
+                route.action_cost = "bonus"
+            route.needs_roll = False
+            route.roll_type = "none"
+            combat = game_state.combat
+            if combat and route.approved:
+                if route.action_cost == "free" and not combat.has_free_interact():
+                    route.approved = False
+                    route.rejection_reason = (
+                        "本回合免费物件互动已用尽，无法快速装备/收起该物品。"
+                    )
+                    return route
+                if route.action_cost == "bonus" and not combat.has_bonus_action():
+                    route.approved = False
+                    route.rejection_reason = "本回合附加动作已用尽，无法使用该物品。"
+                    return route
+                if route.action_cost == "main" and not combat.has_main_action():
+                    route.approved = False
+                    route.rejection_reason = (
+                        "本回合主要动作已用尽，无法使用该物品（查阅文档等复杂操作）。"
+                    )
+                    return route
 
         if in_combat and route.approved:
             main_actions = {
@@ -479,10 +621,29 @@ class ActionRouter:
                 "shove",
                 "help",
                 "search",
+                "dash",
             }
             wants_main = route.combat_action in main_actions or route.action_cost == "main"
-            wants_bonus = route.item_usage == "pickup" or route.action_cost == "bonus"
+            wants_bonus = (
+                route.combat_action == "use_item" and route.action_cost == "bonus"
+            ) or (route.action_cost == "bonus" and route.combat_action not in main_actions)
+            wants_move = route.combat_action == "move" or route.move_meters > 0
             combat = game_state.combat
+            free_uses = _free_interact_uses_for_route(character, route)
+            if combat and free_uses > 1:
+                route.approved = False
+                route.rejection_reason = (
+                    "每回合仅一次免费物件互动，无法同时完成多项"
+                    "（如拾取 + 拔背包武器 + 快速装备）。请分回合进行。"
+                )
+                return route
+            if combat and free_uses == 1 and not combat.has_free_interact():
+                route.approved = False
+                route.rejection_reason = (
+                    "本回合免费物件互动已用尽，无法完成该行动"
+                    "（拾取、拔武器或快速装备）。"
+                )
+                return route
             if combat and wants_main and wants_bonus:
                 if not combat.has_main_action() and not combat.has_bonus_action():
                     route.approved = False
@@ -494,14 +655,14 @@ class ActionRouter:
                     route.approved = False
                     route.rejection_reason = (
                         "本回合主要动作已用尽，无法同时完成需要主要动作的部分"
-                        "（如射击/攻击）。你可使用附加动作拾取，或输入「结束回合」。"
+                        "（如射击/攻击）。可先拾取（免费互动），或输入「结束回合」。"
                     )
                     return route
                 if not combat.has_bonus_action():
                     route.approved = False
                     route.rejection_reason = (
-                        "本回合附加动作已用尽，无法同时拾取物品。"
-                        "请先完成攻击/主要动作，下回合再拾取。"
+                        "本回合附加动作已用尽，无法同时使用物品。"
+                        "请先完成攻击/主要动作，下回合再使用。"
                     )
                     return route
 

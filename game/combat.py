@@ -4,6 +4,12 @@ import json
 import re
 
 from game.dice import roll
+from game.combat_range import (
+    DEFAULT_START_DISTANCE_M,
+    MELEE_REACH_M,
+    attack_range_status,
+    movement_speed_for,
+)
 from game.models import Character, CombatEnemy, CombatState, GameState
 from game.rules import ability_check, format_check_for_kp
 
@@ -31,9 +37,20 @@ def _parse_enemy_record(data: dict) -> CombatEnemy | None:
     name = str(data.get("name") or data.get("enemy") or "").strip()
     hp = _extract_int(data.get("hp") or data.get("HP") or data.get("max_hp"))
     ac = _extract_int(data.get("ac") or data.get("AC"))
+    distance = _extract_int(
+        data.get("distance")
+        or data.get("distance_m")
+        or data.get("start_distance_m")
+    )
     if not name or hp is None:
         return None
-    return CombatEnemy(name=name, hp=hp, max_hp=hp, ac=ac or 12)
+    return CombatEnemy(
+        name=name,
+        hp=hp,
+        max_hp=hp,
+        ac=ac or 12,
+        start_distance_m=distance or 10,
+    )
 
 
 def parse_enemies(spec: str) -> list[CombatEnemy]:
@@ -85,7 +102,10 @@ def parse_enemies(spec: str) -> list[CombatEnemy]:
         name = tokens[0].strip().strip("'\"")
         hp = numbers[0]
         ac = numbers[1] if len(numbers) > 1 else 12
-        enemies.append(CombatEnemy(name=name, hp=hp, max_hp=hp, ac=ac))
+        distance = numbers[2] if len(numbers) > 2 else 10
+        enemies.append(
+            CombatEnemy(name=name, hp=hp, max_hp=hp, ac=ac, start_distance_m=distance)
+        )
 
     if not enemies:
         raise ValueError("至少需要一个敌人")
@@ -114,6 +134,8 @@ def start_combat(
         reverse=True,
     )
     turn_order = [name for name, _ in order]
+    speed = movement_speed_for(character)
+    distances = {enemy.name: enemy.start_distance_m for enemy in enemies}
 
     game_state.combat = CombatState(
         active=True,
@@ -122,6 +144,12 @@ def start_combat(
         player_initiative=player_init,
         turn_order=turn_order,
         turn_index=0,
+        movement_speed_m=speed,
+        movement_remaining_m=speed,
+        enemy_distances=distances,
+    )
+    dist_text = "；".join(
+        f"{enemy.name} {enemy.start_distance_m}m" for enemy in enemies
     )
     order_text = " → ".join(
         character.name if n == "player" else n for n in turn_order
@@ -130,6 +158,8 @@ def start_combat(
         f"战斗开始！先攻顺序：{order_text}。"
         f"玩家先攻 {player_init}。"
         + " ".join(f"{e.name} 先攻 {e.initiative}" for e in enemies)
+        + f" 起始距离：{dist_text}。"
+        + f" 你的移动力 {speed}m/回合。"
     )
 
 
@@ -152,6 +182,17 @@ def enemy_attack(enemy: CombatEnemy, character: Character, defending: bool = Fal
     )
 
 
+def _enemy_approach(combat: CombatState, enemy: CombatEnemy) -> str | None:
+    """近战敌人回合开始时尝试靠近玩家。"""
+    dist = combat.enemy_distances.get(enemy.name, DEFAULT_START_DISTANCE_M)
+    if dist <= MELEE_REACH_M:
+        return None
+    move = min(6, dist - MELEE_REACH_M)
+    new_dist = dist - move
+    combat.set_distance_to(enemy.name, new_dist)
+    return f"{enemy.name} 靠近 {move}m（距离 {new_dist}m）。"
+
+
 def _resolve_enemy_turn(combat: CombatState, character: Character) -> str | None:
     actor = combat.current_actor()
     if actor == "player":
@@ -159,7 +200,11 @@ def _resolve_enemy_turn(combat: CombatState, character: Character) -> str | None
     enemy = combat.get_enemy(actor)
     if not enemy or enemy.hp <= 0:
         return f"{actor} 已倒下，跳过回合。"
-    return enemy_attack(enemy, character, defending=combat.defending)
+    approach = _enemy_approach(combat, enemy)
+    attack = enemy_attack(enemy, character, defending=combat.defending)
+    if approach:
+        return f"{approach} {attack}"
+    return attack
 
 
 def resolve_until_player_turn(character: Character, game_state: GameState) -> list[str]:
@@ -215,6 +260,67 @@ def advance_after_player_action(character: Character, game_state: GameState) -> 
     return events
 
 
+def player_move(
+    character: Character,
+    game_state: GameState,
+    target_name: str,
+    meters: int,
+    *,
+    toward: bool = True,
+) -> str:
+    combat = game_state.combat
+    if not combat or not combat.active:
+        return "当前不在战斗中。"
+    if not combat.is_player_turn():
+        actor = combat.current_actor()
+        label = "玩家" if actor == "player" else actor
+        return f"还没轮到你，当前是 {label} 的回合。"
+    if meters <= 0:
+        return "请指定移动米数。"
+    if not combat.has_movement():
+        return "本回合移动力已用尽。"
+
+    enemy = combat.get_enemy(target_name)
+    if not enemy or enemy.hp <= 0:
+        return f"找不到存活的敌人：{target_name}"
+
+    current = combat.distance_to(enemy.name) or DEFAULT_START_DISTANCE_M
+    actual = combat.spend_movement(meters)
+    if actual <= 0:
+        return "移动力不足，无法移动。"
+
+    if toward:
+        new_dist = max(0, current - actual)
+        verb = "靠近"
+    else:
+        new_dist = current + actual
+        verb = "远离"
+    combat.set_distance_to(enemy.name, new_dist)
+    return (
+        f"向 {enemy.name} {verb} {actual}m，当前距离 {new_dist}m。"
+        f"剩余移动力 {combat.movement_remaining_m}/{combat.movement_speed_m}m。"
+    )
+
+
+def resolve_dash(character: Character, game_state: GameState) -> str:
+    """疾跑（Dash）：消耗主要动作，本回合移动力翻倍（再获得一次基础移动力）。"""
+    combat = game_state.combat
+    if not combat or not combat.active:
+        return "当前不在战斗中。"
+    if not combat.is_player_turn():
+        actor = combat.current_actor()
+        label = "玩家" if actor == "player" else actor
+        return f"还没轮到你，当前是 {label} 的回合。"
+    err = spend_action_or_error(combat, "main")
+    if err:
+        return err
+    combat.movement_remaining_m += combat.movement_speed_m
+    return (
+        f"你疾跑！移动力 +{combat.movement_speed_m}m，"
+        f"剩余 {combat.movement_remaining_m}/{combat.movement_speed_m * 2}m（含疾跑加成）。"
+    )
+
+
 def player_attack(
     character: Character,
     game_state: GameState,
@@ -222,7 +328,11 @@ def player_attack(
     use_dex: bool = False,
     route: ActionRouteResult | None = None,
 ) -> str:
-    from game.weapon_combat import ensure_weapon_ready, resolve_weapon_profile
+    from game.weapon_combat import (
+        draw_weapon_for_attack,
+        ensure_weapon_ready,
+        resolve_weapon_profile,
+    )
 
     combat = game_state.combat
     if not combat or not combat.active:
@@ -242,22 +352,37 @@ def player_attack(
         return f"找不到存活的敌人：{target_name}"
 
     weapon = resolve_weapon_profile(character, route)
+    ok, draw_msg = draw_weapon_for_attack(character, combat, weapon)
+    if not ok:
+        combat.action_used = False
+        return draw_msg
     ensure_weapon_ready(character, weapon)
+
+    distance = combat.distance_to(enemy.name) or DEFAULT_START_DISTANCE_M
+    in_range, range_penalty, range_note = attack_range_status(distance, weapon)
+    if not in_range:
+        combat.action_used = False
+        return f"无法攻击 {enemy.name}：{range_note}（当前 {distance}m）。"
+
     attr = "dex" if weapon.use_dex or use_dex else "str"
-    mod = character.modifier(attr) + weapon.attack_bonus
+    mod = character.modifier(attr) + weapon.attack_bonus - range_penalty
     attack_roll = roll(f"1d20{mod:+d}")
     hit = attack_roll.total >= enemy.ac
 
+    range_suffix = f" · {range_note}" if range_penalty or distance > MELEE_REACH_M else ""
+    prefix = f"{draw_msg} " if draw_msg else ""
     if not hit:
         return (
-            f"攻击 {enemy.name}（{weapon.label}）：1d20[{attack_roll.rolls[0]}]{mod:+d}={attack_roll.total} "
+            f"{prefix}攻击 {enemy.name}（{weapon.label}，{distance}m{range_suffix}）："
+            f"1d20[{attack_roll.rolls[0]}]{mod:+d}={attack_roll.total} "
             f"vs AC {enemy.ac} → 未命中"
         )
 
     damage = roll(f"{weapon.damage_notation}{mod:+d}")
     enemy.hp = max(0, enemy.hp - damage.total)
     result = (
-        f"攻击 {enemy.name}（{weapon.label}）：命中！伤害 {damage.describe()}。"
+        f"{prefix}攻击 {enemy.name}（{weapon.label}，{distance}m{range_suffix}）：命中！"
+        f"伤害 {damage.describe()}。"
         f"{enemy.name} 剩余 HP {enemy.hp}/{enemy.max_hp}"
     )
     if enemy.hp <= 0:
@@ -336,6 +461,13 @@ def spend_action_or_error(combat: CombatState, cost: str) -> str | None:
     if not combat.spend_action(cost):
         return "动作资源不足，无法执行该行动。"
     return None
+
+
+def spend_free_interact_or_error(combat: CombatState) -> str | None:
+    if combat.has_free_interact():
+        combat.spend_free_interact()
+        return None
+    return "本回合免费物件互动已用尽（拾取、拔武器、快速装备等）。"
 
 
 def end_player_turn(character: Character, game_state: GameState) -> list[str]:
@@ -556,10 +688,12 @@ def resolve_pickup_in_combat(
     game_state: GameState,
     items: list[str],
 ) -> list[str]:
+    from game.item_kinds import infer_gear_slot
+
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
         return ["还没轮到你行动。"]
-    err = spend_action_or_error(combat, "bonus")
+    err = spend_free_interact_or_error(combat)
     if err:
         return [err]
 
@@ -567,6 +701,12 @@ def resolve_pickup_in_combat(
     for item in items:
         if character.add_inventory_item(item):
             events.append(f"获得：{item}")
+            picked = character.find_inventory_item(item)
+            if picked is not None:
+                slot = infer_gear_slot(picked.name, picked.kind)
+                if slot == "weapon":
+                    character.set_active_gear(picked)
+                    events.append(f"握持：{picked.name}")
     if not events:
         return ["没有可拾取的物品。"]
     return events
@@ -578,6 +718,8 @@ def resolve_use_item_in_combat(
     item_refs: list[str] | None = None,
     cost: str = "bonus",
 ) -> list[str]:
+    from game.combat_item_use import combat_use_item_cost
+
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
         return ["还没轮到你行动。"]
@@ -588,7 +730,13 @@ def resolve_use_item_in_combat(
     if not character.has_inventory_item(refs[0]):
         return [f"背包中没有：{refs[0]}"]
 
-    err = spend_action_or_error(combat, cost)
+    if cost not in ("main", "bonus", "free"):
+        cost = combat_use_item_cost(character, refs[0])
+
+    if cost == "free":
+        err = spend_free_interact_or_error(combat)
+    else:
+        err = spend_action_or_error(combat, cost)
     if err:
         return [err]
 

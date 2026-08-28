@@ -133,9 +133,10 @@ def test_attack_then_use_item_does_not_end_turn():
     state.combat = CombatState(
         active=True,
         round=1,
-        enemies=[CombatEnemy(name="哥布林", hp=10, max_hp=10, ac=5)],
+        enemies=[CombatEnemy(name="哥布林", hp=10, max_hp=10, ac=5, start_distance_m=2)],
         turn_order=["player", "哥布林"],
         turn_index=0,
+        enemy_distances={"哥布林": 2},
     )
     player_attack(character, state, "哥布林")
     assert state.combat.is_player_turn()

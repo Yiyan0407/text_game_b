@@ -58,10 +58,15 @@ class ActionRouteResult(BaseModel):
         "shove",
         "help",
         "search",
+        "move",
+        "dash",
         "end_turn",
     ] = "none"
     action_cost: Literal["main", "bonus", "free"] = "main"
     attack_target: str = ""
+    move_target: str = ""
+    move_meters: int = 0
+    move_toward: bool = True
     ends_turn: bool = False
     proficiency_bonus: bool = False
 

@@ -14,6 +14,8 @@ from game.combat import (
     end_player_turn,
     maybe_end_combat,
     player_attack,
+    player_move,
+    resolve_dash,
     resolve_defend,
     resolve_flee,
     resolve_grapple,
@@ -566,6 +568,36 @@ class GameOrchestrator:
                     character, game_state, route.referenced_items
                 )
             )
+            if self._should_advance_combat_after_action(route, game_state):
+                pre_tool_events.extend(
+                    advance_after_player_action(character, game_state)
+                )
+
+        elif game_state.is_in_combat() and route.item_usage == "use":
+            from game.combat_item_use import combat_use_item_cost
+
+            if route.combat_action == "use_item" and route.action_cost in (
+                "main",
+                "bonus",
+                "free",
+            ):
+                cost = route.action_cost
+            elif route.referenced_items:
+                cost = combat_use_item_cost(character, route.referenced_items[0])
+            else:
+                cost = "bonus"
+            pre_tool_events.extend(
+                resolve_use_item_in_combat(
+                    character,
+                    game_state,
+                    route.referenced_items,
+                    cost=cost,
+                )
+            )
+            if self._should_advance_combat_after_action(route, game_state):
+                pre_tool_events.extend(
+                    advance_after_player_action(character, game_state)
+                )
 
         if not game_state.is_in_combat() and route.needs_roll:
             pre_tool_events.extend(
@@ -580,9 +612,7 @@ class GameOrchestrator:
                     pre_tool_events.append(f"获得：{item}")
         elif route.item_usage == "purchase" and not game_state.is_in_combat():
             pre_tool_events.extend(self._execute_purchase(route, character))
-        elif route.item_usage == "use" and not (
-            game_state.is_in_combat() and route.combat_action == "use_item"
-        ):
+        elif route.item_usage == "use" and not game_state.is_in_combat():
             pre_tool_events.extend(resolve_use_item(character, route.referenced_items))
 
         end_msg, _defeated = maybe_end_combat(game_state, character)
@@ -646,6 +676,36 @@ class GameOrchestrator:
         return any("获得：" in event or "背包新增" in event for event in mechanical_events)
 
     @staticmethod
+    def _execute_pre_move(
+        route: ActionRouteResult,
+        character: Character,
+        game_state: GameState,
+    ) -> list[str]:
+        if route.move_meters <= 0 or not route.move_target.strip():
+            return []
+        return [
+            player_move(
+                character,
+                game_state,
+                route.move_target,
+                route.move_meters,
+                toward=route.move_toward,
+            )
+        ]
+
+    @staticmethod
+    def _execute_pre_pickup(
+        route: ActionRouteResult,
+        character: Character,
+        game_state: GameState,
+    ) -> list[str]:
+        if route.item_usage != "pickup" or not route.referenced_items:
+            return []
+        return resolve_pickup_in_combat(
+            character, game_state, route.referenced_items
+        )
+
+    @staticmethod
     def _execute_combat_action(
         route: ActionRouteResult,
         character: Character,
@@ -656,10 +716,24 @@ class GameOrchestrator:
             return end_player_turn(character, game_state)
 
         handlers = {
+            "move": lambda: [
+                player_move(
+                    character,
+                    game_state,
+                    route.move_target,
+                    route.move_meters,
+                    toward=route.move_toward,
+                )
+            ],
+            "dash": lambda: [resolve_dash(character, game_state)],
             "attack": lambda: (
-                [player_attack(character, game_state, route.attack_target, route=route)]
-                if route.attack_target
-                else []
+                GameOrchestrator._execute_pre_pickup(route, character, game_state)
+                + GameOrchestrator._execute_pre_move(route, character, game_state)
+                + (
+                    [player_attack(character, game_state, route.attack_target, route=route)]
+                    if route.attack_target
+                    else []
+                )
             ),
             "defend": lambda: [resolve_defend(character, game_state)],
             "flee": lambda: [resolve_flee(character, game_state)],
@@ -667,7 +741,9 @@ class GameOrchestrator:
                 character,
                 game_state,
                 route.referenced_items,
-                cost=route.action_cost if route.action_cost != "free" else "bonus",
+                cost=route.action_cost
+                if route.action_cost in ("main", "bonus", "free")
+                else "bonus",
             ),
             "interact": lambda: [
                 resolve_interact(

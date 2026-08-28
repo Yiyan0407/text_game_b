@@ -16,11 +16,24 @@
 
 ## D&D 动作经济（战斗模式）
 每名玩家在其回合拥有：
-- **1 主要动作（main）**：攻击、防御、擒抱、推撞、协助、场景互动、对敌交涉、战斗中观察搜索、撤退等
-- **1 附加动作（bonus）**：快速使用物品（药水、投掷物等）
+- **移动力（movement）**：每回合可移动若干米（见【游戏状态】「移动力 X/Ym」），**不消耗主要动作**；靠近/远离敌人用 `combat_action=move`，`move_target` 填敌人名，`move_meters` 填米数，`action_cost=free`
+- **1 主要动作（main）**：攻击、防御、擒抱、推撞、协助、场景互动、对敌交涉、战斗中观察搜索、撤退、**疾跑（dash）** 等
+- **1 附加动作（bonus）**：快速使用消耗品（药水、食物、照明棒等）
+- **1 次免费物件互动（free interact）**：拾取眼前物品、从背包拔武器/换装备、快速举起手电/工具（不读文档）
 - 输入「结束回合」→ combat_action=end_turn，action_cost=free，ends_turn=true
 
-同一回合可多次输入（先主要后附加），**不要**在单次攻击/互动后 ends_turn=true；只有 end_turn 或 flee 成功时 ends_turn=true。
+**物品使用（战斗）**：`item_usage=use` 时系统会自动设为 `combat_action=use_item` 并扣对应资源——
+- 药水/食物等消耗品 → **附加动作**
+- 手电/铁锹/武器等快速装备/收起 → **免费物件互动**
+- 查阅文档、复杂操作 → **主要动作**
+
+**拔武器**：枪在背包里但未握持时，攻击会先消耗一次免费物件互动；本回合已拾取并握住的武器不再额外消耗。
+
+**距离与射程**：【游戏状态】显示各敌人距离（米）。徒手/近战有效约 2m；手枪约 30m（远距至 50m 命中 -2）；超出射程无法攻击，须先移动。同一输入「先靠近 N 米再攻击」→ `combat_action=attack`，`move_meters=N`，`move_target` 与 `attack_target` 填同一敌人，系统先移动再攻击。
+
+**疾跑（dash）**：消耗主要动作，本回合移动力再 + 基础移动力（相当于可跑两倍距离）。
+
+同一回合可多次输入（先移动、再攻击、再附加动作），**不要**在单次攻击/移动后 ends_turn=true；只有 end_turn 或 flee 成功时 ends_turn=true。
 
 ---
 
@@ -104,14 +117,17 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 - **购买/交易**（`item_usage=purchase`）→ approved=false，「战斗中无法购买，请战斗结束后再交易。」
 
 ### 可以批准 — 拾取
-- 拾取眼前掉落物、战场物品 → `item_usage=pickup`，`combat_action=none`，`referenced_items` 填物品名；通常 `action_cost=bonus`（快速拾取），不消耗主要动作。
-- **同一句话里既有拾取又有射击/攻击时**：若【游戏状态】显示主要动作已用尽，则必须 `approved=false`，提示玩家下回合再射击，或本回合只拾取。
+- 拾取眼前掉落物、战场物品 → `item_usage=pickup`，`combat_action=none`，`referenced_items` 填物品名；`action_cost=free`（**免费物件互动**，每回合 1 次；武器会自动握持）。
+- **同一句话里既有拾取又有射击/攻击时**：若【游戏状态】显示主要动作已用尽，则必须 `approved=false`；若免费物件互动已用尽，也无法再拾取。
 - **同一回合不可在一次输入里同时消耗主要动作+附加动作后又追加第三个主要动作**；复合请求超出动作池时必须驳回并说明。
+
+### 可以批准 — 移动（action_cost=free，不耗主要动作）
+| move | 靠近或远离敌人，move_target 必填，move_meters 必填（米） | false |
 
 ### 可以批准 — 主要动作（action_cost=main）
 | combat_action | 说明 | needs_roll |
 |--------------|------|------------|
-| attack | 攻击存活敌人，attack_target 必填 | false |
+| attack | 攻击存活敌人，attack_target 必填；超射程须先 move 或同句带 move_meters | false |
 | defend | 防御 AC+2 | false |
 | flee | 撤退（消耗主要动作；失败仍可继续本回合） | false（系统掷骰） |
 | interact | 推物体、打翻掩体、拉杠杆等场景互动 | true，ability + **你裁定的 dc** |
@@ -120,13 +136,18 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 | shove | 推撞敌人，attack_target 必填 | true，str + **你裁定的 dc** |
 | help | 协助他人，attack_target 可选 | false |
 | search | 战斗中观察弱点/环境 | true，wis + **你裁定的 dc** |
+| dash | 疾跑（移动力翻倍） | false |
 | end_turn | 结束本回合 | free，ends_turn=true |
 
 ### 可以批准 — 附加动作（action_cost=bonus）
-| use_item | 使用背包物品（item_usage=use） | false |
+| use_item | 使用消耗品（药水、食物等；`item_usage=use` 会自动映射） | false |
+
+### 可以批准 — 免费物件互动（action_cost=free）
+| pickup | 拾取眼前物品（见上） | false |
+| use_item | 快速装备/收起武器、手电、工具（`item_usage=use`，系统自动判定） | false |
 
 ### 动作资源
-读取【游戏状态】中的「主要动作/附加动作」；若对应资源已用尽则 approved=false。
+读取【游戏状态】中的「移动力 / 免费物件互动 / 主要动作 / 附加动作」；对应资源用尽则 approved=false。
 
 ---
 
@@ -134,4 +155,5 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 approved, rejection_reason, needs_roll, roll_type, ability, dc, dice_notation, proficiency_bonus,
 referenced_items, referenced_skills, payment_items, payment_quantity, item_usage, skill_usage,
 action_intent, scope_stop, must_not_narrate,
-mode, trigger_combat, enemies_spec, combat_action, action_cost, attack_target, ends_turn
+mode, trigger_combat, enemies_spec, combat_action, action_cost, attack_target,
+move_target, move_meters, move_toward, ends_turn

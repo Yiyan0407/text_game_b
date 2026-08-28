@@ -374,9 +374,10 @@ def test_orchestrator_combat_attack_does_not_advance_until_actions_spent(mock_se
     game_state.combat = CombatState(
         active=True,
         round=1,
-        enemies=[CombatEnemy(name="哥布林", hp=10, max_hp=10, ac=5, attack_bonus=-5)],
+        enemies=[CombatEnemy(name="哥布林", hp=10, max_hp=10, ac=5, attack_bonus=-5, start_distance_m=2)],
         turn_order=["player", "哥布林"],
         turn_index=0,
+        enemy_distances={"哥布林": 2},
     )
     turn = orchestrator.player_turn(
         character=character,
@@ -562,9 +563,10 @@ def test_validate_resolves_fuzzy_attack_target():
     game_state.combat = CombatState(
         active=True,
         round=1,
-        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
+        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12, start_distance_m=2)],
         turn_order=["player", "守卫"],
         turn_index=0,
+        enemy_distances={"守卫": 2},
     )
     result = ActionRouter.validate(route, Character(name="测试"), game_state)
     assert result.approved is True
@@ -590,10 +592,10 @@ def test_validate_allows_pickup_in_combat():
     )
     result = ActionRouter.validate(route, Character(name="测试"), game_state)
     assert result.approved is True
-    assert result.action_cost == "bonus"
+    assert result.action_cost == "free"
 
 
-def test_validate_rejects_pickup_when_bonus_action_exhausted():
+def test_validate_rejects_pickup_when_free_interact_exhausted():
     from game.models import CombatEnemy, CombatState
 
     route = _approved_route(
@@ -609,11 +611,11 @@ def test_validate_rejects_pickup_when_bonus_action_exhausted():
         enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
         turn_order=["player", "守卫"],
         turn_index=0,
-        bonus_action_used=True,
+        free_interact_used=True,
     )
     result = ActionRouter.validate(route, Character(name="测试"), game_state)
     assert result.approved is False
-    assert "附加动作" in result.rejection_reason
+    assert "免费物件互动" in result.rejection_reason
 
 
 def test_validate_rejects_purchase_in_combat():
