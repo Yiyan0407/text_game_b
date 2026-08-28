@@ -33,7 +33,6 @@ from game.dice import roll
 from game.inventory import item_name_from_ref
 from game.item_use import resolve_use_item
 from game.models import Character, ChatMessage, GameState
-from game.narrative_time import advance_narrative_time_for_turn
 from game.narrative_brief import (
     build_narrative_brief_static,
     merge_narrative_brief_with_state,
@@ -354,6 +353,7 @@ class GameOrchestrator:
                 route=route,
                 delivered_items=delivered,
                 mechanical_events=mechanical_events,
+                user_input=enriched_input,
             )
             brief = merge_narrative_brief_with_state(
                 brief_static, character, game_state, state_events
@@ -451,6 +451,7 @@ class GameOrchestrator:
             route=route,
             delivered_items=delivered,
             mechanical_events=mechanical_events,
+            user_input=enriched_input,
         )
         brief = merge_narrative_brief_with_state(
             brief_static, character, game_state, state_events
@@ -483,9 +484,6 @@ class GameOrchestrator:
             return enriched_input, [], route
         try:
             pre_tool_events = self._resolve_mechanics(route, character, game_state)
-            pre_tool_events.extend(
-                advance_narrative_time_for_turn(route, enriched_input, game_state, character)
-            )
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
                 approved=False,
@@ -510,9 +508,6 @@ class GameOrchestrator:
             return enriched_input, [], route
         try:
             pre_tool_events = self._resolve_mechanics(route, character, game_state)
-            pre_tool_events.extend(
-                advance_narrative_time_for_turn(route, enriched_input, game_state, character)
-            )
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
                 approved=False,

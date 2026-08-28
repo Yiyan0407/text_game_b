@@ -3,6 +3,7 @@
 from game.check_consequences import format_check_failure_constraints_for_kp
 from game.combat_constraints import format_combat_constraints_for_kp
 from game.models import Character, GameState
+from game.narrative_time import format_turn_time_hint
 from game.results import ActionRouteResult
 
 
@@ -68,6 +69,9 @@ def merge_narrative_brief_with_state(
         lines.append("【状态同步事件】")
         for event in state_events:
             lines.append(f"- {event}")
+        time_hint = format_turn_time_hint(state_events)
+        if time_hint:
+            lines.append(time_hint)
     lines.append("")
     lines.append("【叙事时间 — 必须一致，禁止与下列时钟矛盾】")
     lines.append(format_narrative_time_context(game_state))

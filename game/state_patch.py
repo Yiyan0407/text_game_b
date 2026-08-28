@@ -18,7 +18,7 @@ from game.results import (
     TimePatch,
 )
 from game.text_match import fuzzy_match_name
-from game.narrative_time import apply_time_patch
+from game.narrative_time import apply_turn_time_from_patch
 
 
 def apply_inventory_change(
@@ -81,6 +81,7 @@ def apply_state_patch(
     route: ActionRouteResult | None = None,
     delivered_items: frozenset[str] | None = None,
     mechanical_events: list[str] | None = None,
+    user_input: str = "",
 ) -> list[str]:
     """将 StatePatch 应用到游戏状态，返回事件列表。"""
     events: list[str] = []
@@ -155,7 +156,16 @@ def apply_state_patch(
             game_state.add_memory_facts([cleaned], settings.max_memory_facts)
             events.append(f"已记录关键事实：{cleaned}")
 
-    events.extend(apply_time_patch(game_state, patch.time, character=character))
+    events.extend(
+        apply_turn_time_from_patch(
+            game_state,
+            patch.time,
+            route=route,
+            user_input=user_input,
+            character=character,
+            has_time_field=patch.time is not None,
+        )
+    )
 
     if patch.end_combat and game_state.is_in_combat():
         events.append(end_combat(game_state))

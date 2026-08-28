@@ -63,14 +63,15 @@ def test_check_failure_stealth_adds_alert():
     assert any("警戒" in fact for fact in state.memory_facts)
 
 
-def test_check_failure_advances_extra_time():
+def test_check_failure_does_not_auto_advance_time():
+    """时间推进改由 State Agent 判定；检定失败不再机械层自动加时。"""
     route = _route(action_intent="观察周围", ability="wis")
     character = Character(name="测试", wisdom=8)
     state = GameState()
     before = state.elapsed_minutes
     result = _failed_result(ability="wis", dc=14, total=5)
     apply_check_failure_consequences(route, result, character, state)
-    assert state.elapsed_minutes > before
+    assert state.elapsed_minutes == before
 
 
 def test_successful_check_has_no_failure_consequences():

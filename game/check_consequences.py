@@ -6,7 +6,6 @@ import re
 
 from config.settings import get_settings
 from game.models import ABILITY_LABELS, Character, GameState, NPCRelation
-from game.narrative_time import advance_narrative_clock
 from game.results import AbilityCheckResult, ActionRouteResult
 
 _DANGEROUS_MARKERS = (
@@ -164,8 +163,6 @@ def apply_check_failure_consequences(
         game_state.add_memory_facts([learn_fact], settings.max_memory_facts)
         events.append("📚 学习失败：未掌握新技能")
 
-    extra_minutes = min(15, 3 + margin // 3)
-    events.extend(advance_narrative_clock(game_state, extra_minutes, character))
     return events
 
 

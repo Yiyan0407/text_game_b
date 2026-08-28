@@ -3,6 +3,7 @@ from game.narrative_time import (
     advance_narrative_clock,
     apply_story_clock_label,
     apply_time_patch,
+    apply_turn_time_from_patch,
     estimate_turn_minutes,
     format_clock,
     format_duration,
@@ -10,6 +11,7 @@ from game.narrative_time import (
     initialize_story_clock_from_scenario,
     parse_explicit_wait_minutes,
     parse_time_label,
+    resolve_turn_advance_minutes,
 )
 from game.results import ActionRouteResult, DeadlinePatch, TimePatch
 from game.scenario import Scenario
@@ -137,6 +139,72 @@ def test_estimate_turn_minutes_for_wait():
     route = ActionRouteResult(approved=True, action_intent="等待")
     minutes = estimate_turn_minutes(route, "我决定等三天再行动", GameState())
     assert minutes == 3 * 24 * 60
+
+
+def test_estimate_turn_minutes_for_brief_question():
+    route = ActionRouteResult(approved=True, action_intent="质问对方身份")
+    minutes = estimate_turn_minutes(
+        route,
+        "不是，你是谁？是怎么找到我的？",
+        GameState(),
+    )
+    assert minutes == 2
+
+
+def test_estimate_turn_minutes_default_is_modest():
+    route = ActionRouteResult(approved=True, action_intent="继续行动")
+    minutes = estimate_turn_minutes(route, "好的", GameState())
+    assert minutes == 4
+
+
+def test_format_turn_time_hint():
+    from game.narrative_time import format_turn_time_hint
+
+    hint = format_turn_time_hint(["⏳ 时间推进 2 分（第1天 08:02）"])
+    assert "2 分" in hint
+    assert "状态同步器" in hint
+
+
+def test_resolve_turn_advance_minutes_prefers_agent():
+    from game.results import TimePatch
+
+    route = ActionRouteResult(approved=True, action_intent="质问")
+    agent_minutes = resolve_turn_advance_minutes(
+        TimePatch(advance_minutes=2),
+        route=route,
+        user_input="你是谁？",
+        game_state=GameState(),
+        has_time_field=True,
+    )
+    assert agent_minutes == 2
+
+
+def test_resolve_turn_advance_minutes_fallback_when_no_time_field():
+    route = ActionRouteResult(approved=True, action_intent="继续")
+    minutes = resolve_turn_advance_minutes(
+        None,
+        route=route,
+        user_input="好的",
+        game_state=GameState(),
+        has_time_field=False,
+    )
+    assert minutes == 4
+
+
+def test_apply_turn_time_from_patch_uses_agent_value():
+    from game.results import TimePatch
+
+    state = GameState()
+    events = apply_turn_time_from_patch(
+        state,
+        TimePatch(advance_minutes=2),
+        route=ActionRouteResult(approved=True, action_intent="询问"),
+        user_input="你是谁？",
+        character=None,
+        has_time_field=True,
+    )
+    assert state.elapsed_minutes == 2
+    assert any("时间推进" in event for event in events)
 
 
 def test_patch_from_dict_parses_time():

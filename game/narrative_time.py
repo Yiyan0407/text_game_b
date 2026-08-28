@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 _STORY_DAY_MINUTES = 24 * 60
 _DEFAULT_START_MINUTE = 8 * 60  # 第1天 08:00
 _IMMINENT_MINUTES = 30
+_TIME_ADVANCE_RE = re.compile(r"时间推进\s+(.+?)（")
 _CLOCK_LABEL_RE = re.compile(r"第(\d+)天\s*(\d{1,2}):(\d{2})")
 _INJURY_KEYWORDS = ("受伤", "爆炸", "伤害", "灼烧", "中毒", "失血", "遇袭", "遇险")
 
@@ -235,18 +236,50 @@ def estimate_turn_minutes(
     if any(marker in combined for marker in search_markers):
         return 30
 
-    talk_markers = ("交谈", "对话", "询问", "商量", "谈判", "闲聊")
-    if any(marker in combined for marker in talk_markers):
+    negotiation_markers = ("谈判", "交涉", "讨价还价", "商量条件")
+    if any(marker in combined for marker in negotiation_markers):
         return 10
 
-    quick_markers = ("观察", "查看", "检查", "倾听", "偷听", "阅读")
+    talk_markers = ("交谈", "对话", "询问", "闲聊", "搭话", "追问", "质疑", "盘问")
+    question_markers = (
+        "?", "？", "谁", "什么", "啥", "怎么", "如何", "为何", "为什么",
+        "哪", "吗", "么", "是不是", "多少", "几点", "干嘛", "干什么",
+    )
+    if any(marker in combined for marker in talk_markers) or any(
+        marker in text for marker in question_markers
+    ):
+        return 2
+
+    quick_markers = ("观察", "查看", "检查", "倾听", "偷听", "阅读", "点头", "沉默")
     if any(marker in combined for marker in quick_markers):
-        return 5
+        return 3
 
     if route and route.item_usage == "purchase":
-        return 15
+        return 12
 
-    return 12
+    if route and route.combat_action == "talk":
+        return 3
+
+    return 4
+
+
+def extract_turn_time_cost(mechanical_events: list[str]) -> str | None:
+    """从机械事件里解析本轮推进的耗时文案。"""
+    for event in mechanical_events:
+        match = _TIME_ADVANCE_RE.search(event)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def format_turn_time_hint(mechanical_events: list[str]) -> str:
+    cost = extract_turn_time_cost(mechanical_events)
+    if not cost:
+        return ""
+    return (
+        f"【本轮故事耗时】约 {cost}（已由状态同步器判定并已推进时钟；"
+        "叙事中此轮经过的时间须与此同量级，勿写成数小时。）"
+    )
 
 
 def _deadline_remaining(deadline: NarrativeDeadline, elapsed_minutes: int) -> int:
@@ -537,6 +570,65 @@ def format_time_constraints_for_kp(game_state: GameState) -> str:
         "禁止出现与【叙事时间】矛盾的表述（如已过去数小时却仍写「还有六小时才开始」）。"
     )
     return "\n".join(lines)
+
+
+def resolve_turn_advance_minutes(
+    time_patch: TimePatch | None,
+    *,
+    route: ActionRouteResult | None,
+    user_input: str,
+    game_state: GameState,
+    has_time_field: bool,
+) -> int:
+    """决定本轮应推进的分钟数：优先 State Agent，其次显式等待，最后启发式兜底。"""
+    if time_patch is not None and time_patch.advance_minutes > 0:
+        return time_patch.advance_minutes
+
+    explicit = parse_explicit_wait_minutes(
+        user_input,
+        elapsed_minutes=game_state.elapsed_minutes,
+        story_start_absolute=game_state.story_start_absolute_minutes,
+    )
+    if explicit is not None:
+        return explicit
+
+    if has_time_field and time_patch is not None:
+        # Agent 显式写了 time 但未推进：尊重 0（如开场定钟）
+        if time_patch.time_label or time_patch.deadlines or time_patch.cancel_deadline_ids:
+            return 0
+        return 0
+
+    return estimate_turn_minutes(route, user_input, game_state)
+
+
+def apply_turn_time_from_patch(
+    game_state: GameState,
+    time_patch: TimePatch | None,
+    *,
+    route: ActionRouteResult | None,
+    user_input: str,
+    character: Character | None,
+    has_time_field: bool,
+) -> list[str]:
+    minutes = resolve_turn_advance_minutes(
+        time_patch,
+        route=route,
+        user_input=user_input,
+        game_state=game_state,
+        has_time_field=has_time_field,
+    )
+    if time_patch is None and minutes <= 0:
+        return []
+
+    patch = time_patch if time_patch is not None else TimePatch()
+    if minutes > 0 and patch.advance_minutes <= 0:
+        patch = patch.model_copy(update={"advance_minutes": minutes})
+    elif minutes <= 0 and not (
+        patch.time_label or patch.deadlines or patch.cancel_deadline_ids
+    ):
+        return []
+
+    return apply_time_patch(game_state, patch, character)
 
 
 def advance_narrative_time_for_turn(
