@@ -1,10 +1,38 @@
 import json
+import re
+import uuid
 from pathlib import Path
 
 from config.settings import SCENARIOS_DIR
 from game.scenario import Scenario
 
 GENERATED_DIR = SCENARIOS_DIR / "generated"
+
+
+def slugify_scenario_id(title: str, *, prefix: str = "manual") -> str:
+    cleaned = re.sub(r"[^\w\s-]", "", title.lower())
+    cleaned = re.sub(r"[\s_-]+", "_", cleaned).strip("_")
+    slug = cleaned[:24] or "adventure"
+    return f"{prefix}_{slug}_{uuid.uuid4().hex[:6]}"
+
+
+def blank_scenario_template(world_id: str = "fantasy") -> Scenario:
+    return Scenario(
+        id="draft_manual",
+        title="",
+        description="",
+        world_id=world_id,
+        world="",
+        tone="",
+        opening_scene_id="start",
+        opening_scene_name="起点",
+        opening_prompt="",
+        custom_world_overlay="",
+        initial_quests=[],
+        key_nodes=[],
+        endings=[],
+        is_generated=True,
+    )
 
 
 class ScenarioNotFoundError(FileNotFoundError):
@@ -45,6 +73,18 @@ def save_scenario(scenario: Scenario, generated: bool = True) -> Path:
     path = directory / f"{payload.id}.json"
     path.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
     return path
+
+
+def can_delete_scenario(scenario_id: str) -> bool:
+    return (GENERATED_DIR / f"{scenario_id}.json").exists()
+
+
+def delete_generated_scenario(scenario_id: str) -> bool:
+    path = GENERATED_DIR / f"{scenario_id}.json"
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
 
 
 def get_scenario_or_default(scenario_id: str | None) -> Scenario:

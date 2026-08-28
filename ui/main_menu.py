@@ -6,7 +6,8 @@ from config.worlds import DEFAULT_WORLD_ID, WORLD_OPTIONS
 from game.profile import CharacterCard
 from game.save import SaveManager
 from game.scenario import Scenario
-from game.scenario_loader import list_scenarios
+from game.scenario_loader import delete_generated_scenario, list_scenarios
+from ui.scenario_generator import clear_scenario_from_session
 from ui.chat import render_tool_events_live
 from ui.loading import LoadingPlaceholder, run_with_spinner
 from ui.profile_menu import render_profile_switcher
@@ -35,7 +36,7 @@ def render_main_menu(save_manager: SaveManager) -> None:
         st.session_state.page = "select_scenario"
         st.rerun()
 
-    if col2.button("✨ AI 生成剧本", use_container_width=True):
+    if col2.button("✨ 剧本工坊", use_container_width=True):
         st.session_state.page = "generate_scenario"
         st.rerun()
 
@@ -117,7 +118,29 @@ def render_scenario_selection() -> None:
             tag = " · ✨ AI生成" if scenario.is_generated else ""
             st.markdown(f"**{scenario.title}**")
             st.caption(f"{scenario.description} · 🌍 {world_label}{tag}")
-            if st.button("选择", key=f"scenario_{scenario.id}", use_container_width=True):
+            if scenario.is_generated:
+                c1, c2, c3 = st.columns(3)
+                if c1.button("选择", key=f"scenario_{scenario.id}", use_container_width=True):
+                    st.session_state.selected_scenario = scenario
+                    preselected = st.session_state.get("selected_character_card")
+                    if preselected:
+                        start_new_game_with_card(scenario, preselected)
+                    else:
+                        st.session_state.page = "select_character"
+                    st.rerun()
+                if c2.button("✏️ 编辑", key=f"edit_scenario_{scenario.id}", use_container_width=True):
+                    from ui.scenario_generator import open_scenario_for_edit
+
+                    open_scenario_for_edit(scenario.id)
+                    st.rerun()
+                if c3.button("🗑️ 删除", key=f"del_scenario_{scenario.id}", use_container_width=True):
+                    if delete_generated_scenario(scenario.id):
+                        clear_scenario_from_session(scenario.id)
+                        st.toast(f"已删除剧本：{scenario.title}")
+                        st.rerun()
+                    else:
+                        st.error("删除失败，剧本可能已被移除。")
+            elif st.button("选择", key=f"scenario_{scenario.id}", use_container_width=True):
                 st.session_state.selected_scenario = scenario
                 preselected = st.session_state.get("selected_character_card")
                 if preselected:

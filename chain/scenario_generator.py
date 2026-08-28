@@ -3,6 +3,8 @@ import uuid
 from typing import Literal
 
 from langchain_core.prompts import ChatPromptTemplate
+from pydantic import ValidationError
+
 from chain.json_utils import extract_json
 from chain.llm import create_chat_llm
 from config.settings import get_settings
@@ -29,6 +31,21 @@ def _extract_json(text: str) -> dict:
 
 def _normalize_scenario_data(data: dict, world_id: str) -> dict:
     data = dict(data)
+    optional_strings = (
+        "description",
+        "world",
+        "tone",
+        "opening_prompt",
+        "custom_world_overlay",
+        "opening_scene_id",
+        "opening_scene_name",
+    )
+    for field in optional_strings:
+        if data.get(field) is None:
+            data[field] = ""
+    for list_field in ("initial_quests", "key_nodes", "endings"):
+        if data.get(list_field) is None:
+            data[list_field] = []
     title = str(data.get("title") or "自定义冒险")
     data["id"] = data.get("id") or f"gen_{_slugify(title)}_{uuid.uuid4().hex[:6]}"
     data["world_id"] = data.get("world_id") or world_id
@@ -109,6 +126,7 @@ class ScenarioGenerator:
             "你是跑团模组编剧。根据用户要求生成中文跑团模组，输出**单个 JSON 对象**，不要 markdown 代码块。"
             "id 用英文 slug；内容要有画面感、可玩性，适合文字跑团。"
             "world_id 只能是：modern, cyberpunk, xianxia, fantasy 之一。"
+            "所有字符串字段必须用 \"\" 表示空值，**禁止**写 null。"
         )
         if mode == "world":
             return (

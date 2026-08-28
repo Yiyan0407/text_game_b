@@ -2,27 +2,44 @@ import streamlit as st
 
 from chain.scenario_generator import ScenarioGenerationError, ScenarioGenerator
 from ui.loading import run_with_spinner
+from ui.scenario_editor import render_scenario_editor
 from config.settings import get_settings
 from config.worlds import GENERATION_MODES, THEME_HINTS, WORLD_OPTIONS
 from game.scenario import Scenario
-from game.scenario_loader import save_scenario
+from game.scenario_loader import can_delete_scenario, delete_generated_scenario, load_scenario, save_scenario
+
+
+def clear_scenario_from_session(scenario_id: str) -> None:
+    generated = st.session_state.get("generated_scenario")
+    if generated is not None and generated.id == scenario_id:
+        st.session_state.pop("generated_scenario", None)
+    selected = st.session_state.get("selected_scenario")
+    if selected is not None and selected.id == scenario_id:
+        st.session_state.pop("selected_scenario", None)
 
 
 def render_scenario_generator() -> None:
-    st.title("✨ AI 生成剧本")
-    st.markdown("选定主题随机生成，或用自定义描述生成世界观/完整剧本。")
+    st.title("✨ 剧本工坊")
+    st.markdown("AI 随机/描述生成，或手动从零撰写完整剧本。")
 
     settings = get_settings()
-    if not settings.openai_api_key:
-        st.warning("请先在 `.env` 中配置 `OPENAI_API_KEY`。")
 
-    tab_theme, tab_custom = st.tabs(["🎲 主题随机", "✍️ 自定义描述"])
+    tab_theme, tab_custom, tab_manual = st.tabs(
+        ["🎲 主题随机", "✍️ AI 自定义", "📝 手动撰写"]
+    )
 
     with tab_theme:
+        if not settings.openai_api_key:
+            st.warning("请先在 `.env` 中配置 `OPENAI_API_KEY`。")
         _render_theme_generator(settings)
 
     with tab_custom:
+        if not settings.openai_api_key:
+            st.warning("请先在 `.env` 中配置 `OPENAI_API_KEY`。")
         _render_custom_generator(settings)
+
+    with tab_manual:
+        _render_manual_creator()
 
     if st.button("返回主菜单"):
         st.session_state.page = "menu"
@@ -95,6 +112,26 @@ def _render_custom_generator(settings) -> None:
         )
 
 
+def _render_manual_creator() -> None:
+    from game.scenario_loader import blank_scenario_template
+
+    st.caption("无需 API Key，填写后保存即可在新游戏中使用。")
+    world_id = st.selectbox(
+        "默认世界观",
+        options=list(WORLD_OPTIONS.keys()),
+        format_func=lambda k: WORLD_OPTIONS[k],
+        key="manual_scenario_world",
+    )
+    draft = blank_scenario_template(world_id)
+    draft.world_id = world_id
+    created = render_scenario_editor(draft, creating=True)
+    if created is not None:
+        st.session_state.generated_scenario = created
+        st.session_state.scenario_preview_view = "预览"
+        st.session_state.page = "preview_scenario"
+        st.rerun()
+
+
 def _run_generation(generate_fn) -> None:
     generator = ScenarioGenerator()
     try:
@@ -121,6 +158,28 @@ def render_scenario_preview() -> None:
         return
 
     st.title("📜 剧本预览")
+    view = st.radio(
+        "视图",
+        options=["预览", "编辑"],
+        horizontal=True,
+        key="scenario_preview_view",
+    )
+
+    if view == "编辑":
+        updated = render_scenario_editor(scenario)
+        if updated is not None:
+            st.session_state.generated_scenario = updated
+            st.session_state.selected_scenario = updated
+            st.rerun()
+        st.divider()
+        _render_preview_actions(scenario)
+        return
+
+    _render_scenario_preview_content(scenario)
+    _render_preview_actions(scenario)
+
+
+def _render_scenario_preview_content(scenario: Scenario) -> None:
     world_label = WORLD_OPTIONS.get(scenario.world_id, scenario.world_id)
     st.markdown(f"**{scenario.title}** · 🌍 {world_label}")
     st.caption(scenario.description)
@@ -142,6 +201,13 @@ def render_scenario_preview() -> None:
         for node in scenario.key_nodes:
             st.markdown(f"- {node.title}：{node.description}")
 
+    if scenario.endings:
+        st.markdown("**可能结局**")
+        for ending in scenario.endings:
+            st.markdown(f"- {ending.title}：{ending.condition}")
+
+
+def _render_preview_actions(scenario: Scenario) -> None:
     col1, col2, col3 = st.columns(3)
     if col1.button("🎮 开始创建角色", type="primary", use_container_width=True):
         st.session_state.selected_scenario = scenario
@@ -153,3 +219,20 @@ def render_scenario_preview() -> None:
     if col3.button("返回主菜单", use_container_width=True):
         st.session_state.page = "menu"
         st.rerun()
+
+    if scenario.is_generated and can_delete_scenario(scenario.id):
+        if st.button("🗑️ 删除此剧本", use_container_width=True):
+            if delete_generated_scenario(scenario.id):
+                clear_scenario_from_session(scenario.id)
+                st.session_state.page = "select_scenario"
+                st.toast(f"已删除剧本：{scenario.title}")
+                st.rerun()
+            else:
+                st.error("删除失败，剧本可能已被移除。")
+
+
+def open_scenario_for_edit(scenario_id: str) -> None:
+    scenario = load_scenario(scenario_id)
+    st.session_state.generated_scenario = scenario
+    st.session_state.scenario_preview_view = "编辑"
+    st.session_state.page = "preview_scenario"

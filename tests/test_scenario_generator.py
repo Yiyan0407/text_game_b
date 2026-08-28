@@ -44,6 +44,35 @@ def test_normalize_scenario_data():
     assert data["world_id"] == "modern"
 
 
+def test_normalize_scenario_data_coerces_null_strings():
+    data = _normalize_scenario_data(
+        {"title": "测试", "custom_world_overlay": None, "description": None},
+        "modern",
+    )
+    scenario = Scenario.model_validate(data)
+    assert scenario.custom_world_overlay == ""
+    assert scenario.description == ""
+
+
+def test_scenario_accepts_null_custom_world_overlay():
+    scenario = Scenario.model_validate(
+        {
+            "id": "test",
+            "title": "测试",
+            "custom_world_overlay": None,
+        }
+    )
+    assert scenario.custom_world_overlay == ""
+
+
+def test_scenario_generator_imports_validation_error():
+    import chain.scenario_generator as module
+
+    from pydantic import ValidationError
+
+    assert module.ValidationError is ValidationError
+
+
 def test_save_and_load_generated(tmp_path, monkeypatch):
     import game.scenario_loader as loader
 
@@ -53,3 +82,16 @@ def test_save_and_load_generated(tmp_path, monkeypatch):
     loaded = load_scenario("test_gen")
     assert loaded.title == "测试剧本"
     assert loaded.is_generated is True
+
+
+def test_delete_generated_scenario(tmp_path, monkeypatch):
+    import game.scenario_loader as loader
+
+    monkeypatch.setattr(loader, "GENERATED_DIR", tmp_path)
+    scenario = Scenario.model_validate(_extract_json(SAMPLE_SCENARIO_JSON))
+    save_scenario(scenario, generated=True)
+    assert loader.can_delete_scenario("test_gen") is True
+    assert loader.delete_generated_scenario("test_gen") is True
+    assert loader.can_delete_scenario("test_gen") is False
+    with pytest.raises(loader.ScenarioNotFoundError):
+        load_scenario("test_gen")

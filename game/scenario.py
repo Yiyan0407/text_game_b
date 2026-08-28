@@ -1,6 +1,12 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from game.models import GameState, Quest
+
+
+def _coerce_optional_str(value) -> str:
+    if value is None:
+        return ""
+    return str(value)
 
 
 class ScenarioNode(BaseModel):
@@ -8,11 +14,21 @@ class ScenarioNode(BaseModel):
     title: str
     description: str = ""
 
+    @field_validator("description", mode="before")
+    @classmethod
+    def _coerce_description(cls, value):
+        return _coerce_optional_str(value)
+
 
 class ScenarioEnding(BaseModel):
     id: str
     title: str
     condition: str = ""
+
+    @field_validator("condition", mode="before")
+    @classmethod
+    def _coerce_condition(cls, value):
+        return _coerce_optional_str(value)
 
 
 class Scenario(BaseModel):
@@ -30,6 +46,23 @@ class Scenario(BaseModel):
     endings: list[ScenarioEnding] = Field(default_factory=list)
     custom_world_overlay: str = ""
     is_generated: bool = False
+
+    @field_validator(
+        "description",
+        "world",
+        "tone",
+        "opening_prompt",
+        "custom_world_overlay",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_optional_strings(cls, value):
+        return _coerce_optional_str(value)
+
+    @field_validator("initial_quests", "key_nodes", "endings", mode="before")
+    @classmethod
+    def _coerce_optional_lists(cls, value):
+        return [] if value is None else value
 
     def format_for_prompt(self) -> str:
         lines = [
