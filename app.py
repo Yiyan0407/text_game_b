@@ -6,17 +6,16 @@ from game.orchestrator import GameOrchestrator
 from game.profile import ProfileManager
 from game.save import SaveManager
 from game.scenario import Scenario
-from game.session import append_tool_events, persist_save, sync_character_card_to_library
+from game.session import append_tool_events, persist_save, reload_current_save_from_disk, sync_character_card_to_library
 from ui.character_sheet import render_character_sheet
-from ui.chat import render_chat_history, render_chat_input, render_tool_events_live
+from ui.chat import render_chat_history, render_chat_input
 from ui.game_state_panel import render_game_state_panel
 from ui.combat_panel import render_combat_panel
 from ui.action_suggestions import render_action_suggestions
 from ui.loading import LoadingPlaceholder, run_with_spinner
-from ui.streaming import finalize_streaming_turn, render_phased_turn, render_streaming_markdown
+from ui.streaming import finalize_streaming_turn, render_phased_turn
 from ui.game_export import render_game_pdf_download
 from ui.main_menu import (
-    load_save_into_session,
     render_character_creation,
     render_load_save,
     render_main_menu,
@@ -208,6 +207,29 @@ def render_gameplay_hint(game_state: GameState) -> None:
         )
 
 
+def _render_sync_save_button(*, button_key: str) -> bool:
+    clicked = st.button(
+        "🔄 同步最新进度",
+        key=button_key,
+        use_container_width=True,
+        help="从磁盘重新加载当前存档。观战或多人轮流玩同一存档时，用此按钮查看最新回合，无需刷新网页。",
+    )
+    if not clicked:
+        return False
+
+    result = reload_current_save_from_disk()
+    if not result.success:
+        st.error(result.error)
+        return False
+    if result.already_latest:
+        st.toast("已是最新进度")
+    elif result.new_messages:
+        st.toast(f"已同步，新增 {result.new_messages} 条记录")
+    else:
+        st.toast(f"已同步 · 回合 {result.turn_count}")
+    return True
+
+
 def render_game() -> None:
     character: Character = st.session_state.character
     game_state: GameState = st.session_state.game_state
@@ -225,6 +247,8 @@ def render_game() -> None:
         if st.session_state.get("current_character_id"):
             st.caption("长期角色：进度会自动同步到角色卡")
         st.caption("每回合结束后自动存档")
+        if _render_sync_save_button(button_key="sync_save_sidebar"):
+            st.rerun()
         if st.button("💾 立即存档", use_container_width=True):
             run_with_spinner("保存中……", persist_save)
             st.success("已保存")
@@ -261,7 +285,13 @@ def render_game() -> None:
             st.session_state.page = "menu"
             st.rerun()
 
-    st.title(f"🎲 {scenario.title}")
+    title_col, sync_col = st.columns([6, 1])
+    with title_col:
+        st.title(f"🎲 {scenario.title}")
+    with sync_col:
+        if _render_sync_save_button(button_key="sync_save_header"):
+            st.rerun()
+
     render_gameplay_hint(game_state)
     render_chat_history(st.session_state.messages)
 

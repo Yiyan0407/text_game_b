@@ -23,6 +23,8 @@ def test_propose_calls_llm():
     agent = StateAgent()
     character = Character(name="测试")
     game_state = GameState()
+    mock_chain = MagicMock()
+    mock_chain.invoke.return_value = MagicMock(content="{}")
 
     with patch.object(
         agent,
@@ -31,10 +33,9 @@ def test_propose_calls_llm():
             npcs=[NpcPatch(name="李四", attitude="unknown", notes="证人")]
         ),
     ) as mock_parse:
-        with patch.object(agent.prompt, "__or__") as mock_or:
-            chain = MagicMock()
-            chain.invoke.return_value = MagicMock(content="{}")
-            mock_or.return_value = chain
+        # Python 3 对实例上的 __or__ 补丁无效，需 patch 类方法。
+        with patch.object(type(agent.prompt), "__or__", return_value=mock_chain):
             result = agent.propose("询问李四", character, game_state, [], [])
             mock_parse.assert_called_once()
+            mock_chain.invoke.assert_called_once()
             assert result.npcs[0].name == "李四"

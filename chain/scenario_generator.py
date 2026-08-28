@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from chain.json_utils import extract_json
 from chain.llm import create_chat_llm
-from config.settings import get_settings
 from config.worlds import WORLD_OPTIONS
 from game.scenario import Scenario
 

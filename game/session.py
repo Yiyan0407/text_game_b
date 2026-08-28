@@ -2,13 +2,79 @@ import streamlit as st
 
 from game.models import Character, ChatMessage, GameState
 from game.results import TurnResult
-from game.profile import (
-    CharacterCard,
-    prepare_card_for_new_campaign,
-    sync_card_from_adventure,
-)
-from game.save import SaveGame, SaveManager
+from game.profile import sync_card_from_adventure
+from game.save import SaveGame, SaveManager, get_action_suggestions
 from game.scenario import Scenario
+
+
+class SaveReloadResult:
+    __slots__ = ("success", "new_messages", "turn_count", "already_latest", "error")
+
+    def __init__(
+        self,
+        *,
+        success: bool,
+        new_messages: int = 0,
+        turn_count: int = 0,
+        already_latest: bool = False,
+        error: str = "",
+    ) -> None:
+        self.success = success
+        self.new_messages = new_messages
+        self.turn_count = turn_count
+        self.already_latest = already_latest
+        self.error = error
+
+
+def apply_save_to_session(save_game: SaveGame, scenario: Scenario) -> None:
+    if save_game.world_id:
+        scenario = scenario.model_copy(update={"world_id": save_game.world_id})
+    st.session_state.character = save_game.character
+    st.session_state.game_state = save_game.game_state
+    st.session_state.scenario = scenario
+    st.session_state.messages = save_game.messages
+    st.session_state.current_save_id = save_game.save_id
+    st.session_state.current_character_id = save_game.character_id or None
+    st.session_state.action_suggestions = get_action_suggestions(save_game)
+    st.session_state.game_started = True
+
+
+def reload_current_save_from_disk() -> SaveReloadResult:
+    save_id = st.session_state.get("current_save_id")
+    if not save_id:
+        return SaveReloadResult(success=False, error="当前没有关联存档。")
+
+    save_manager: SaveManager | None = st.session_state.get("save_manager")
+    if save_manager is None:
+        return SaveReloadResult(success=False, error="存档管理器未初始化。")
+
+    old_messages = len(st.session_state.get("messages", []))
+    old_turn = getattr(st.session_state.get("game_state"), "turn_count", 0)
+
+    try:
+        save_game = save_manager.load(save_id)
+    except (FileNotFoundError, ValueError, TypeError) as exc:
+        return SaveReloadResult(success=False, error=f"存档读取失败：{exc}")
+
+    from game.scenario_loader import ScenarioNotFoundError, load_scenario
+
+    try:
+        scenario = load_scenario(save_game.scenario_id)
+    except ScenarioNotFoundError:
+        return SaveReloadResult(
+            success=False,
+            error=f"存档关联的模组「{save_game.scenario_id}」不存在。",
+        )
+
+    apply_save_to_session(save_game, scenario)
+    new_messages = len(st.session_state.messages)
+    turn_count = save_game.game_state.turn_count
+    return SaveReloadResult(
+        success=True,
+        new_messages=max(0, new_messages - old_messages),
+        turn_count=turn_count,
+        already_latest=new_messages == old_messages and turn_count == old_turn,
+    )
 
 
 def sync_character_card_to_library(*, finalize: bool = False) -> None:

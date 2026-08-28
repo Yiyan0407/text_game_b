@@ -85,10 +85,10 @@ def rolled_abilities_from_dict(payload: dict | None) -> RolledAbilities | None:
     return RolledAbilities(details=tuple(details))
 
 
-def _character_fields_empty(fields: dict) -> bool:
-    return not str(fields.get("name", "")).strip() and not str(
-        fields.get("background", "")
-    ).strip()
+def _character_fields_empty(fields: dict, *, default_world: str) -> bool:
+    if str(fields.get("name", "")).strip() or str(fields.get("background", "")).strip():
+        return False
+    return str(fields.get("world_id", default_world)) == default_world
 
 
 def init_character_draft(scenario_id: str, default_world: str) -> None:
@@ -117,7 +117,7 @@ def sync_character_draft_to_disk(scenario_id: str, *, default_world: str) -> Non
     }
     store = draft_store()
     slug = _character_draft_slug(scenario_id)
-    if _character_fields_empty(fields):
+    if _character_fields_empty(fields, default_world=default_world):
         store.delete(slug)
         return
 

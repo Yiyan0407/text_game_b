@@ -429,8 +429,8 @@ def start_new_game(
 
 
 def load_save_into_session(save_manager: SaveManager, save_id: str) -> bool:
-    from game.save import get_action_suggestions
     from game.scenario_loader import ScenarioNotFoundError, load_scenario
+    from game.session import apply_save_to_session
 
     try:
         save_game = save_manager.load(save_id)
@@ -447,16 +447,6 @@ def load_save_into_session(save_manager: SaveManager, save_id: str) -> bool:
         )
         return False
 
-    if save_game.world_id:
-        scenario = scenario.model_copy(update={"world_id": save_game.world_id})
-
-    st.session_state.character = save_game.character
-    st.session_state.game_state = save_game.game_state
-    st.session_state.scenario = scenario
-    st.session_state.messages = save_game.messages
-    st.session_state.current_save_id = save_game.save_id
-    st.session_state.current_character_id = save_game.character_id or None
-    st.session_state.action_suggestions = get_action_suggestions(save_game)
-    st.session_state.game_started = True
+    apply_save_to_session(save_game, scenario)
     st.session_state.page = "game"
     return True

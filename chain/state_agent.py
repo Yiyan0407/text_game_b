@@ -7,7 +7,6 @@ from chain.llm import create_chat_llm
 from config.settings import PROMPTS_DIR
 from game.models import Character, ChatMessage, GameState
 from game.results import ActionRouteResult, StatePatch
-from game.scenario import Scenario
 from game.state_patch import patch_from_dict
 
 logger = logging.getLogger(__name__)
