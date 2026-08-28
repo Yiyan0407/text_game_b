@@ -69,6 +69,7 @@ class Scenario(BaseModel):
             f"模组：{self.title}",
             f"世界观：{self.world}（规则包：{self.world_id}）",
             f"基调：{self.tone}",
+            "说明：简介与开场是任务/场景钩子，不是对玩家身份的强制设定；以【玩家角色】与【开场入场逻辑】为准。",
             f"简介：{self.description}",
         ]
         if self.custom_world_overlay:

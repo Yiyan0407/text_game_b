@@ -1,13 +1,13 @@
 {
   "id": "midnight_archive",
   "title": "午夜档案",
-  "description": "你是都市调查记者，收到匿名线报：某科技公司正在删除一批内部邮件。现代都市、权力与真相——今晚你只有一部手机和一个 deadline。",
+  "description": "匿名线报称某科技公司正在删除一批内部邮件。现代都市、权力与真相——一场与时间赛跑的调查。",
   "world_id": "modern",
   "world": "现代都市",
   "tone": "现实主义、悬疑、紧迫感",
   "opening_scene_id": "newsroom",
-  "opening_scene_name": "报社·夜班工位",
-  "opening_prompt": "匿名账号发来压缩包与一句「他们在删邮件」。起点：空荡的夜班编辑部，你需要决定先验证线索、联系内线，还是直接逼近目标公司。",
+  "opening_scene_name": "媒体机构·夜班工位",
+  "opening_prompt": "匿名账号向某媒体后台发来压缩包与一句「他们在删邮件」。起点：空荡的夜班工位，需决定先验证线索、联系内线，还是直接逼近目标公司。",
   "initial_quests": [
     {
       "id": "deleted_emails",
@@ -19,8 +19,8 @@
   "key_nodes": [
     {
       "id": "newsroom",
-      "title": "夜班编辑部",
-      "description": "整理线索，决定是否发稿。"
+      "title": "夜班工位",
+      "description": "整理线索，决定是否发稿或继续追查。"
     },
     {
       "id": "corp_lobby",

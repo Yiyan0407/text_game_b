@@ -103,6 +103,7 @@ def render_load_save(save_manager: SaveManager) -> None:
 
 def render_scenario_selection() -> None:
     st.title("🆕 选择模组")
+    st.caption("模组简介描述的是事件与场景，不是你的固定身份；选角后开局会自动衔接你的角色背景。")
     scenarios = list_scenarios()
 
     if not scenarios:

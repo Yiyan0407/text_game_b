@@ -1,13 +1,13 @@
 {
   "id": "neon_run",
   "title": "霓虹夜奔",
-  "description": "你是一名数据跑者，受雇从巨企服务器偷出一份加密档案。雨夜、霓虹、追兵——今晚只能信自己的义体与本能。",
+  "description": "受雇从巨企服务器窃取一份加密档案。雨夜、霓虹、追兵——只能信义体与本能。",
   "world_id": "cyberpunk",
   "world": "赛博朋克 dystopia 都市「新港」",
   "tone": "霓虹、雨夜、黑色电影",
   "opening_scene_id": "safehouse_neon",
   "opening_scene_name": "新港·地下安全屋",
-  "opening_prompt": "雇主通过加密频道发来委托：潜入「天穹科技」区域节点，取回代号「白噪」的数据核。报酬足够换一副新义眼。起点：跑者安全屋，收到任务简报与初始线索。",
+  "opening_prompt": "雇主通过加密频道发来委托：潜入「天穹科技」区域节点，取回代号「白噪」的数据核。起点：地下安全屋收到任务简报与初始线索。",
   "initial_quests": [
     {
       "id": "white_noise",
