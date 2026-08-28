@@ -192,6 +192,10 @@ data/profiles/*
 data/scenarios/generated/*
 !data/scenarios/generated/.gitkeep
 
+# UI form drafts (per profile)
+data/drafts/*
+!data/drafts/.gitkeep
+
 # Streamlit 本地密钥（勿提交）
 .streamlit/secrets.toml
 logs/

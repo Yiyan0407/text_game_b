@@ -1,6 +1,7 @@
 import streamlit as st
 
 from chain.scenario_generator import ScenarioGenerationError, ScenarioGenerator
+from ui.form_drafts import init_scenario_generator_draft, sync_scenario_generator_draft_to_disk
 from ui.loading import run_with_spinner
 from ui.scenario_editor import render_scenario_editor
 from config.settings import get_settings
@@ -78,6 +79,7 @@ def _render_theme_generator(settings) -> None:
 
 
 def _render_custom_generator(settings) -> None:
+    init_scenario_generator_draft()
     description = st.text_area(
         "描述你想要的设定或故事",
         placeholder=(
@@ -94,6 +96,7 @@ def _render_custom_generator(settings) -> None:
         key="gen_custom_world",
     )
     mode = _render_mode_selector("custom")
+    sync_scenario_generator_draft_to_disk()
 
     if st.button("✨ 根据描述生成", type="primary", use_container_width=True):
         if not description.strip():

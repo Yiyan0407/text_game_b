@@ -1,6 +1,11 @@
 import streamlit as st
 
 from game.profile import ProfileManager, PlayerProfile
+from ui.form_drafts import (
+    clear_new_profile_draft,
+    init_new_profile_draft,
+    sync_new_profile_draft_to_disk,
+)
 from ui.loading import run_with_spinner
 
 
@@ -81,14 +86,19 @@ def render_profile_selection(profile_manager: ProfileManager) -> None:
 
     st.divider()
     st.subheader("新建档案")
-    with st.form("new_profile_form"):
-        name = st.text_input("档案名称", placeholder="例如：小明、朋友 A")
-        submitted = st.form_submit_button("创建并进入", type="primary", use_container_width=True)
-    if submitted:
+    init_new_profile_draft()
+    name = st.text_input(
+        "档案名称",
+        placeholder="例如：小明、朋友 A",
+        key="new_profile_name",
+    )
+    sync_new_profile_draft_to_disk()
+    if st.button("创建并进入", type="primary", use_container_width=True):
         if not name.strip():
             st.error("请填写档案名称。")
             return
         profile = profile_manager.create_profile(name.strip())
+        clear_new_profile_draft()
         select_profile(profile)
 
 

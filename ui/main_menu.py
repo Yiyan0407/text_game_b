@@ -7,6 +7,13 @@ from game.profile import CharacterCard
 from game.save import SaveManager
 from game.scenario import Scenario
 from game.scenario_loader import delete_generated_scenario, list_scenarios
+from ui.form_drafts import (
+    character_draft_keys,
+    clear_character_draft,
+    init_character_draft,
+    restore_character_draft_extras,
+    sync_character_draft_to_disk,
+)
 from ui.scenario_generator import clear_scenario_from_session
 from ui.chat import render_tool_events_live
 from ui.loading import LoadingPlaceholder, run_with_spinner
@@ -176,6 +183,9 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
         if scenario.world_id in WORLD_OPTIONS
         else DEFAULT_WORLD_ID
     )
+    init_character_draft(scenario.id, default_world)
+    restore_character_draft_extras(scenario.id)
+    name_key, background_key, world_key = character_draft_keys(scenario.id)
 
     if "rolled_abilities" not in st.session_state:
         st.session_state.rolled_abilities = roll_ability_scores()
@@ -225,29 +235,32 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
     if st.button("🎲 重新掷骰", use_container_width=True):
         st.session_state.rolled_abilities_prev_total = rolled.total_score()
         st.session_state.rolled_abilities = roll_ability_scores()
+        sync_character_draft_to_disk(scenario.id, default_world=default_world)
         st.rerun()
 
-    with st.form("character_form"):
-        selected_world = st.selectbox(
-            "规则/世界观包",
-            options=list(WORLD_OPTIONS.keys()),
-            format_func=lambda k: WORLD_OPTIONS[k],
-            index=list(WORLD_OPTIONS.keys()).index(default_world),
-        )
-        name = st.text_input("角色姓名", placeholder="例如：艾拉")
-        background = st.text_area(
-            "角色背景",
-            placeholder="例如：前海军斥候，为还债来到灰港做佣兵。",
-            height=100,
-        )
-        st.caption(
-            "背景应描述身份与动机，不要写开局无敌、满级、神器或巨额资源。"
-            "职业不必与模组默认开场一致，开局会自动衔接你的身份。"
-            "背景审核通过后会由 AI 生成 1–3 项初始技能。"
-        )
-        submitted = st.form_submit_button("开始冒险", type="primary", use_container_width=True)
+    selected_world = st.selectbox(
+        "规则/世界观包",
+        options=list(WORLD_OPTIONS.keys()),
+        format_func=lambda k: WORLD_OPTIONS[k],
+        key=world_key,
+    )
+    name = st.text_input("角色姓名", placeholder="例如：艾拉", key=name_key)
+    background = st.text_area(
+        "角色背景",
+        placeholder="例如：前海军斥候，为还债来到灰港做佣兵。",
+        height=100,
+        key=background_key,
+    )
+    st.caption(
+        "背景应描述身份与动机，不要写开局无敌、满级、神器或巨额资源。"
+        "职业不必与模组默认开场一致，开局会自动衔接你的身份。"
+        "背景审核通过后会由 AI 生成 1–3 项初始技能。"
+        "草稿会自动保存到本机，切换页面或刷新浏览器后可继续编辑。"
+    )
+    sync_character_draft_to_disk(scenario.id, default_world=default_world)
+    start_clicked = st.button("开始冒险", type="primary", use_container_width=True)
 
-    if submitted:
+    if start_clicked:
         if not name.strip():
             st.error("请填写角色姓名。")
             return
@@ -291,6 +304,7 @@ def render_character_creation(scenario: Scenario, *, creating_new_card: bool = F
         active_scenario = scenario.model_copy(update={"world_id": selected_world})
         st.session_state.pop("rolled_abilities", None)
         st.session_state.pop("rolled_abilities_prev_total", None)
+        clear_character_draft(scenario.id)
 
         saved_card = CharacterCard.from_character(
             character,

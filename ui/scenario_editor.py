@@ -8,6 +8,12 @@ from config.worlds import WORLD_OPTIONS
 from game.models import Quest
 from game.scenario import Scenario, ScenarioEnding, ScenarioNode
 from game.scenario_loader import save_scenario
+from ui.form_drafts import (
+    clear_scenario_editor_draft,
+    init_scenario_editor_draft,
+    scenario_editor_field_key,
+    sync_scenario_editor_draft_to_disk,
+)
 
 
 def _clean_row(row: dict) -> dict:
@@ -132,8 +138,8 @@ def render_scenario_editor(scenario: Scenario, *, creating: bool = False) -> Sce
         st.markdown("修改不合理的内容后点 **保存修改**，会覆盖 `data/scenarios/generated/` 中的同名文件。")
         st.caption(f"剧本 ID：`{scenario.id}`（不可修改，避免存档引用错乱）")
 
-    form_key = "scenario_create_form" if creating else f"scenario_edit_form_{scenario.id}"
     submit_label = "💾 创建并保存" if creating else "💾 保存修改"
+    init_scenario_editor_draft(scenario, creating=creating)
 
     with st.expander("ID 怎么填？（玩家看不到，给系统/KP 用）", expanded=creating):
         st.markdown(
@@ -147,93 +153,119 @@ def render_scenario_editor(scenario: Scenario, *, creating: bool = False) -> Sce
             """
         )
 
-    with st.form(form_key):
-        title = st.text_input("标题", value=scenario.title)
-        description = st.text_area("简介", value=scenario.description, height=80)
-        world_id = st.selectbox(
-            "世界观规则包",
-            options=list(WORLD_OPTIONS.keys()),
-            index=list(WORLD_OPTIONS.keys()).index(scenario.world_id)
-            if scenario.world_id in WORLD_OPTIONS
-            else 0,
-            format_func=lambda k: WORLD_OPTIONS[k],
-        )
-        world = st.text_input("世界名称", value=scenario.world)
-        tone = st.text_input("基调", value=scenario.tone)
+    st.caption("草稿会自动保存到本机；切换页面或刷新浏览器后可继续编辑。")
 
-        st.markdown("**开场**")
-        col1, col2 = st.columns(2)
-        opening_scene_id = col1.text_input(
-            "开场场景 ID",
-            value=scenario.opening_scene_id,
-            help="英文代号，如 tavern_seagull；开局默认场景",
-        )
-        opening_scene_name = col2.text_input(
-            "开场场景名称",
-            value=scenario.opening_scene_name,
-            help="玩家看到的地点名，如 灰港·海鸥尾酒馆",
-        )
-        opening_prompt = st.text_area("开场情境 / 委托钩子", value=scenario.opening_prompt, height=120)
-        custom_world_overlay = st.text_area(
-            "世界观扩展设定",
-            value=scenario.custom_world_overlay,
-            height=120,
-        )
+    title_key = scenario_editor_field_key(scenario.id, creating, "title")
+    description_key = scenario_editor_field_key(scenario.id, creating, "description")
+    world_id_key = scenario_editor_field_key(scenario.id, creating, "world_id")
+    world_key = scenario_editor_field_key(scenario.id, creating, "world")
+    tone_key = scenario_editor_field_key(scenario.id, creating, "tone")
+    opening_scene_id_key = scenario_editor_field_key(scenario.id, creating, "opening_scene_id")
+    opening_scene_name_key = scenario_editor_field_key(scenario.id, creating, "opening_scene_name")
+    opening_prompt_key = scenario_editor_field_key(scenario.id, creating, "opening_prompt")
+    custom_world_overlay_key = scenario_editor_field_key(
+        scenario.id, creating, "custom_world_overlay"
+    )
 
-        st.markdown("**初始任务**")
-        quest_rows = st.data_editor(
-            [q.model_dump() for q in scenario.initial_quests] or [{"id": "", "title": "", "status": "active", "description": ""}],
-            num_rows="dynamic",
-            use_container_width=True,
-            column_config={
-                "id": st.column_config.TextColumn(
-                    "ID", required=True, help="任务代号，如 missing_fishermen"
-                ),
-                "title": st.column_config.TextColumn("标题", required=True),
-                "status": st.column_config.SelectboxColumn(
-                    "状态", options=["active", "completed", "failed"], required=True
-                ),
-                "description": st.column_config.TextColumn("描述", width="large"),
-            },
-            key=f"scenario_edit_quests_{scenario.id}_{creating}",
-        )
+    title = st.text_input("标题", key=title_key)
+    description = st.text_area("简介", key=description_key, height=80)
+    world_id = st.selectbox(
+        "世界观规则包",
+        options=list(WORLD_OPTIONS.keys()),
+        format_func=lambda k: WORLD_OPTIONS[k],
+        key=world_id_key,
+    )
+    world = st.text_input("世界名称", key=world_key)
+    tone = st.text_input("基调", key=tone_key)
 
-        st.markdown("**关键节点**")
-        node_rows = st.data_editor(
-            [n.model_dump() for n in scenario.key_nodes] or [{"id": "", "title": "", "description": ""}],
-            num_rows="dynamic",
-            use_container_width=True,
-            column_config={
-                "id": st.column_config.TextColumn(
-                    "ID", required=True, help="地点/剧情点代号，如 harbor_dock"
-                ),
-                "title": st.column_config.TextColumn("标题", required=True),
-                "description": st.column_config.TextColumn("描述", width="large"),
-            },
-            key=f"scenario_edit_nodes_{scenario.id}_{creating}",
-        )
+    st.markdown("**开场**")
+    col1, col2 = st.columns(2)
+    opening_scene_id = col1.text_input(
+        "开场场景 ID",
+        key=opening_scene_id_key,
+        help="英文代号，如 tavern_seagull；开局默认场景",
+    )
+    opening_scene_name = col2.text_input(
+        "开场场景名称",
+        key=opening_scene_name_key,
+        help="玩家看到的地点名，如 灰港·海鸥尾酒馆",
+    )
+    opening_prompt = st.text_area(
+        "开场情境 / 委托钩子",
+        key=opening_prompt_key,
+        height=120,
+    )
+    custom_world_overlay = st.text_area(
+        "世界观扩展设定",
+        key=custom_world_overlay_key,
+        height=120,
+    )
 
-        st.markdown("**可能结局**")
-        ending_rows = st.data_editor(
-            [e.model_dump() for e in scenario.endings] or [{"id": "", "title": "", "condition": ""}],
-            num_rows="dynamic",
-            use_container_width=True,
-            column_config={
-                "id": st.column_config.TextColumn(
-                    "ID", required=True, help="结局代号，如 rescue"
-                ),
-                "title": st.column_config.TextColumn("标题", required=True),
-                "condition": st.column_config.TextColumn("达成条件", width="large"),
-            },
-            key=f"scenario_edit_endings_{scenario.id}_{creating}",
-        )
+    st.markdown("**初始任务**")
+    quest_rows = st.data_editor(
+        [q.model_dump() for q in scenario.initial_quests] or [{"id": "", "title": "", "status": "active", "description": ""}],
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "id": st.column_config.TextColumn(
+                "ID", required=True, help="任务代号，如 missing_fishermen"
+            ),
+            "title": st.column_config.TextColumn("标题", required=True),
+            "status": st.column_config.SelectboxColumn(
+                "状态", options=["active", "completed", "failed"], required=True
+            ),
+            "description": st.column_config.TextColumn("描述", width="large"),
+        },
+        key=f"scenario_edit_quests_{scenario.id}_{creating}",
+    )
 
-        submitted = st.form_submit_button(submit_label, type="primary", use_container_width=True)
+    st.markdown("**关键节点**")
+    node_rows = st.data_editor(
+        [n.model_dump() for n in scenario.key_nodes] or [{"id": "", "title": "", "description": ""}],
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "id": st.column_config.TextColumn(
+                "ID", required=True, help="地点/剧情点代号，如 harbor_dock"
+            ),
+            "title": st.column_config.TextColumn("标题", required=True),
+            "description": st.column_config.TextColumn("描述", width="large"),
+        },
+        key=f"scenario_edit_nodes_{scenario.id}_{creating}",
+    )
+
+    st.markdown("**可能结局**")
+    ending_rows = st.data_editor(
+        [e.model_dump() for e in scenario.endings] or [{"id": "", "title": "", "condition": ""}],
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "id": st.column_config.TextColumn(
+                "ID", required=True, help="结局代号，如 rescue"
+            ),
+            "title": st.column_config.TextColumn("标题", required=True),
+            "condition": st.column_config.TextColumn("达成条件", width="large"),
+        },
+        key=f"scenario_edit_endings_{scenario.id}_{creating}",
+    )
+
+    submitted = st.button(submit_label, type="primary", use_container_width=True)
+    sync_scenario_editor_draft_to_disk(scenario.id, creating=creating)
 
     if not submitted:
         return None
 
-    if creating and not title.strip():
+    title = st.session_state[title_key]
+    description = st.session_state[description_key]
+    world_id = st.session_state[world_id_key]
+    world = st.session_state[world_key]
+    tone = st.session_state[tone_key]
+    opening_scene_id = st.session_state[opening_scene_id_key]
+    opening_scene_name = st.session_state[opening_scene_name_key]
+    opening_prompt = st.session_state[opening_prompt_key]
+    custom_world_overlay = st.session_state[custom_world_overlay_key]
+
+    if creating and not str(title).strip():
         st.error("请填写剧本标题。")
         return None
 
@@ -259,5 +291,6 @@ def render_scenario_editor(scenario: Scenario, *, creating: bool = False) -> Sce
         return None
 
     save_scenario(updated, generated=True)
+    clear_scenario_editor_draft(scenario.id, creating=creating)
     st.success(f"已保存：{updated.title}")
     return updated
