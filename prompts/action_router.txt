@@ -105,6 +105,8 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 
 ### 可以批准 — 拾取
 - 拾取眼前掉落物、战场物品 → `item_usage=pickup`，`combat_action=none`，`referenced_items` 填物品名；通常 `action_cost=bonus`（快速拾取），不消耗主要动作。
+- **同一句话里既有拾取又有射击/攻击时**：若【游戏状态】显示主要动作已用尽，则必须 `approved=false`，提示玩家下回合再射击，或本回合只拾取。
+- **同一回合不可在一次输入里同时消耗主要动作+附加动作后又追加第三个主要动作**；复合请求超出动作池时必须驳回并说明。
 
 ### 可以批准 — 主要动作（action_cost=main）
 | combat_action | 说明 | needs_roll |

@@ -107,6 +107,11 @@ def apply_state_patch(
             events.append(result)
 
     for inv in patch.inventory:
+        if in_combat and inv.action == "add" and _should_block_combat_pickup_add(
+            route, mechanical, inv.item
+        ):
+            events.append(f"跳过重复添加：{inv.item}（战斗中拾取未成功，不得凭空入库）")
+            continue
         if purchase_settled and inv.action == "add":
             item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
             if delivered_items and any(
@@ -202,6 +207,32 @@ def _mechanical_roll_failed(mechanical_events: list[str]) -> bool:
         if "检定" in event and ("失败" in event or "失败 ✗" in event):
             return True
     return False
+
+
+def _should_block_combat_pickup_add(
+    route: ActionRouteResult | None,
+    mechanical_events: list[str],
+    item_ref: str,
+) -> bool:
+    if route is None or route.item_usage != "pickup":
+        return False
+    item_name = item_name_from_ref(item_ref.strip()) or item_ref.strip()
+    if not item_name:
+        return False
+    for event in mechanical_events:
+        if "获得：" in event and fuzzy_match_name(item_name, event):
+            return False
+    if any(
+        marker in event
+        for event in mechanical_events
+        for marker in (
+            "附加动作已用尽",
+            "主要动作已用尽",
+            "没有可拾取的物品",
+        )
+    ):
+        return True
+    return not any("获得：" in event for event in mechanical_events)
 
 
 def _purchase_settled_from_route(route: ActionRouteResult, mechanical_events: list[str]) -> bool:

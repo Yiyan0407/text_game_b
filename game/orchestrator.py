@@ -560,20 +560,24 @@ class GameOrchestrator:
                         advance_after_player_action(character, game_state)
                     )
 
+        elif game_state.is_in_combat() and route.item_usage == "pickup":
+            pre_tool_events.extend(
+                resolve_pickup_in_combat(
+                    character, game_state, route.referenced_items
+                )
+            )
+
         if not game_state.is_in_combat() and route.needs_roll:
             pre_tool_events.extend(
                 self._execute_pre_roll(route, character, game_state)
             )
-            if game_state.is_in_combat():
-                pre_tool_events.extend(
-                    resolve_pickup_in_combat(
-                        character, game_state, route.referenced_items
-                    )
-                )
-            else:
-                for item in route.referenced_items:
-                    if character.add_inventory_item(item):
-                        pre_tool_events.append(f"获得：{item}")
+            for item in route.referenced_items:
+                if character.add_inventory_item(item):
+                    pre_tool_events.append(f"获得：{item}")
+        elif route.item_usage == "pickup" and not game_state.is_in_combat():
+            for item in route.referenced_items:
+                if character.add_inventory_item(item):
+                    pre_tool_events.append(f"获得：{item}")
         elif route.item_usage == "purchase" and not game_state.is_in_combat():
             pre_tool_events.extend(self._execute_purchase(route, character))
         elif route.item_usage == "use" and not (
@@ -653,7 +657,7 @@ class GameOrchestrator:
 
         handlers = {
             "attack": lambda: (
-                [player_attack(character, game_state, route.attack_target)]
+                [player_attack(character, game_state, route.attack_target, route=route)]
                 if route.attack_target
                 else []
             ),

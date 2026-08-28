@@ -468,6 +468,43 @@ class ActionRouter:
                 route.rejection_reason = "本回合附加动作已用尽，无法拾取。"
                 return route
 
+        if in_combat and route.approved:
+            main_actions = {
+                "attack",
+                "defend",
+                "flee",
+                "interact",
+                "talk",
+                "grapple",
+                "shove",
+                "help",
+                "search",
+            }
+            wants_main = route.combat_action in main_actions or route.action_cost == "main"
+            wants_bonus = route.item_usage == "pickup" or route.action_cost == "bonus"
+            combat = game_state.combat
+            if combat and wants_main and wants_bonus:
+                if not combat.has_main_action() and not combat.has_bonus_action():
+                    route.approved = False
+                    route.rejection_reason = (
+                        "本回合主要动作与附加动作都已用尽，请输入「结束回合」。"
+                    )
+                    return route
+                if not combat.has_main_action():
+                    route.approved = False
+                    route.rejection_reason = (
+                        "本回合主要动作已用尽，无法同时完成需要主要动作的部分"
+                        "（如射击/攻击）。你可使用附加动作拾取，或输入「结束回合」。"
+                    )
+                    return route
+                if not combat.has_bonus_action():
+                    route.approved = False
+                    route.rejection_reason = (
+                        "本回合附加动作已用尽，无法同时拾取物品。"
+                        "请先完成攻击/主要动作，下回合再拾取。"
+                    )
+                    return route
+
         if route.skill_usage == "use" or (
             route.skill_usage == "none" and route.referenced_skills
         ):

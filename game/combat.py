@@ -220,7 +220,10 @@ def player_attack(
     game_state: GameState,
     target_name: str,
     use_dex: bool = False,
+    route: ActionRouteResult | None = None,
 ) -> str:
+    from game.weapon_combat import ensure_weapon_ready, resolve_weapon_profile
+
     combat = game_state.combat
     if not combat or not combat.active:
         return "当前不在战斗中。"
@@ -238,21 +241,23 @@ def player_attack(
     if not enemy or enemy.hp <= 0:
         return f"找不到存活的敌人：{target_name}"
 
-    attr = "dex" if use_dex else "str"
-    mod = character.modifier(attr)
+    weapon = resolve_weapon_profile(character, route)
+    ensure_weapon_ready(character, weapon)
+    attr = "dex" if weapon.use_dex or use_dex else "str"
+    mod = character.modifier(attr) + weapon.attack_bonus
     attack_roll = roll(f"1d20{mod:+d}")
     hit = attack_roll.total >= enemy.ac
 
     if not hit:
         return (
-            f"攻击 {enemy.name}：1d20[{attack_roll.rolls[0]}]{mod:+d}={attack_roll.total} "
+            f"攻击 {enemy.name}（{weapon.label}）：1d20[{attack_roll.rolls[0]}]{mod:+d}={attack_roll.total} "
             f"vs AC {enemy.ac} → 未命中"
         )
 
-    damage = roll(f"1d6{mod:+d}")
+    damage = roll(f"{weapon.damage_notation}{mod:+d}")
     enemy.hp = max(0, enemy.hp - damage.total)
     result = (
-        f"攻击 {enemy.name}：命中！伤害 {damage.describe()}。"
+        f"攻击 {enemy.name}（{weapon.label}）：命中！伤害 {damage.describe()}。"
         f"{enemy.name} 剩余 HP {enemy.hp}/{enemy.max_hp}"
     )
     if enemy.hp <= 0:

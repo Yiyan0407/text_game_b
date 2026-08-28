@@ -1,6 +1,7 @@
 """叙事简报构建：供 KP 纯叙事模式使用。"""
 
 from game.check_consequences import format_check_failure_constraints_for_kp
+from game.combat_constraints import format_combat_constraints_for_kp
 from game.models import Character, GameState
 from game.results import ActionRouteResult
 
@@ -34,6 +35,10 @@ def build_narrative_brief_static(
     if failure_constraints:
         lines.append("")
         lines.append(failure_constraints)
+    combat_constraints = format_combat_constraints_for_kp(mechanical_events, route)
+    if combat_constraints:
+        lines.append("")
+        lines.append(combat_constraints)
     lines.append(
         "【写作要求】第二人称「你」，遵守叙事收笔与禁止推进；勿复述本简报字段；勿列编号选项。"
         "叙事须与下方【当前状态】背包、持用、技能一致：已有照明/工具时不可写「没有照明」；"
