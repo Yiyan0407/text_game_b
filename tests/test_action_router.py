@@ -619,3 +619,106 @@ def test_action_router_prompt_formats_without_missing_variables():
     )
     assert formatted
     assert '"name"' in formatted[0].content
+
+
+def test_validate_remaps_use_item_to_attack_when_input_attacks():
+    from game.models import CombatEnemy, CombatState
+    from tests.fixtures_effects import forged_weapon
+
+    cutter = forged_weapon("分子切割器", "2d10")
+    character = Character(name="测试", inventory=[cutter])
+    character.equip_item("分子切割器", slot="hand")
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="变异体", hp=20, max_hp=20, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+        enemy_distances={"变异体": 2},
+    )
+    route = _approved_route(
+        mode="combat",
+        item_usage="use",
+        combat_action="use_item",
+        referenced_items=["分子切割器"],
+        attack_target="变异体",
+    )
+    result = ActionRouter.validate(
+        route,
+        character,
+        game_state,
+        user_input="使用分子切割器进行攻击",
+    )
+    assert result.approved is True
+    assert result.combat_action == "attack"
+    assert result.item_usage == "none"
+
+
+def test_validate_auto_fills_approach_move_for_attack():
+    from game.models import CombatEnemy, CombatState
+    from tests.fixtures_effects import forged_weapon
+
+    cutter = forged_weapon("分子切割器", "2d10")
+    character = Character(name="测试", inventory=[cutter])
+    character.equip_item("分子切割器", slot="hand")
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="变异体", hp=20, max_hp=20, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+        movement_speed_m=12,
+        movement_remaining_m=12,
+        enemy_distances={"变异体": 10},
+    )
+    route = _approved_route(
+        mode="combat",
+        combat_action="attack",
+        attack_target="变异体",
+        move_meters=4,
+        move_target="变异体",
+    )
+    result = ActionRouter.validate(
+        route,
+        character,
+        game_state,
+        user_input="接近他到攻击距离。使用分子切割器进行攻击",
+    )
+    assert result.approved is True
+    assert result.move_meters == 8
+    assert result.combat_action == "attack"
+
+
+def test_validate_upgrades_move_to_attack_when_input_includes_attack():
+    from game.models import CombatEnemy, CombatState
+
+    character = Character(name="测试")
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="变异体", hp=20, max_hp=20, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+        movement_speed_m=12,
+        movement_remaining_m=12,
+        enemy_distances={"变异体": 10},
+    )
+    route = _approved_route(
+        mode="combat",
+        combat_action="move",
+        move_target="变异体",
+        move_meters=4,
+        action_cost="free",
+    )
+    result = ActionRouter.validate(
+        route,
+        character,
+        game_state,
+        user_input="接近他到攻击距离。使用分子切割器进行攻击",
+    )
+    assert result.combat_action == "attack"
+    assert result.attack_target == "变异体"
+

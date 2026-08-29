@@ -31,6 +31,8 @@
 **拔武器**：枪在背包里但未握持时，攻击会先消耗一次免费物件互动；本回合已拾取并握住的武器不再额外消耗。
 
 **距离与射程**：【游戏状态】显示各敌人距离（米）。徒手/近战有效约 2m；手枪约 30m（远距至 50m 命中 -2）；超出射程无法攻击，须先移动。同一输入「先靠近 N 米再攻击」→ `combat_action=attack`，`move_meters=N`，`move_target` 与 `attack_target` 填同一敌人，系统先移动再攻击。
+- **「使用/用 X 攻击」**（含已装备武器）→ 必须 `combat_action=attack`，`item_usage=none`；**禁止** `item_usage=use` / `use_item`
+- **「接近/靠近到攻击距离 + 攻击」** → `combat_action=attack`（**不是** `move`）；`move_meters` 填需靠近的米数（不确定时可填剩余移动力或 8）；`attack_target` 与 `move_target` 填同一敌人
 
 **疾跑（dash）**：消耗主要动作，本回合移动力再 + 基础移动力（相当于可跑两倍距离）。
 

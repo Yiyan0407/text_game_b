@@ -556,6 +556,44 @@ def test_player_move_does_not_use_main_action():
     assert game_state.combat.has_main_action() is True
 
 
+def test_orchestrator_attack_after_approach_at_melee_range():
+    from game.orchestrator import GameOrchestrator
+    from tests.fixtures_effects import forged_weapon
+
+    cutter = forged_weapon("分子切割器", "2d10")
+    character = Character(name="测试", strength=16, inventory=[cutter])
+    character.equip_item("分子切割器", slot="hand")
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="变异体", hp=30, max_hp=30, ac=5)],
+        turn_order=["player"],
+        turn_index=0,
+        movement_speed_m=12,
+        movement_remaining_m=12,
+        enemy_distances={"变异体": 10},
+    )
+    route = _approved_route(
+        mode="combat",
+        combat_action="attack",
+        attack_target="变异体",
+        move_meters=8,
+        move_target="变异体",
+        action_cost="main",
+    )
+    from unittest.mock import MagicMock
+
+    orchestrator = GameOrchestrator(kp_chain=MagicMock(), action_router=MagicMock())
+    events = orchestrator._resolve_mechanics(route, character, game_state, None)
+    joined = " ".join(events)
+    assert "靠近 8m" in joined
+    assert game_state.combat.enemy_distances["变异体"] == 2
+    assert "无法攻击" not in joined
+    assert "攻击 变异体" in joined
+    assert not game_state.combat.has_main_action()
+
+
 def test_player_attack_rejects_out_of_range():
     character = Character(
         name="测试",

@@ -174,6 +174,111 @@ def _looks_like_infiltration_action(text: str) -> bool:
     return any(marker in normalized for marker in STEALTH_ACTION_MARKERS)
 
 
+_WEAPON_ATTACK_MARKERS = (
+    "攻击",
+    "砍",
+    "刺",
+    "切开",
+    "切割",
+    "射击",
+    "开枪",
+    "挥",
+    "击打",
+    "打向",
+    "招呼",
+)
+_APPROACH_MARKERS = (
+    "接近",
+    "靠近",
+    "缩短距离",
+    "攻击距离",
+    "迎上",
+    "冲过去",
+    "贴近",
+    "拉到",
+    "进到",
+)
+
+
+def _input_implies_weapon_attack(user_input: str) -> bool:
+    text = user_input.strip()
+    return bool(text) and any(marker in text for marker in _WEAPON_ATTACK_MARKERS)
+
+
+def _input_implies_approach(user_input: str) -> bool:
+    text = user_input.strip()
+    return bool(text) and any(marker in text for marker in _APPROACH_MARKERS)
+
+
+def _normalize_combat_attack_route(
+    route: ActionRouteResult,
+    user_input: str,
+) -> None:
+    """「接近+使用武器攻击」须走 combat_action=attack，避免误路由为 move / use_item。"""
+    if not _input_implies_weapon_attack(user_input):
+        return
+
+    if route.combat_action == "move":
+        route.combat_action = "attack"
+        if not route.attack_target.strip():
+            route.attack_target = route.move_target
+        route.action_cost = "main"
+        route.needs_roll = False
+        route.roll_type = "none"
+
+    if route.item_usage == "use" or route.combat_action == "use_item":
+        route.combat_action = "attack"
+        route.item_usage = "none"
+        route.action_cost = "main"
+        route.needs_roll = False
+        route.roll_type = "none"
+    elif route.combat_action == "none":
+        route.combat_action = "attack"
+        route.action_cost = "main"
+        route.needs_roll = False
+        route.roll_type = "none"
+
+
+def _auto_fill_approach_move_for_attack(
+    route: ActionRouteResult,
+    character: Character,
+    game_state: GameState,
+    user_input: str,
+) -> None:
+    """玩家意图靠近后攻击时，自动补足 move_meters 至射程内（在移动力允许范围内）。"""
+    if route.combat_action != "attack" or not route.attack_target.strip():
+        return
+    combat = game_state.combat
+    if not combat:
+        return
+
+    from game.combat_range import DEFAULT_START_DISTANCE_M, weapon_range_m
+    from game.weapon_combat import resolve_weapon_profile
+
+    weapon = resolve_weapon_profile(character, route, user_input=user_input)
+    dist = combat.distance_to(route.attack_target) or DEFAULT_START_DISTANCE_M
+    _, _, hard_max = weapon_range_m(weapon)
+    wants_approach = _input_implies_approach(user_input) or route.move_meters > 0
+    if dist <= hard_max:
+        if route.move_meters > 0:
+            route.move_target = route.move_target.strip() or route.attack_target
+            route.move_toward = True
+        return
+    if not wants_approach:
+        return
+
+    needed = max(0, dist - hard_max)
+    if route.move_meters <= 0:
+        route.move_meters = min(needed, combat.movement_remaining_m)
+    else:
+        route.move_meters = min(
+            max(route.move_meters, needed),
+            combat.movement_remaining_m,
+        )
+    route.move_toward = True
+    route.move_target = route.move_target.strip() or route.attack_target
+
+
 def _looks_like_restricted_area(context: str) -> bool:
     return any(signal in context for signal in RESTRICTED_AREA_SIGNALS)
 
@@ -422,6 +527,7 @@ class ActionRouter:
         roll_context = _format_recent_history(history or [], limit=6)
 
         if in_combat:
+            _normalize_combat_attack_route(route, user_input)
             route.mode = "combat"
             route.trigger_combat = False
             combat = game_state.combat
@@ -547,6 +653,10 @@ class ActionRouter:
                 from game.combat_range import DEFAULT_START_DISTANCE_M, attack_range_status
                 from game.weapon_combat import resolve_weapon_profile
 
+                _auto_fill_approach_move_for_attack(
+                    route, character, game_state, user_input
+                )
+
                 combat = game_state.combat
                 weapon = resolve_weapon_profile(character, route)
                 dist = combat.distance_to(route.attack_target) or DEFAULT_START_DISTANCE_M
@@ -591,18 +701,22 @@ class ActionRouter:
         if in_combat and route.item_usage == "use":
             from game.combat_item_use import combat_use_item_cost
 
-            route.combat_action = "use_item"
-            route.mode = "combat"
-            if route.referenced_items:
-                route.action_cost = combat_use_item_cost(
-                    character, route.referenced_items[0]
-                )
+            if route.combat_action != "attack":
+                route.combat_action = "use_item"
             else:
-                route.action_cost = "bonus"
+                route.item_usage = "none"
+            route.mode = "combat"
+            if route.combat_action == "use_item":
+                if route.referenced_items:
+                    route.action_cost = combat_use_item_cost(
+                        character, route.referenced_items[0]
+                    )
+                else:
+                    route.action_cost = "bonus"
             route.needs_roll = False
             route.roll_type = "none"
             combat = game_state.combat
-            if combat and route.approved:
+            if combat and route.approved and route.combat_action == "use_item":
                 if route.action_cost == "free" and not combat.has_free_interact():
                     route.approved = False
                     route.rejection_reason = (
