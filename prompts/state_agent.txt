@@ -19,12 +19,11 @@
     "advance_minutes": 2,
     "deadlines": [
       {{
-        "id": "bomb",
-        "label": "炸弹爆炸",
-        "due_in_minutes": 30,
-        "consequence": "大楼一层发生爆炸，警报响起",
-        "fail_quest_ids": ["q1"],
-        "hp_loss": 8
+        "id": "portal_launch",
+        "label": "传送门自动启动",
+        "due_in_minutes": 13,
+        "consequence": "未完成准备者将被强制传送",
+        "fail_quest_ids": ["primary-mission"]
       }}
     ],
     "cancel_deadline_ids": ["old_event"]
@@ -49,6 +48,7 @@
   - `fail_quest_ids`：仅当后果**确实发生**且你输出 `enforce_deadline_ids` 时才会判失败的任务 id
   - `hp_loss`：后果确实发生时的伤害点数；爆炸/遇袭等建议写 5–15
   - 若之前已登记同类时限，**禁止重复 add**（KP 复述剩余时间不算新时限）；改期时先 cancel 再 add
+  - **禁止**仅凭场景切换或 JSON 示例登记时限；叙事/对话中未出现的威胁不可 add
 - **cancel_deadline_ids**：玩家已化解威胁（拆弹、改日志、贿赂、伪装等）或约定取消/改期时取消对应 id
 - **enforce_deadline_ids**：仅当结合 memory_facts 与最近对话确认到期后果**确实发生**时写入；到期**不会**自动 enforce
 

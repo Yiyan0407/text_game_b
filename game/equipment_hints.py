@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from game.kp_scan_parse import missing_implant_modules
 from game.models import Character, ChatMessage
 
 _IMPLANT_TOPIC_MARKERS = ("义体", "植入", "改造", "体内", "模块")
@@ -43,5 +44,11 @@ def format_equipment_sync_hint(
         lines.append(
             "【提示】KP 叙事可能列出了体内模块；请逐项阅读 KP 原文，自行判断哪些须 inventory add + body equip（description=已植入）。"
         )
+        missing = missing_implant_modules(character, recent_kp)
+        if missing:
+            lines.append(
+                "【须登记】以下模块 KP 已扫描确认但【背包/装备】中缺失，须逐项 add + body equip："
+                + "、".join(missing)
+            )
 
     return "\n".join(lines)

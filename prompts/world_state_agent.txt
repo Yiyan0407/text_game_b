@@ -19,16 +19,15 @@
     "advance_reason": "与值班员简短问答并观察面板",
     "deadlines": [
       {{
-        "id": "bomb",
-        "label": "炸弹爆炸",
-        "due_in_minutes": 30,
-        "consequence": "大楼一层发生爆炸，警报响起",
-        "fail_quest_ids": ["q1"],
-        "hp_loss": 8
+        "id": "portal_launch",
+        "label": "传送门自动启动",
+        "due_in_minutes": 13,
+        "consequence": "未完成准备者将被强制传送",
+        "fail_quest_ids": ["primary-mission"]
       }}
     ],
     "cancel_deadline_ids": ["old_event"],
-    "enforce_deadline_ids": ["bomb"]
+    "enforce_deadline_ids": ["portal_launch"]
   }},
   "end_combat": false
 }}
@@ -46,6 +45,13 @@
   - **enforce_deadline_ids**：仅当结合【关键事实】与【最近对话】确认后果**确实发生**时写入，系统才执行任务失败/伤害；**禁止**在到期时默认 enforce
   - 若之前已登记同类时限，**禁止重复 add**；改期时先 cancel 再 add
   - 使用【游戏状态】中 `[id=...]` 填写 cancel/enforce 的 id
+  - **禁止**仅凭场景切换、模组刻板印象或 JSON 示例登记时限；须在【最近对话】、【玩家行动】、memory_facts 或【机械结算】中**已有明确倒计时/威胁**才可 add
+
+### background_processes（后台进程 — 定时任务）
+- 玩家启动**后台下载/更新/安装**且叙事或【玩家行动】给出预计耗时时登记
+- 字段：`label`（如「CyberBreacher v4.7.3 更新」）、`duration_minutes`（预计分钟数）、`result_fact`（完成时写入 memory_facts）、`blocks_actions`（完成前受限能力，如「入侵」）
+- 故事时钟到达 `started_at + duration` 后系统自动标记完成；**KP 勿再写进度条或「尚不可用」**
+- 若 memory_facts 已写「更新已完成」，**禁止**再登记 running 进程
 
 ### scene
 - 玩家明确进入新地点时；**战斗中禁止** scene 变更

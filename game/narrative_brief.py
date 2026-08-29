@@ -79,6 +79,12 @@ def merge_narrative_brief_with_state(
     if constraints:
         lines.append("")
         lines.append(constraints)
+    from game.background_process import format_background_processes_for_kp
+
+    process_hint = format_background_processes_for_kp(game_state)
+    if process_hint:
+        lines.append("")
+        lines.append(process_hint)
     lines.append("")
     lines.append("【当前状态】")
     lines.append(f"场景：{game_state.current_scene or '（未知）'}")

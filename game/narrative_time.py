@@ -509,11 +509,23 @@ def _apply_deadline_penalties(
 
     hp_loss = _default_hp_loss(deadline.consequence, deadline.hp_loss)
     if character is not None and hp_loss > 0:
+        from game.effect_resolver import apply_incoming_damage
+
         before = character.hp
-        character.hp = max(1, character.hp - hp_loss)
-        actual = before - character.hp
-        if actual > 0:
-            events.append(f"💔 时限后果：受到 {actual} 点伤害（HP {character.hp}/{character.max_hp}）")
+        result = apply_incoming_damage(character, hp_loss)
+        if character.hp < 1:
+            character.hp = 1
+        if result.fully_blocked and result.effective_sp > 0:
+            events.append(
+                f"🛡️ 时限后果：SP{result.effective_sp} 完全挡住 {hp_loss} 点伤害"
+            )
+        else:
+            actual = before - character.hp
+            if actual > 0:
+                events.extend(result.format_events())
+                events.append(
+                    f"💔 时限后果：受到 {actual} 点伤害（HP {character.hp}/{character.max_hp}）"
+                )
 
     return events
 
@@ -568,6 +580,9 @@ def advance_narrative_clock(
         if deadline.due_at_minutes > before and deadline.due_at_minutes <= game_state.elapsed_minutes:
             events.extend(_trigger_deadline(game_state, deadline, character))
     events.extend(check_imminent_deadlines(game_state, character=character))
+    from game.background_process import resolve_background_processes
+
+    events.extend(resolve_background_processes(game_state))
     return events
 
 
@@ -794,6 +809,8 @@ def apply_turn_time_from_patch(
     user_input: str,
     character: Character | None,
     has_time_field: bool,
+    mechanical_events: list[str] | None = None,
+    recent_history: str = "",
 ) -> list[str]:
     minutes, reason = resolve_turn_time(
         time_patch,
@@ -803,7 +820,7 @@ def apply_turn_time_from_patch(
         has_time_field=has_time_field,
     )
     if time_patch is None and minutes <= 0:
-        return check_imminent_deadlines(game_state, character=character)
+        return _finalize_turn_time_events(game_state, character)
 
     patch = time_patch if time_patch is not None else TimePatch()
     if minutes > 0 and patch.advance_minutes <= 0:
@@ -813,11 +830,35 @@ def apply_turn_time_from_patch(
     elif minutes <= 0 and not (
         patch.time_label or patch.deadlines or patch.cancel_deadline_ids or patch.enforce_deadline_ids
     ):
-        return check_imminent_deadlines(game_state, character=character)
+        return _finalize_turn_time_events(game_state, character)
 
-    events = apply_time_patch(game_state, patch, character)
-    if minutes <= 0:
-        events.extend(check_imminent_deadlines(game_state, character=character))
+    blocked_events: list[str] = []
+    if patch.deadlines:
+        from game.deadline_grounding import build_deadline_corpus, filter_deadline_patches
+
+        corpus = build_deadline_corpus(
+            user_input=user_input,
+            memory_facts=game_state.memory_facts,
+            mechanical_events=mechanical_events,
+            recent_history=recent_history,
+        )
+        filtered, blocked_events = filter_deadline_patches(patch.deadlines, corpus)
+        patch = patch.model_copy(update={"deadlines": filtered})
+
+    events = blocked_events + apply_time_patch(game_state, patch, character)
+    return _finalize_turn_time_events(game_state, character, events)
+
+
+def _finalize_turn_time_events(
+    game_state: GameState,
+    character: Character | None,
+    base_events: list[str] | None = None,
+) -> list[str]:
+    from game.background_process import resolve_background_processes
+
+    events = list(base_events or [])
+    events.extend(check_imminent_deadlines(game_state, character=character))
+    events.extend(resolve_background_processes(game_state))
     return events
 
 

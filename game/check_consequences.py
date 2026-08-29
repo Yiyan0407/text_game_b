@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from config.settings import get_settings
+from game.effect_resolver import apply_incoming_damage
 from game.models import ABILITY_LABELS, Character, GameState, NPCRelation
 from game.results import AbilityCheckResult, ActionRouteResult
 
@@ -51,6 +52,8 @@ _STEALTH_MARKERS = (
     "黑入",
     "偷听",
     "窥探",
+    "偷",
+    "偷窃",
 )
 
 
@@ -107,6 +110,24 @@ def _worsen_attitude(attitude: str) -> str | None:
     return None
 
 
+def _apply_failure_damage(character: Character, raw_damage: int) -> list[str]:
+    """检定失败伤害须走 SP 机制（与战斗一致）。"""
+    if raw_damage <= 0:
+        return []
+
+    result = apply_incoming_damage(character, raw_damage)
+    if character.hp < 1:
+        character.hp = 1
+
+    if result.fully_blocked and result.effective_sp > 0:
+        source = f"（{result.sp_source}）" if result.sp_source else ""
+        return [
+            f"🛡️ 失败反制：SP{result.effective_sp} 完全挡住 {raw_damage} 点伤害{source}"
+        ]
+
+    return result.format_events()
+
+
 def apply_check_failure_consequences(
     route: ActionRouteResult,
     result: AbilityCheckResult,
@@ -129,14 +150,8 @@ def apply_check_failure_consequences(
     events.append(f"📌 行动失败：{intent}")
 
     if is_dangerous_attempt(route) or (margin >= 8 and result.ability in ("str", "dex", "con")):
-        hp_loss = min(8, max(1, margin // 2))
-        before = character.hp
-        character.hp = max(1, character.hp - hp_loss)
-        actual = before - character.hp
-        if actual > 0:
-            events.append(
-                f"💔 失败受伤：-{actual} HP（剩余 {character.hp}/{character.max_hp}）"
-            )
+        raw_damage = min(8, max(1, margin // 2))
+        events.extend(_apply_failure_damage(character, raw_damage))
 
     if result.ability in ("cha", "wis") and is_social_attempt(route):
         npc = _find_target_npc(game_state, route)
@@ -184,7 +199,7 @@ def format_check_failure_constraints_for_kp(
     for event in mechanical_events:
         if "检定" in event and "失败" in event:
             lines.append(f"- 机械结果：{event}")
-        elif event.startswith(("💔", "😠", "⚠️", "📌", "📚")):
+        elif event.startswith(("💔", "😠", "⚠️", "📌", "📚", "🛡️", "💥")):
             lines.append(f"- {event}")
     lines.extend(
         [

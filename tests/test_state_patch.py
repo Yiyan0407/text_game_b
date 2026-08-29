@@ -1,6 +1,6 @@
 from game.inventory import InventoryItem
 from game.models import Character, GameState
-from game.results import ActionRouteResult, InventoryPatch, NpcPatch, StatePatch
+from game.results import ActionRouteResult, EquipmentPatch, InventoryPatch, NpcPatch, StatePatch
 from game.state_patch import apply_inventory_change, apply_state_patch, patch_from_dict
 
 
@@ -136,6 +136,68 @@ def test_patch_from_dict_empty():
     patch = patch_from_dict({})
     assert patch.npcs == []
     assert patch.end_combat is False
+
+
+def test_item_sync_allows_add_when_route_is_pickup_but_not_mechanically_granted():
+    """KP 叙事后 ItemSync：NPC 交付不应被 pickup 路由误拦。"""
+    character = Character(name="测试")
+    game_state = GameState()
+    route = ActionRouteResult(
+        approved=True,
+        item_usage="pickup",
+        referenced_items=["量子纠缠通信器"],
+    )
+    patch = StatePatch(
+        inventory=[
+            InventoryPatch(
+                action="add",
+                item="量子纠缠通信器",
+                quantity=1,
+                unit="枚",
+                kind="durable",
+                description="已植入耳后接口",
+            ),
+        ],
+        equipment=[
+            EquipmentPatch(action="equip", item="量子纠缠通信器", slot="body"),
+        ],
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        route=route,
+        mechanical_events=["获得：病毒分析仪", "获得：分子切割器"],
+        inventory_sync=True,
+    )
+    assert character.has_inventory_item("量子纠缠通信器")
+    assert character.is_item_equipped("量子纠缠通信器")
+    assert any("获得" in event for event in events)
+
+
+def test_world_state_still_blocks_pickup_without_mechanical_grant():
+    character = Character(name="测试")
+    game_state = GameState()
+    route = ActionRouteResult(
+        approved=True,
+        item_usage="pickup",
+        referenced_items=["量子纠缠通信器"],
+    )
+    patch = StatePatch(
+        inventory=[
+            InventoryPatch(action="add", item="量子纠缠通信器", quantity=1, unit="枚"),
+        ],
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        route=route,
+        mechanical_events=[],
+        inventory_sync=False,
+    )
+    assert not character.has_inventory_item("量子纠缠通信器")
+    assert any("拾取未成功" in event for event in events)
 
 
 def test_apply_state_patch_blocks_exploration_duplicate_pickup():

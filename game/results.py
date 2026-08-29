@@ -155,6 +155,14 @@ class DeadlinePatch(BaseModel):
     hp_loss: int = 0
 
 
+class BackgroundProcessPatch(BaseModel):
+    id: str = ""
+    label: str = ""
+    duration_minutes: int = 1
+    result_fact: str = ""
+    blocks_actions: str = ""
+
+
 class TimePatch(BaseModel):
     time_label: str = ""
     advance_minutes: int = 0
@@ -181,6 +189,7 @@ class StatePatch(BaseModel):
     equipment: list[EquipmentPatch] = Field(default_factory=list)
     skills: list[SkillPatch] = Field(default_factory=list)
     memory_facts: list[str] = Field(default_factory=list)
+    background_processes: list[BackgroundProcessPatch] = Field(default_factory=list)
     time: TimePatch | None = None
     end_combat: bool = False
     reroll: RerollPatch | None = None

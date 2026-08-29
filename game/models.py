@@ -455,6 +455,16 @@ class NarrativeDeadline(BaseModel):
     hp_loss: int = 0
 
 
+class BackgroundProcess(BaseModel):
+    id: str
+    label: str
+    started_at_minutes: int = 0
+    duration_minutes: int = 1
+    status: Literal["running", "completed", "cancelled"] = "running"
+    result_fact: str = ""
+    blocks_actions: str = ""
+
+
 class CombatEnemy(BaseModel):
     name: str
     hp: int
@@ -669,6 +679,7 @@ class GameState(BaseModel):
     story_start_absolute_minutes: int = 8 * 60
     narrative_time_label: str = ""
     deadlines: list[NarrativeDeadline] = Field(default_factory=list)
+    background_processes: list[BackgroundProcess] = Field(default_factory=list)
     last_ability_check: LastAbilityCheckRecord | None = None
     pending_reroll: PendingReroll | None = None
 

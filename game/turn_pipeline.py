@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 
 from chain.action_router import ActionRouter
+from chain.agent_context import format_recent_history
 from chain.async_utils import gather_best_effort
 from chain.item_sync_agent import ItemSyncAgent
 from chain.kp_chain import KPChain
@@ -24,6 +25,7 @@ from game.narrative_brief import (
 from game.opening_suggestions import default_opening_suggestions
 from game.results import ActionRouteResult, TurnResult
 from game.scenario import Scenario
+from game.kp_scan_parse import merge_implant_fallback_patch
 from game.state_patch import apply_state_patch
 from game.turn_context import TurnContext
 from game.turn_router import should_run_item_sync, should_run_stat_forge
@@ -112,6 +114,7 @@ class TurnPipeline:
             delivered_items=delivered,
             mechanical_events=ctx.mechanical_events,
             user_input=ctx.effective_input,
+            recent_history=format_recent_history(ctx.history),
         )
         ctx.narrative_brief = self._build_narrative_brief(ctx)
         if ctx.increment_turn:
@@ -147,6 +150,12 @@ class TurnPipeline:
             ctx.history,
             route=ctx.route,
         )
+        ctx.item_patch = merge_implant_fallback_patch(
+            ctx.item_patch,
+            ctx.character,
+            ctx.kp_response,
+            ctx.effective_input,
+        )
         delivered = self._delivered_item_names(ctx.route, ctx.mechanical_events)
         ctx.item_sync_events = apply_state_patch(
             ctx.item_patch,
@@ -157,6 +166,7 @@ class TurnPipeline:
             mechanical_events=ctx.mechanical_events,
             user_input=ctx.effective_input,
             apply_time=False,
+            inventory_sync=True,
         )
         return ctx.item_sync_events
 

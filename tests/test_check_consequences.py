@@ -5,6 +5,7 @@ from game.check_consequences import (
     is_social_attempt,
     is_stealth_attempt,
 )
+from game.effects import EntityEffects
 from game.models import Character, GameState, NPCRelation
 from game.narrative_brief import build_narrative_brief_static
 from game.results import AbilityCheckResult, ActionRouteResult
@@ -36,7 +37,7 @@ def test_check_failure_records_memory_and_damage():
     result = _failed_result(ability="dex", dc=18, total=7)
     events = apply_check_failure_consequences(route, result, character, state)
     assert any("行动失败" in event for event in events)
-    assert any("受伤" in event for event in events)
+    assert any("受到" in event or "伤害" in event for event in events)
     assert character.hp < 20
     assert any("攀爬" in fact for fact in state.memory_facts)
 
@@ -102,6 +103,21 @@ def test_narrative_brief_includes_failure_constraints():
     assert "【检定失败" in brief
     assert "不得写行动成功" in brief
     assert format_check_failure_constraints_for_kp([], route) == ""
+
+
+def test_check_failure_damage_blocked_by_implant_sp():
+    route = _route(action_intent="偷窃B1层门禁钥匙卡", ability="dex")
+    character = Character(name="里昂", hp=11, max_hp=11, dex=14)
+    character.add_inventory_item("骨骼强化涂层", kind="durable", description="已植入")
+    item = character.find_inventory_item("骨骼强化涂层")
+    item.effects = EntityEffects(sp=22, sp_max=22)
+    character.equip_item("骨骼强化涂层", slot="body")
+    state = GameState()
+    result = _failed_result(ability="dex", dc=14, total=4)
+    events = apply_check_failure_consequences(route, result, character, state)
+    assert character.hp == 11
+    assert any("完全挡住" in event for event in events)
+    assert not any("💔" in event for event in events)
 
 
 def test_is_dangerous_attempt():

@@ -165,6 +165,8 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 | pickup | 拾取眼前物品（见上） | false |
 | use_item | 快速装备/收起武器、手电、工具（`item_usage=use`，系统自动判定） | false |
 
+**勿把 NPC 当面交给你/塞给你/植入的物品标为 pickup**（如「给我通信器」「接过装备」）→ `item_usage=none`，`sync_inventory=true`；pickup 仅用于从地上/容器/战场捡起。
+
 ### 动作资源
 读取【游戏状态】中的「移动力 / 免费物件互动 / 主要动作 / 附加动作」；对应资源用尽则 approved=false。
 

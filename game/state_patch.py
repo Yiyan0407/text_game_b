@@ -8,6 +8,7 @@ from game.inventory import item_name_from_ref
 from game.models import Character, GameState
 from game.results import (
     ActionRouteResult,
+    BackgroundProcessPatch,
     DeadlinePatch,
     EquipmentPatch,
     InventoryPatch,
@@ -86,6 +87,8 @@ def apply_state_patch(
     mechanical_events: list[str] | None = None,
     user_input: str = "",
     apply_time: bool = True,
+    inventory_sync: bool = False,
+    recent_history: str = "",
 ) -> list[str]:
     """将 StatePatch 应用到游戏状态，返回事件列表。"""
     events: list[str] = []
@@ -115,10 +118,22 @@ def apply_state_patch(
         if inv.action != "add":
             continue
         if _should_block_inventory_add(
-            route, mechanical, inv, character, in_combat
+            route,
+            mechanical,
+            inv,
+            character,
+            in_combat,
+            inventory_sync=inventory_sync,
         ):
             events.append(
-                _inventory_add_block_reason(route, mechanical, inv, character, in_combat)
+                _inventory_add_block_reason(
+                    route,
+                    mechanical,
+                    inv,
+                    character,
+                    in_combat,
+                    inventory_sync=inventory_sync,
+                )
             )
             continue
         if purchase_settled:
@@ -199,6 +214,16 @@ def apply_state_patch(
             game_state.add_memory_facts([cleaned], settings.max_memory_facts)
             events.append(f"已记录关键事实：{cleaned}")
 
+    from game.background_process import (
+        infer_background_process_from_facts,
+        register_background_process,
+        resolve_background_processes,
+    )
+
+    for process_patch in patch.background_processes:
+        events.extend(register_background_process(game_state, process_patch))
+    events.extend(infer_background_process_from_facts(game_state))
+
     if apply_time:
         events.extend(
             apply_turn_time_from_patch(
@@ -208,8 +233,11 @@ def apply_state_patch(
                 user_input=user_input,
                 character=character,
                 has_time_field=patch.time is not None,
+                mechanical_events=mechanical,
+                recent_history=recent_history,
             )
         )
+    events.extend(resolve_background_processes(game_state))
 
     if patch.end_combat and game_state.is_in_combat():
         events.append(end_combat(game_state))
@@ -422,6 +450,8 @@ def _should_block_inventory_add(
     inv: InventoryPatch,
     character: Character,
     in_combat: bool,
+    *,
+    inventory_sync: bool = False,
 ) -> bool:
     if inv.action != "add":
         return False
@@ -431,6 +461,10 @@ def _should_block_inventory_add(
 
     if _mechanical_already_settled_item(mechanical_events, item_name):
         return True
+
+    if inventory_sync:
+        # ItemSync（KP 叙事后）：NPC 交付/领取/植入等以叙事为准，不受 pickup 路由限制
+        return False
 
     if route and route.item_usage == "use" and character.has_inventory_item(item_name):
         if route.referenced_items and any(
@@ -482,6 +516,8 @@ def _inventory_add_block_reason(
     inv: InventoryPatch,
     character: Character,
     in_combat: bool,
+    *,
+    inventory_sync: bool = False,
 ) -> str:
     item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
     if _mechanical_already_settled_item(mechanical_events, item_name):
@@ -524,6 +560,7 @@ def patch_from_dict(data: dict) -> StatePatch:
     equipment = _coerce_equipment_list(data.get("equipment"))
     skills = _coerce_skill_list(data.get("skills"))
     memory_facts = _coerce_str_list(data.get("memory_facts"))
+    background_processes = _coerce_background_process_list(data.get("background_processes"))
     end_combat = bool(data.get("end_combat", False))
     time = _coerce_time_patch(data.get("time"))
     reroll = _coerce_reroll_patch(data.get("reroll"))
@@ -536,6 +573,7 @@ def patch_from_dict(data: dict) -> StatePatch:
         equipment=equipment,
         skills=skills,
         memory_facts=memory_facts,
+        background_processes=background_processes,
         time=time,
         end_combat=end_combat,
         reroll=reroll,
@@ -701,6 +739,29 @@ def _coerce_skill_list(value) -> list[SkillPatch]:
             )
         )
     return [s for s in skills if s.skill]
+
+
+def _coerce_background_process_list(value) -> list[BackgroundProcessPatch]:
+    if not isinstance(value, list):
+        return []
+    processes: list[BackgroundProcessPatch] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        try:
+            duration = max(1, int(item.get("duration_minutes", 1) or 1))
+        except (TypeError, ValueError):
+            duration = 1
+        processes.append(
+            BackgroundProcessPatch(
+                id=str(item.get("id", "")).strip(),
+                label=str(item.get("label", "")).strip(),
+                duration_minutes=duration,
+                result_fact=str(item.get("result_fact", "")).strip(),
+                blocks_actions=str(item.get("blocks_actions", "")).strip(),
+            )
+        )
+    return [process for process in processes if process.label]
 
 
 def _coerce_deadline_list(value) -> list[DeadlinePatch]:
