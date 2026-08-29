@@ -191,13 +191,6 @@ def apply_state_patch(
         if result:
             events.append(result)
 
-    for equip in patch.equipment:
-        if equip.action != "equip":
-            continue
-        result = _apply_equipment(character, equip)
-        if result:
-            events.append(result)
-
     unequipped_items = _unequipped_item_names(patch.equipment)
 
     for inv in patch.inventory:
@@ -219,6 +212,13 @@ def apply_state_patch(
                 added_this_turn=added_this_turn,
             )
         )
+
+    for equip in patch.equipment:
+        if equip.action != "equip":
+            continue
+        result = _apply_equipment(character, equip)
+        if result:
+            events.append(result)
 
     for skill in patch.skills:
         if skill.action == "add" and roll_failed:
@@ -364,6 +364,10 @@ def _unequipped_item_names(equipment_patches) -> set[str]:
     return names
 
 
+def _inventory_remove_quantity(inv: InventoryPatch) -> int:
+    return max(1, inv.quantity or 1)
+
+
 def _should_block_inventory_remove_on_unequip(
     character: Character,
     inv: InventoryPatch,
@@ -371,6 +375,13 @@ def _should_block_inventory_remove_on_unequip(
 ) -> bool:
     item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
     if not item_name:
+        return False
+    target = character.find_inventory_item(inv.item.strip())
+    if target is None:
+        return False
+    remove_qty = _inventory_remove_quantity(inv)
+    # 仅移除多余数量（如重复同步导致 qty>1），保留仍装备或应留在背包的那一份
+    if remove_qty < target.quantity:
         return False
     if any(fuzzy_match_name(item_name, name) for name in unequipped_items):
         return True
@@ -383,6 +394,10 @@ def _inventory_remove_block_reason(
     unequipped_items: set[str],
 ) -> str:
     item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
+    target = character.find_inventory_item(inv.item.strip())
+    remove_qty = _inventory_remove_quantity(inv)
+    if target is not None and remove_qty < target.quantity:
+        return f"跳过移除：{item_name}（数量不足或未指定部分移除）"
     if any(fuzzy_match_name(item_name, name) for name in unequipped_items):
         return f"跳过移除：{item_name}（卸下后应保留在背包，勿 inventory remove）"
     return f"跳过移除：{item_name}（仍装备中，请先 equipment unequip；卸下后物品回背包）"

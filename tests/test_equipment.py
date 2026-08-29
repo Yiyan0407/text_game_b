@@ -125,6 +125,43 @@ def test_apply_state_patch_blocks_remove_on_unequip():
     assert any("跳过移除" in event for event in events)
 
 
+def test_apply_state_patch_removes_duplicate_while_equipped():
+    character = Character(name="测试")
+    character.add_inventory_item(
+        "分子切割器", quantity=2, unit="枚", description="切割器", kind="durable"
+    )
+    character.equip_item("分子切割器", slot="hand")
+    game_state = GameState()
+    patch = StatePatch(
+        inventory=[InventoryPatch(action="remove", item="分子切割器", quantity=1, unit="枚")],
+    )
+    events = apply_state_patch(patch, character, game_state)
+    assert character.is_item_equipped("分子切割器")
+    assert character.find_inventory_item("分子切割器").quantity == 1
+    assert any("背包更新" in event for event in events)
+
+
+def test_apply_state_patch_unequip_remove_re_equip_order():
+    character = Character(name="测试")
+    character.add_inventory_item(
+        "分子切割器", quantity=2, unit="枚", description="切割器", kind="durable"
+    )
+    character.equip_item("分子切割器", slot="hand")
+    game_state = GameState()
+    patch = StatePatch(
+        equipment=[
+            EquipmentPatch(action="unequip", item="分子切割器", slot="hand"),
+            EquipmentPatch(action="equip", item="分子切割器", slot="hand"),
+        ],
+        inventory=[InventoryPatch(action="remove", item="分子切割器", quantity=1, unit="枚")],
+    )
+    events = apply_state_patch(patch, character, game_state)
+    assert character.is_item_equipped("分子切割器")
+    assert character.find_inventory_item("分子切割器").quantity == 1
+    assert not any("跳过移除" in event for event in events)
+    assert any("装备" in event for event in events)
+
+
 def test_no_auto_equip_without_equipment_patch():
     character = Character(name="测试")
     game_state = GameState()

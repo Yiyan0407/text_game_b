@@ -25,6 +25,13 @@
 - **禁止**编造【最近对话】与背景中均未出现的物品名
 - **禁止**把人物、同伴、动作补登记为物品
 
+## 重复物品 / 错误同步修正
+- 常见：`inventory add` 误重复导致背包数量 >1，但角色实际只有 1 件且仍装备中
+- **优先**用 `inventory remove` 且 `quantity` 小于当前背包数量，**只删多余份数**，无需先 unequip
+- 若须整件删除再重新 equip：同轮 patch 顺序为 **unequip → remove（quantity=1 且当前仅 1 件）→ equip**；**禁止**只写 equip + remove（remove 会被跳过）
+- **禁止**在仍装备且数量为 1 时 `inventory remove` 全量删除；须先 `equipment unequip`
+- 修正重复时**禁止**再 `inventory add` 同一物品
+
 ## 装备栏（补登记时）
 - 叙事上已穿戴或持用的物件须 `inventory add` + 对应槽位 `equip`；数值由 StatForge 自动补
 - **禁止**在 response 中说「不占用装备栏」「效果仅叙事体现」
@@ -80,6 +87,16 @@
   ],
   "equipment": [
     {{"action": "equip", "item": "防弹背心", "slot": "body"}}
+  ]
+}}
+```
+
+## 示例：重复入库修正（仍装备中，数量 2 删 1）
+```json
+{{
+  "response": "你说得对：系统误重复登记了一枚分子切割器。实际只有 1 枚且仍在你手上，我已移除背包里多出的那 1 枚。",
+  "inventory": [
+    {{"action": "remove", "item": "分子切割器", "quantity": 1, "unit": "枚"}}
   ]
 }}
 ```
