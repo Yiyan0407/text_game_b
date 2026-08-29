@@ -44,9 +44,8 @@ def format_combat_constraints_for_kp(
     if blocked:
         lines.append("- 被动作经济驳回的部分**不得**在叙事中写成已成功（例如主要动作已用尽则不可写射击命中）。")
         if route and route.item_usage == "pickup":
-            lines.append("- 若系统未出现「获得：xxx」，不得写已成功捡起该物品。")
+            lines.append("- 若系统已记录「免费物件互动：拾取 xxx」，KP 可写拾取过程；物品入库在叙事后由系统结算。")
+            lines.append("- 若未出现拾取动作额度记录，不得写已成功捡起该物品。")
     if attack_failed:
         lines.append("- 攻击未命中或未执行时，不得写目标已被该次攻击击倒/重创。")
-    if route and route.scope_stop.strip():
-        lines.append(f"- 叙事仍应收笔于：{route.scope_stop.strip()}")
     return "\n".join(lines)

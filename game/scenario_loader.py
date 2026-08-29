@@ -16,6 +16,26 @@ def slugify_scenario_id(title: str, *, prefix: str = "manual") -> str:
     return f"{prefix}_{slug}_{uuid.uuid4().hex[:6]}"
 
 
+def slugify_entity_id(label: str, *, prefix: str = "loc", existing: set[str] | None = None) -> str:
+    """从中文/英文标题生成稳定内部 id（供系统用，不展示给玩家编辑）。"""
+    text = (label or "").strip()
+    ascii_part = re.sub(r"[^\w\s-]", "", text.lower())
+    ascii_part = re.sub(r"[\s_-]+", "_", ascii_part).strip("_")
+    if ascii_part:
+        base = ascii_part[:40]
+    else:
+        base = f"{prefix}_{uuid.uuid5(uuid.NAMESPACE_URL, text).hex[:8]}"
+    if base[0].isdigit():
+        base = f"{prefix}_{base}"
+    used = existing or set()
+    candidate = base
+    suffix = 2
+    while candidate in used:
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    return candidate
+
+
 def blank_scenario_template(world_id: str = "fantasy") -> Scenario:
     return Scenario(
         id="draft_manual",

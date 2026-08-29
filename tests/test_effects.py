@@ -59,7 +59,7 @@ def test_sp1_breaks_on_heavy_hit():
 def test_effective_sp_takes_max_not_sum():
     character = Character(name="测试")
     for name, sp in (("甲A", 5), ("甲B", 8)):
-        character.add_inventory_item(name)
+        character.add_inventory_item(name, description="测试护甲")
         item = character.find_inventory_item(name)
         item.effects = EntityEffects(sp=sp, sp_max=sp)
         character.equip_item(name, slot="body" if name == "甲A" else "accessory")
@@ -111,7 +111,7 @@ def test_validate_effects_heal_dice():
 
 def test_sum_equipped_ac_bonus():
     character = Character(name="测试")
-    character.add_inventory_item("轻甲")
+    character.add_inventory_item("轻甲", description="轻便护甲")
     item = character.find_inventory_item("轻甲")
     item.effects = EntityEffects(ac_bonus=2)
     character.equip_item("轻甲", slot="body")

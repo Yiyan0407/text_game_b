@@ -71,8 +71,8 @@ def test_resolve_pickup_in_combat_uses_free_interact():
         turn_index=0,
     )
     events = resolve_pickup_in_combat(character, state, ["药瓶"])
-    assert any("药瓶" in event for event in events)
-    assert character.has_inventory_item("药瓶")
+    assert any("免费物件互动：拾取 药瓶" in event for event in events)
+    assert not character.has_inventory_item("药瓶")
     assert state.combat.free_interact_used is True
     assert state.combat.has_main_action() is True
     assert state.combat.has_bonus_action() is True

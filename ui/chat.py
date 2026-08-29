@@ -2,31 +2,69 @@ import streamlit as st
 
 from game.kp_directive import is_kp_directive, is_kp_meta_response
 from game.models import ChatMessage
+from ui.system_events import CompactSystemView, compact_system_events, format_tool_event_content
 
 AUTO_SEND_PROMPT_KEY = "auto_send_prompt"
 _KP_USER_AVATAR = "🎙️"
 _KP_META_AVATAR = "🎙️"
 _STORY_KP_AVATAR = "🎲"
+_SYSTEM_AVATAR = "⚙️"
 
 
 def queue_auto_send_prompt(text: str) -> None:
     st.session_state[AUTO_SEND_PROMPT_KEY] = text
 
 
-def format_tool_event_content(content: str) -> str:
-    text = str(content).strip()
-    if text.startswith("🎲 "):
-        return text[2:].strip()
-    return text
+def _system_caption(content: str) -> str:
+    return compact_system_events([content]).caption
+
+
+def _render_compact_system_view(view: CompactSystemView) -> None:
+    if not view.highlights and not view.summary and not view.details:
+        return
+    with st.chat_message("assistant", avatar=_SYSTEM_AVATAR):
+        st.caption(view.caption)
+        for line in view.highlights:
+            st.markdown(line)
+        if view.summary:
+            st.markdown(f"*{view.summary}*")
+        if view.details and not view.show_expander:
+            for line in view.details:
+                st.markdown(f"- {line}")
+        if view.show_expander and view.details:
+            with st.expander(view.expander_label, expanded=False):
+                for line in view.details:
+                    st.markdown(f"- {line}")
+
+
+def render_system_message(content: str) -> None:
+    text = format_tool_event_content(content)
+    if not text:
+        return
+    _render_compact_system_view(compact_system_events([content]))
 
 
 def render_tool_events_live(tool_events: list[str]) -> None:
-    for event in tool_events:
-        text = format_tool_event_content(event)
-        if not text:
-            continue
-        with st.chat_message("assistant", avatar=_STORY_KP_AVATAR):
-            st.markdown(f"*{text}*")
+    cleaned = [event for event in tool_events if str(event).strip()]
+    if not cleaned:
+        return
+    _render_compact_system_view(compact_system_events(cleaned))
+
+
+def render_kp_story_message(content: str) -> None:
+    text = content.strip()
+    if not text:
+        return
+    with st.chat_message("assistant", avatar=_STORY_KP_AVATAR):
+        st.caption("KP · 叙事")
+        st.markdown(text)
+
+
+def kp_story_chat_message(*, kp_meta: bool = False):
+    """KP 叙事流式输出的 chat 容器（与系统消息分离）。"""
+    if kp_meta:
+        return st.chat_message("assistant", avatar=_KP_META_AVATAR)
+    return st.chat_message("assistant", avatar=_STORY_KP_AVATAR)
 
 
 def render_live_user_message(content: str) -> None:
@@ -51,21 +89,31 @@ def _render_kp_meta_assistant_message(content: str) -> None:
 
 
 def render_chat_history(history: list[ChatMessage]) -> None:
-    for msg in history:
+    index = 0
+    while index < len(history):
+        msg = history[index]
         if msg.role == "system":
-            with st.chat_message("assistant", avatar=_STORY_KP_AVATAR):
-                st.markdown(f"*{format_tool_event_content(msg.content)}*")
+            batch: list[str] = []
+            while index < len(history) and history[index].role == "system":
+                batch.append(history[index].content)
+                index += 1
+            _render_compact_system_view(compact_system_events(batch))
             continue
         if msg.role == "user" and is_kp_directive(msg.content):
             _render_kp_meta_user_message(msg.content)
+            index += 1
             continue
         if msg.role == "assistant" and is_kp_meta_response(msg.content):
             _render_kp_meta_assistant_message(msg.content)
+            index += 1
             continue
-        role = "user" if msg.role == "user" else "assistant"
-        avatar = _STORY_KP_AVATAR if role == "assistant" else None
-        with st.chat_message(role, avatar=avatar):
+        if msg.role == "assistant":
+            render_kp_story_message(msg.content)
+            index += 1
+            continue
+        with st.chat_message("user"):
             st.markdown(msg.content)
+        index += 1
 
 
 def render_chat_input(disabled: bool = False, placeholder: str | None = None) -> str | None:

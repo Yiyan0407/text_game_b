@@ -2,9 +2,12 @@ import streamlit as st
 
 from game.models import GameState
 from game.narrative_time import format_duration, narrative_time_display
+from game.scenario import Scenario
+from ui.memory_journal_dialog import render_memory_journal_entry
+from ui.scene_map_dialog import render_scene_map_entry
 
 
-def render_game_state_panel(game_state: GameState) -> None:
+def render_game_state_panel(game_state: GameState, scenario: Scenario) -> None:
     st.subheader("冒险进度")
     st.caption(
         f"🕐 {narrative_time_display(game_state)} · "
@@ -22,7 +25,7 @@ def render_game_state_panel(game_state: GameState) -> None:
                 st.caption(f"⏰ {deadline.label} · 还剩 {format_duration(remaining)}")
 
     st.caption(
-        f"记忆事实：{len(game_state.memory_facts)} · "
+        f"记忆事实：{len(game_state.memory_journal)} · "
         f"章节：{len(game_state.chapter_summaries)}"
     )
 
@@ -41,10 +44,12 @@ def render_game_state_panel(game_state: GameState) -> None:
                 if npc.notes:
                     st.caption(npc.notes)
 
-    if game_state.memory_facts:
-        with st.expander(f"关键记忆（{len(game_state.memory_facts)}）", expanded=False):
-            for fact in game_state.memory_facts[-12:]:
-                st.markdown(f"- {fact}")
+    if game_state.memory_journal:
+        render_memory_journal_entry(game_state)
+    else:
+        st.caption("暂无关键记忆。")
+
+    render_scene_map_entry(game_state, scenario)
 
     if game_state.chapter_summaries:
         with st.expander(f"章节回顾（{len(game_state.chapter_summaries)}）", expanded=False):

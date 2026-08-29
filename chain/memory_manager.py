@@ -1,6 +1,11 @@
 from chain.memory import ConversationWindowMemory
 from chain.summarizer import StorySummarizer
 from config.settings import get_settings
+from game.memory_journal import (
+    journal_total_chars,
+    merge_compressed_entries,
+    trim_memory_journal,
+)
 from game.models import ChatMessage, GameState
 
 
@@ -15,6 +20,8 @@ class LongTermMemoryManager:
         self.max_story_summary_chars = settings.max_story_summary_chars
         self.max_memory_facts = settings.max_memory_facts
         self.max_chapters_kept = settings.max_chapters_kept
+        self.memory_journal_compress_at = settings.memory_journal_compress_at
+        self.memory_journal_max_chars = settings.memory_journal_max_chars
 
     def process_after_turn(self, game_state: GameState, history: list[ChatMessage]) -> None:
         if game_state.turn_count <= 0:
@@ -31,6 +38,9 @@ class LongTermMemoryManager:
                 game_state.story_summary,
                 self.max_story_summary_chars,
             )
+
+        if self._should_compress_journal(game_state):
+            self._compress_journal(game_state)
 
     async def process_after_turn_async(
         self, game_state: GameState, history: list[ChatMessage]
@@ -50,6 +60,9 @@ class LongTermMemoryManager:
                 self.max_story_summary_chars,
             )
 
+        if self._should_compress_journal(game_state):
+            await self._compress_journal_async(game_state)
+
     def _should_summarize(self, game_state: GameState) -> bool:
         return (
             game_state.turn_count - game_state.last_summarized_turn
@@ -60,6 +73,54 @@ class LongTermMemoryManager:
         return (
             game_state.turn_count - game_state.last_chapter_turn
             >= self.chapter_interval
+        )
+
+    def _should_compress_journal(self, game_state: GameState) -> bool:
+        unpinned = [entry for entry in game_state.memory_journal if not entry.pinned]
+        if not unpinned:
+            return False
+        if len(game_state.memory_journal) >= self.memory_journal_compress_at:
+            return True
+        return journal_total_chars(unpinned) >= self.memory_journal_max_chars
+
+    def _compress_journal(self, game_state: GameState) -> None:
+        pinned = [entry for entry in game_state.memory_journal if entry.pinned]
+        unpinned = [entry for entry in game_state.memory_journal if not entry.pinned]
+        target_count = max(1, self.max_memory_facts - len(pinned))
+        compressed = self.summarizer.compress_memory_entries(
+            unpinned,
+            target_count=min(target_count, max(1, len(unpinned) // 2)),
+        )
+        if not compressed:
+            game_state.memory_journal = trim_memory_journal(
+                game_state.memory_journal,
+                self.max_memory_facts,
+            )
+            return
+        merged = merge_compressed_entries(unpinned, compressed)
+        game_state.memory_journal = trim_memory_journal(
+            pinned + merged,
+            self.max_memory_facts,
+        )
+
+    async def _compress_journal_async(self, game_state: GameState) -> None:
+        pinned = [entry for entry in game_state.memory_journal if entry.pinned]
+        unpinned = [entry for entry in game_state.memory_journal if not entry.pinned]
+        target_count = max(1, self.max_memory_facts - len(pinned))
+        compressed = await self.summarizer.acompress_memory_entries(
+            unpinned,
+            target_count=min(target_count, max(1, len(unpinned) // 2)),
+        )
+        if not compressed:
+            game_state.memory_journal = trim_memory_journal(
+                game_state.memory_journal,
+                self.max_memory_facts,
+            )
+            return
+        merged = merge_compressed_entries(unpinned, compressed)
+        game_state.memory_journal = trim_memory_journal(
+            pinned + merged,
+            self.max_memory_facts,
         )
 
     def _run_periodic_summary(

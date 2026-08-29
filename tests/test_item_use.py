@@ -1,3 +1,5 @@
+import pytest
+
 from chain.opening_integrator import OpeningIntegrator
 from game.inventory import InventoryItem
 from game.item_use import resolve_use_item
@@ -6,23 +8,27 @@ from game.scenario import Scenario
 from tests.fixtures_effects import forged_heal_item
 
 
-def test_opening_integrator_marks_fallback(monkeypatch):
-    class BrokenLLM:
-        def invoke(self, _inputs):
-            raise RuntimeError("boom")
-
+def test_opening_integrator_raises_on_llm_failure(monkeypatch):
     integrator = OpeningIntegrator()
-    monkeypatch.setattr(integrator, "llm", BrokenLLM())
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    mock_chain = type("Chain", (), {"invoke": boom})()
+
+    class FakePrompt:
+        def __or__(self, _llm):
+            return mock_chain
+
+    monkeypatch.setattr(integrator, "prompt", FakePrompt())
     scenario = Scenario(id="test", title="测试", opening_prompt="起点")
     character = Character(name="测试", background="斥候")
 
-    brief = integrator.generate(character, scenario)
-
-    assert brief.used_fallback is True
-    assert "测试" in brief.role_in_story
+    with pytest.raises(RuntimeError, match="boom"):
+        integrator.generate(character, scenario)
 
 
-def test_opening_integrator_success_is_not_fallback(monkeypatch):
+def test_opening_integrator_success(monkeypatch):
     integrator = OpeningIntegrator()
     mock_chain = type("Chain", (), {})()
     mock_chain.invoke = lambda _inputs: type(
@@ -46,7 +52,6 @@ def test_opening_integrator_success_is_not_fallback(monkeypatch):
 
     brief = integrator.generate(character, scenario)
 
-    assert brief.used_fallback is False
     assert brief.role_in_story == "外包顾问"
 
 
@@ -61,7 +66,14 @@ def test_resolve_use_item_healing_potion():
 def test_resolve_use_item_durable_equips_to_hand():
     character = Character(
         name="测试",
-        inventory=[InventoryItem(name="头戴式手电筒", quantity=1, unit="个")],
+        inventory=[
+            InventoryItem(
+                name="头戴式手电筒",
+                quantity=1,
+                unit="个",
+                kind="durable",
+            )
+        ],
     )
     events = resolve_use_item(character, ["头戴式手电筒"])
     assert any("装备" in event for event in events)
@@ -72,7 +84,14 @@ def test_resolve_use_item_durable_equips_to_hand():
 def test_resolve_use_item_durable_toggle_unequip():
     character = Character(
         name="测试",
-        inventory=[InventoryItem(name="军用多功能铁锹", quantity=1, unit="把")],
+        inventory=[
+            InventoryItem(
+                name="军用多功能铁锹",
+                quantity=1,
+                unit="把",
+                kind="durable",
+            )
+        ],
     )
     resolve_use_item(character, ["军用多功能铁锹"])
     assert character.is_item_in_hand("军用多功能铁锹")
@@ -85,7 +104,14 @@ def test_resolve_use_item_durable_toggle_unequip():
 def test_resolve_use_item_document_not_consumed():
     character = Character(
         name="测试",
-        inventory=[InventoryItem(name="加密文档副本", quantity=1, unit="份")],
+        inventory=[
+            InventoryItem(
+                name="加密文档副本",
+                quantity=1,
+                unit="份",
+                kind="document",
+            )
+        ],
     )
     events = resolve_use_item(character, ["加密文档副本"])
     assert any("查阅" in event for event in events)
@@ -95,7 +121,14 @@ def test_resolve_use_item_document_not_consumed():
 def test_resolve_use_item_consumable_food():
     character = Character(
         name="测试",
-        inventory=[InventoryItem(name="压缩饼干", quantity=3, unit="包")],
+        inventory=[
+            InventoryItem(
+                name="压缩饼干",
+                quantity=3,
+                unit="包",
+                kind="consumable",
+            )
+        ],
     )
     events = resolve_use_item(character, ["压缩饼干"])
     assert any("使用" in event for event in events)
@@ -150,8 +183,21 @@ def test_resolve_use_item_grenade_in_combat():
         ["破片手雷"],
         attack_target="敌人",
     )
-    assert any("使用" in event for event in events)
-    assert any("💥" in event for event in events)
+    assert any("附加动作：使用" in event for event in events)
+    assert state.combat.bonus_action_used is True
+    assert character.has_inventory_item("破片手雷")
+
+    from game.post_kp_mechanics import resolve_post_kp_mechanics
+    from game.results import ActionRouteResult
+
+    route = ActionRouteResult(
+        approved=True,
+        item_usage="use",
+        referenced_items=["破片手雷"],
+        attack_target="敌人",
+    )
+    effect_events = resolve_post_kp_mechanics(route, character, state, events)
+    assert any("💥" in event for event in effect_events)
     assert state.combat.enemies[0].hp < 30
     assert not character.has_inventory_item("破片手雷")
 
@@ -173,7 +219,6 @@ def test_resolve_use_item_smoke_tag_consumes():
 
 
 def test_resolve_use_item_heal_via_effects_on_durable_kind():
-    """强心针等可能被 infer 为 durable，但 heal_dice 仍应触发消耗回血。"""
     character = Character(
         name="测试",
         hp=8,
@@ -192,4 +237,3 @@ def test_resolve_use_item_heal_via_effects_on_durable_kind():
     assert any("治疗" in event for event in events)
     assert character.hp > 8
     assert not character.has_inventory_item("强心针")
-

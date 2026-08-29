@@ -19,33 +19,6 @@ def test_opening_brief_format_for_kp():
     assert "不得写成实习记者" in text
 
 
-def test_opening_brief_fallback():
-    scenario = Scenario(
-        id="midnight_archive",
-        title="午夜档案",
-        opening_scene_name="报社·夜班工位",
-        opening_prompt="匿名账号发来压缩包，需在夜班编辑部调查。",
-    )
-    brief = OpeningBrief.fallback("张明", "某科技公司 CEO", scenario)
-    assert "张明" in brief.role_in_story
-    assert "CEO" in brief.role_in_story
-    assert "矛盾" in brief.narrative_constraints[0]
-
-
-def test_opening_brief_fallback_hacker_keeps_anonymity():
-    scenario = Scenario(
-        id="midnight_archive",
-        title="午夜档案",
-        opening_scene_name="报社·夜班工位",
-        opening_prompt="匿名账号发来压缩包。",
-    )
-    brief = OpeningBrief.fallback("阿 Oct", "地下有名的黑客，常用 octopus 通道", scenario)
-    text = brief.format_for_kp()
-    assert brief.secrets_from_npcs
-    assert "octopus" in text.lower() or "匿名" in text
-    assert "NPC 此时还不应知道" in text
-
-
 def test_opening_integrator_parse():
     from chain.opening_integrator import OpeningIntegrator
 

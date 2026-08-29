@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from game.inventory import InventoryItem
-from game.item_kinds import GearSlot, infer_gear_slot
+from game.item_kinds import GearSlot
 from game.models import Character
 
 
@@ -38,17 +38,9 @@ def _durable_use_is_free(character: Character, item: InventoryItem) -> bool:
 
 
 def _resolve_gear_slot(item: InventoryItem) -> GearSlot | None:
-    if item.effects:
-        slot = item.effects.inferred_gear_slot()
-        if slot in ("weapon", "light", "tool"):
-            return slot  # type: ignore[return-value]
-    return infer_gear_slot(item.name, item.kind)
-
-
-def should_auto_equip_weapon_on_pickup(item: InventoryItem) -> bool:
-    """战斗中拾取后是否自动装备到手持（武器）。"""
-    if item.effects:
-        slot = item.effects.inferred_gear_slot()
-        if slot == "weapon":
-            return True
-    return infer_gear_slot(item.name, item.kind) == "weapon"
+    if not item.effects:
+        return None
+    slot = item.effects.inferred_gear_slot()
+    if slot in ("weapon", "light", "tool"):
+        return slot  # type: ignore[return-value]
+    return None

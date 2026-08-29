@@ -21,14 +21,15 @@ class WeaponProfile:
 def _resolve_active_skill(
     character: Character,
     route: ActionRouteResult | None,
+    *,
+    user_input: str = "",
 ) -> Skill | None:
     candidates: list[str] = []
     if route is not None:
         if route.skill_usage == "use":
             candidates.extend(route.referenced_skills)
-        combined = f"{route.action_intent} {route.scope_stop}"
         for skill_name in character.skill_names():
-            if skill_name and skill_name in combined:
+            if skill_name and user_input and skill_name in user_input:
                 candidates.append(skill_name)
         candidates.extend(route.referenced_skills)
 
@@ -61,8 +62,10 @@ def _profile_from_skill(skill: Skill) -> WeaponProfile:
 def _unarmed_profile(
     character: Character,
     route: ActionRouteResult | None,
+    *,
+    user_input: str = "",
 ) -> WeaponProfile:
-    skill = _resolve_active_skill(character, route)
+    skill = _resolve_active_skill(character, route, user_input=user_input)
     if skill is not None:
         return _profile_from_skill(skill)
     return WeaponProfile(label="徒手", use_dex=False, damage_notation="1d4")
@@ -109,6 +112,8 @@ def _referenced_weapon(character: Character, route: ActionRouteResult | None) ->
 def resolve_weapon_profile(
     character: Character,
     route: ActionRouteResult | None = None,
+    *,
+    user_input: str = "",
 ) -> WeaponProfile:
     for resolver in (
         lambda: _referenced_weapon(character, route),
@@ -118,7 +123,7 @@ def resolve_weapon_profile(
         profile = resolver()
         if profile is not None:
             return _apply_skill_bonus(character, profile)
-    return _unarmed_profile(character, route)
+    return _unarmed_profile(character, route, user_input=user_input)
 
 
 def _inventory_weapon(character: Character) -> WeaponProfile | None:

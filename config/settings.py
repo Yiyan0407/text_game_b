@@ -19,6 +19,8 @@ SCENARIOS_DIR = DATA_DIR / "scenarios"
 class Settings:
     openai_api_key: str
     openai_model: str
+    openai_model_lite: str
+    openai_model_kp: str
     openai_base_url: str | None
     llm_temperature: float
     llm_thinking_enabled: bool
@@ -28,8 +30,11 @@ class Settings:
     max_story_summary_chars: int
     max_memory_facts: int
     max_chapters_kept: int
+    memory_journal_compress_at: int
+    memory_journal_max_chars: int
     enable_streaming: bool
     enable_action_suggestions: bool
+    enable_scene_map: bool
     enable_scene_images: bool
     image_provider: str
     seedream_api_key: str
@@ -43,9 +48,13 @@ class Settings:
 @lru_cache
 def get_settings() -> Settings:
     base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+    openai_model = os.getenv("OPENAI_MODEL", "mimo-v2.5-pro")
+    openai_model_lite = os.getenv("OPENAI_MODEL_LITE", "").strip() or "mimo-v2.5"
     return Settings(
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        openai_model=openai_model,
+        openai_model_lite=openai_model_lite,
+        openai_model_kp=os.getenv("OPENAI_MODEL_KP", "").strip() or openai_model,
         openai_base_url=base_url,
         llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.8")),
         llm_thinking_enabled=os.getenv("LLM_THINKING_ENABLED", "false").lower() == "true",
@@ -55,8 +64,11 @@ def get_settings() -> Settings:
         max_story_summary_chars=int(os.getenv("MAX_STORY_SUMMARY_CHARS", "1500")),
         max_memory_facts=int(os.getenv("MAX_MEMORY_FACTS", "50")),
         max_chapters_kept=int(os.getenv("MAX_CHAPTERS_KEPT", "8")),
+        memory_journal_compress_at=int(os.getenv("MEMORY_JOURNAL_COMPRESS_AT", "40")),
+        memory_journal_max_chars=int(os.getenv("MEMORY_JOURNAL_MAX_CHARS", "6000")),
         enable_streaming=os.getenv("ENABLE_STREAMING", "true").lower() == "true",
         enable_action_suggestions=os.getenv("ENABLE_ACTION_SUGGESTIONS", "true").lower() == "true",
+        enable_scene_map=os.getenv("ENABLE_SCENE_MAP", "true").lower() == "true",
         enable_scene_images=os.getenv("ENABLE_SCENE_IMAGES", "false").lower() == "true",
         image_provider=os.getenv("IMAGE_PROVIDER", "seedream"),
         seedream_api_key=os.getenv("SEEDREAM_API_KEY", ""),

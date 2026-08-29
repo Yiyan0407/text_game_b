@@ -108,46 +108,6 @@ def resolve_background_processes(game_state: GameState) -> list[str]:
     return events
 
 
-def infer_background_process_from_facts(game_state: GameState) -> list[str]:
-    """从「正在更新 + 预计 N 分钟」类 memory_facts 补登记（兜底）。"""
-    events: list[str] = []
-    corpus = "\n".join(game_state.memory_facts)
-    seen_keys: set[str] = {
-        _normalize_process_key(process.label)
-        for process in game_state.background_processes
-        if process.status == "running"
-    }
-    for fact in game_state.memory_facts:
-        if any(token in fact for token in ("已完成", "更新已完成", "下载已完成")):
-            continue
-        match = _RUNNING_UPDATE_RE.search(fact)
-        if not match:
-            continue
-        label = match.group("label").strip()
-        if not label or _process_already_completed(game_state, label):
-            continue
-        process_key = _normalize_process_key(label)
-        if process_key in seen_keys:
-            continue
-        seen_keys.add(process_key)
-        duration_match = _DURATION_RE.search(corpus) or _DURATION_RE.search(fact)
-        duration = 4
-        if duration_match:
-            duration = _duration_to_minutes(
-                int(duration_match.group("count")),
-                duration_match.group("unit"),
-            )
-        patch = BackgroundProcessPatch(
-            id=re.sub(r"\s+", "_", label)[:24],
-            label=label,
-            duration_minutes=duration,
-            result_fact=f"{label}已完成，可随时使用",
-            blocks_actions="入侵" if "黑客" in label or "CyberBreacher" in label else "",
-        )
-        events.extend(register_background_process(game_state, patch))
-    return events
-
-
 def format_background_processes_for_kp(game_state: GameState) -> str:
     running = [item for item in game_state.background_processes if item.status == "running"]
     if not running:

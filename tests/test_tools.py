@@ -111,9 +111,17 @@ def test_update_inventory_tool():
     inv_tool = next(t for t in tools if t.name == "update_inventory")
     assert character.inventory == []
 
-    add_result = inv_tool.invoke({"action": "add", "item": "手机"})
+    missing = inv_tool.invoke({"action": "add", "item": "手机"})
+    assert "描述不能为空" in missing
+    assert character.inventory == []
+
+    add_result = inv_tool.invoke(
+        {"action": "add", "item": "手机", "description": "智能手机"}
+    )
     assert "手机" in add_result
-    assert character.inventory == [InventoryItem(name="手机", quantity=1, unit="个")]
+    assert character.inventory == [
+        InventoryItem(name="手机", quantity=1, unit="个", description="智能手机")
+    ]
 
     remove_result = inv_tool.invoke({"action": "remove", "item": "手机"})
     assert "移除" in remove_result
@@ -126,14 +134,23 @@ def test_update_inventory_tool_with_quantity():
     tools = create_kp_tools(character, game_state)
     inv_tool = next(t for t in tools if t.name == "update_inventory")
 
-    inv_tool.invoke({"action": "add", "item": "铜板", "quantity": 5, "unit": "枚"})
-    assert character.inventory == [InventoryItem(name="铜板", quantity=5, unit="枚")]
-
-    inv_tool.invoke({"action": "add", "item": "铜板", "quantity": 2, "unit": "枚"})
-    assert character.inventory == [InventoryItem(name="铜板", quantity=7, unit="枚")]
+    inv_tool.invoke(
+        {
+            "action": "add",
+            "item": "铜板",
+            "quantity": 5,
+            "unit": "枚",
+            "description": "找零",
+        }
+    )
+    assert character.inventory == [
+        InventoryItem(name="铜板", quantity=5, unit="枚", description="找零")
+    ]
 
     inv_tool.invoke({"action": "remove", "item": "铜板", "quantity": 3, "unit": "枚"})
-    assert character.inventory == [InventoryItem(name="铜板", quantity=4, unit="枚")]
+    assert character.inventory == [
+        InventoryItem(name="铜板", quantity=2, unit="枚", description="找零")
+    ]
 
 
 def test_character_starts_with_empty_inventory():
@@ -170,14 +187,22 @@ def test_update_inventory_skips_duplicate_add_same_turn():
     tools = create_kp_tools(character, game_state)
     inv_tool = next(t for t in tools if t.name == "update_inventory")
 
-    first = inv_tool.invoke({"action": "add", "item": "止血凝胶", "quantity": 3, "unit": "瓶"})
+    first = inv_tool.invoke(
+        {
+            "action": "add",
+            "item": "止血凝胶",
+            "quantity": 3,
+            "unit": "瓶",
+            "description": "军用急救凝胶",
+        }
+    )
     second = inv_tool.invoke(
         {
             "action": "add",
             "item": "止血凝胶",
             "quantity": 1,
             "unit": "瓶",
-            "description": "军用急救凝胶。",
+            "description": "军用急救凝胶",
         }
     )
     assert "获得" in first
@@ -194,7 +219,9 @@ def test_update_inventory_skips_delivered_purchase_items():
         delivered_items=frozenset({"破禁符"}),
     )
     inv_tool = next(t for t in tools if t.name == "update_inventory")
-    result = inv_tool.invoke({"action": "add", "item": "破禁符"})
+    result = inv_tool.invoke(
+        {"action": "add", "item": "破禁符", "description": "可短暂破开低阶禁制"}
+    )
     assert "跳过重复添加" in result
     assert character.inventory == [InventoryItem(name="定金币", quantity=15, unit="枚")]
     character = Character(name="测试")

@@ -1,4 +1,4 @@
-from game.difficulty import DC_MAX, DC_MIN, clamp_dc, ensure_ability_check_dc, infer_ability_check_dc, is_valid_dc
+from game.difficulty import DC_MAX, DC_MIN, clamp_dc, ensure_ability_check_dc, is_valid_dc
 from game.results import ActionRouteResult
 
 
@@ -25,27 +25,7 @@ def test_preserves_ai_dc_in_validate():
     assert result.dc == 22
 
 
-def test_infer_dc_for_high_security_infiltration():
-    dc = infer_ability_check_dc(
-        ability="dex",
-        action_intent="沿消防通道继续深入",
-        user_input="继续深入",
-        context="安保在前台巡逻，机房重地非授权禁止入内，监控全覆盖",
-    )
-    assert dc >= 16
-
-
-def test_infer_dc_for_easy_task():
-    dc = infer_ability_check_dc(
-        ability="wis",
-        action_intent="轻松辨认常见渔网",
-        user_input="看看这张网",
-        context="",
-    )
-    assert dc <= 12
-
-
-def test_validate_infers_when_dc_missing():
+def test_validate_rejects_when_dc_missing():
     from chain.action_router import ActionRouter
     from game.models import Character, GameState
 
@@ -63,6 +43,30 @@ def test_validate_infers_when_dc_missing():
         GameState(),
         user_input="我尝试说服守卫",
     )
-    assert result.approved is True
-    assert is_valid_dc(result.dc)
-    assert result.dc != 0
+    assert result.approved is False
+    assert "DC" in result.rejection_reason
+
+
+def test_ensure_ability_check_dc_rejects_invalid():
+    route = ActionRouteResult(
+        approved=True,
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="dex",
+        dc=0,
+    )
+    assert ensure_ability_check_dc(route) is False
+    assert route.dc == 0
+
+
+def test_ensure_ability_check_dc_clamps_valid():
+    route = ActionRouteResult(
+        approved=True,
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="dex",
+        dc=99,
+    )
+    assert ensure_ability_check_dc(route) is True
+    assert route.dc == DC_MAX
+    assert is_valid_dc(route.dc)

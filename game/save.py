@@ -83,7 +83,7 @@ class SaveGame(BaseModel):
             game_state=_fresh_model(GameState, game_state),
             messages=[_fresh_model(ChatMessage, msg) for msg in messages],
             action_suggestions=list(action_suggestions or []),
-            game_config=game_config or default_game_config(),
+            game_config=_fresh_model(GameConfig, game_config or default_game_config()),
         )
 
 

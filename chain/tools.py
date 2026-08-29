@@ -47,9 +47,14 @@ def create_kp_tools(
 
     def update_scene(scene_id: str, scene_name: str) -> str:
         """当玩家进入新场景时调用，更新当前场景 ID 与名称。"""
-        game_state.scene_id = scene_id
-        game_state.current_scene = scene_name
-        game_state.scene_image_url = ""
+        from game.scene_map import apply_scene_change
+
+        apply_scene_change(
+            game_state,
+            scene_id,
+            scene_name,
+            turn_count=game_state.turn_count,
+        )
         return f"场景已更新：{scene_name}（{scene_id}）"
 
     def record_npc(
@@ -97,8 +102,10 @@ def create_kp_tools(
         description: str = "",
     ) -> str:
         """玩家获得或失去物品时调用。item 为物品名称或完整显示名（如 铜板（97枚））；
-        quantity 为数量，unit 为单位（枚/袋/个/把等）；description 为物品说明（用途、特性等）。
-        同类物品会自动合并堆叠。"""
+        quantity 为数量，unit 为单位（枚/袋/个/把等）；
+        action=add 时 description 必填（用途、来源、规格、状态等）。"""
+        if action == "add" and not description.strip():
+            return "添加失败：物品描述不能为空。"
         from game.results import InventoryPatch
 
         return apply_inventory_change(

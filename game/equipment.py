@@ -28,80 +28,6 @@ _LEGACY_SLOT_MAP: dict[str, EquipmentSlot] = {
     "accessory": "accessory",
 }
 
-_HAND_KEYWORDS = (
-    "剑",
-    "刀",
-    "枪",
-    "弓",
-    "弩",
-    "棍",
-    "匕首",
-    "武器",
-    "短剑",
-    "长剑",
-    "步枪",
-    "手枪",
-    "盾",
-    "副手",
-    "手电",
-    "电筒",
-    "铁锹",
-    "铲",
-    "工具",
-    "撬棍",
-    "解码笔",
-    "圆珠笔",
-    "单分子线",
-    "线芯",
-)
-_BODY_KEYWORDS = (
-    "义体",
-    "义眼",
-    "义臂",
-    "义腿",
-    "植入",
-    "斯安威斯坦",
-    "sandevistan",
-    "黑客",
-    "操作系统",
-    "随身ai",
-    "随身 ai",
-    "神经",
-    "接口",
-    "芯片",
-    "加速器",
-    "甲",
-    "护甲",
-    "防弹",
-    "防具",
-    "盔",
-    "脊柱",
-    "胸甲",
-    "背心",
-    "夹克",
-    "战甲",
-    "外骨骼",
-    "前臂",
-    "手臂",
-    "臂铠",
-    "腿",
-    "足部",
-    "靴",
-    "目镜",
-    "头盔",
-    "头显",
-    "面具",
-    "反应增强",
-    "视觉辅助",
-    "骨骼强化",
-    "生物电",
-    "感应器",
-    "动力接口",
-    "桡骨",
-    "HUD",
-)
-_ACCESSORY_KEYWORDS = ("戒指", "项链", "徽章", "护符", "挂件", "模块", "插件", "配件", "贴片", "凝胶")
-
 
 class EquipmentEntry(BaseModel):
     slot: EquipmentSlot
@@ -144,26 +70,10 @@ def normalize_equipment(value) -> list[EquipmentEntry]:
         elif isinstance(entry, str):
             text = entry.strip()
             if text:
-                entries.append(
-                    EquipmentEntry(
-                        slot=infer_equipment_slot(text) or "accessory",
-                        item_name=text,
-                    )
-                )
+                entries.append(EquipmentEntry(slot="accessory", item_name=text))
         else:
             raise TypeError(f"unsupported equipment entry: {entry!r}")
     return _normalize_entries(entries)
-
-
-def infer_equipment_slot(name: str, description: str = "") -> EquipmentSlot | None:
-    text = f"{name} {description}".lower()
-    if any(keyword in text for keyword in _HAND_KEYWORDS):
-        return "hand"
-    if any(keyword in text for keyword in _BODY_KEYWORDS):
-        return "body"
-    if any(keyword in text for keyword in _ACCESSORY_KEYWORDS):
-        return "accessory"
-    return None
 
 
 def is_valid_equipment_slot(value: str) -> bool:

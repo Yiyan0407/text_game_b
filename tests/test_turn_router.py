@@ -1,8 +1,20 @@
+import pytest
+
 from game.models import Character, GameState
 from game.results import ActionRouteResult
 from game.scenario import Scenario
 from game.turn_context import TurnContext
-from game.turn_router import should_run_item_sync
+from game.settlement_plan import (
+    OPENING_SETTLEMENT_PLAN,
+    SettlementPlan,
+    SettlementRouterError,
+    parse_settlement_plan,
+)
+from game.turn_router import (
+    format_settlement_plan_event,
+    needs_post_kp_mechanical,
+    resolve_settlement_plan,
+)
 
 
 def _ctx(**kwargs) -> TurnContext:
@@ -18,57 +30,64 @@ def _ctx(**kwargs) -> TurnContext:
     return TurnContext(**defaults)
 
 
-def test_item_sync_skipped_when_rejected():
-    ctx = _ctx(rejected=True, kp_response="你获得了短剑。")
-    assert should_run_item_sync(ctx) is False
+def test_needs_post_kp_mechanical_purchase():
+    route = ActionRouteResult(approved=True, item_usage="purchase")
+    assert needs_post_kp_mechanical(route, GameState()) is True
 
 
-def test_item_sync_skipped_when_no_kp_response():
-    ctx = _ctx(kp_response="")
-    assert should_run_item_sync(ctx) is False
+def test_needs_post_kp_mechanical_use():
+    route = ActionRouteResult(approved=True, item_usage="use")
+    assert needs_post_kp_mechanical(route, GameState()) is True
 
 
-def test_item_sync_runs_by_default():
-    ctx = _ctx(
-        user_input="一口吃完三明治，把外包的工资放进口袋",
-        kp_response="你在前台领了薄薄一沓现金。",
+def test_needs_post_kp_mechanical_observe_false():
+    route = ActionRouteResult(approved=True, item_usage="none")
+    assert needs_post_kp_mechanical(route, GameState()) is False
+
+
+def test_parse_settlement_plan():
+    plan = parse_settlement_plan(
+        {
+            "tasks": {
+                "inventory_sync": True,
+                "skill_sync": False,
+                "time_sync": True,
+                "world_sync": True,
+            },
+            "reason": "拾取并移动",
+        }
     )
-    assert should_run_item_sync(ctx) is True
+    assert plan == SettlementPlan(True, False, True, True, "拾取并移动")
 
 
-def test_item_sync_runs_on_mechanical_gain():
-    ctx = _ctx(
-        kp_response="铁匠把连弩递给你。",
-        mechanical_events=["获得：连弩"],
-        route=ActionRouteResult(approved=True),
+def test_parse_settlement_plan_invalid():
+    with pytest.raises(SettlementRouterError):
+        parse_settlement_plan({"tasks": "bad"})
+
+
+def test_resolve_opening_plan():
+    ctx = _ctx(is_opening=True)
+    plan = resolve_settlement_plan(ctx)
+    assert plan == OPENING_SETTLEMENT_PLAN
+
+
+def test_resolve_rejected_plan():
+    ctx = _ctx(rejected=True)
+    plan = resolve_settlement_plan(ctx)
+    assert plan.inventory_sync is False
+    assert plan.time_sync is False
+
+
+def test_resolve_missing_router_raises():
+    ctx = _ctx()
+    with pytest.raises(SettlementRouterError, match="缺少 Settlement Router plan"):
+        resolve_settlement_plan(ctx)
+
+
+def test_format_settlement_plan_event():
+    text = format_settlement_plan_event(
+        SettlementPlan(True, False, True, False, "纯对话")
     )
-    assert should_run_item_sync(ctx) is True
-
-
-def test_item_sync_skipped_when_router_sets_false():
-    ctx = _ctx(
-        user_input="这里天气怎么样？",
-        kp_response="雨还在下，海风很冷。",
-        route=ActionRouteResult(approved=True, sync_inventory=False),
-    )
-    assert should_run_item_sync(ctx) is False
-
-
-def test_item_sync_runs_on_pickup_route():
-    ctx = _ctx(
-        user_input="捡起地上的钥匙",
-        kp_response="你捡起了钥匙。",
-        route=ActionRouteResult(
-            approved=True,
-            item_usage="pickup",
-            referenced_items=["钥匙"],
-        ),
-    )
-    assert should_run_item_sync(ctx) is True
-
-
-def test_route_parses_sync_inventory():
-    from chain.action_router import _route_from_dict
-
-    assert _route_from_dict({"approved": True, "sync_inventory": False}).sync_inventory is False
-    assert _route_from_dict({"approved": True}).sync_inventory is True
+    assert "结算路由" in text
+    assert "inventory" in text
+    assert "time" in text

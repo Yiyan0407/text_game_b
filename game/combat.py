@@ -649,7 +649,9 @@ def resolve_interact(
         mode="combat",
         proficiency_bonus=proficiency_bonus,
     )
-    ensure_ability_check_dc(route, user_input="场景互动")
+    ensure_ability_check_dc(route)
+    if not route.needs_roll:
+        return "场景互动：缺少合法 DC。"
     return resolve_combat_ability_check(
         character,
         ability,
@@ -694,7 +696,9 @@ def resolve_talk(
         mode="combat",
         proficiency_bonus=proficiency_bonus,
     )
-    ensure_ability_check_dc(route, user_input=label)
+    ensure_ability_check_dc(route)
+    if not route.needs_roll:
+        return f"{label}：缺少合法 DC。"
     situational = player_check_bonus(combat, "cha")
     result = ability_check(
         character,
@@ -747,7 +751,9 @@ def resolve_grapple(
         combat_action="grapple",
         mode="combat",
     )
-    ensure_ability_check_dc(route, user_input=f"擒抱 {enemy.name}")
+    ensure_ability_check_dc(route)
+    if not route.needs_roll:
+        return f"擒抱 {enemy.name}：缺少合法 DC。"
     return resolve_combat_ability_check(
         character, "str", route.dc, f"擒抱 {enemy.name}", game_state=game_state
     )
@@ -780,7 +786,9 @@ def resolve_shove(
         combat_action="shove",
         mode="combat",
     )
-    ensure_ability_check_dc(route, user_input=f"推撞 {enemy.name}")
+    ensure_ability_check_dc(route)
+    if not route.needs_roll:
+        return f"推撞 {enemy.name}：缺少合法 DC。"
     return resolve_combat_ability_check(
         character, "str", route.dc, f"推撞 {enemy.name}", game_state=game_state
     )
@@ -820,7 +828,9 @@ def resolve_search_in_combat(
         combat_action="search",
         mode="combat",
     )
-    ensure_ability_check_dc(route, user_input="战斗中搜索观察")
+    ensure_ability_check_dc(route)
+    if not route.needs_roll:
+        return "战斗中搜索观察：缺少合法 DC。"
     return resolve_combat_ability_check(
         character, "wis", route.dc, "战斗中搜索观察", game_state=game_state
     )
@@ -831,27 +841,18 @@ def resolve_pickup_in_combat(
     game_state: GameState,
     items: list[str],
 ) -> list[str]:
-    from game.combat_item_use import should_auto_equip_weapon_on_pickup
-
+    """消耗免费物件互动；物品入库在 KP 叙事后结算。"""
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
         return ["还没轮到你行动。"]
+    refs = [item.strip() for item in items if item and item.strip()]
+    if not refs:
+        return ["没有可拾取的物品。"]
     err = spend_free_interact_or_error(combat)
     if err:
         return [err]
 
-    events: list[str] = []
-    for item in items:
-        if character.add_inventory_item(item):
-            events.append(f"获得：{item}")
-            picked = character.find_inventory_item(item)
-            if picked is not None and should_auto_equip_weapon_on_pickup(picked):
-                ok, equip_msg = character.equip_item(picked.name, slot="hand")
-                if ok:
-                    events.append(equip_msg)
-    if not events:
-        return ["没有可拾取的物品。"]
-    return events
+    return [f"免费物件互动：拾取 {item}" for item in refs]
 
 
 def resolve_use_item_in_combat(
@@ -862,7 +863,10 @@ def resolve_use_item_in_combat(
     *,
     attack_target: str = "",
 ) -> list[str]:
+    """消耗对应动作额度；用物效果在 KP 叙事后结算。"""
     from game.combat_item_use import combat_use_item_cost
+
+    _ = attack_target  # 效果结算阶段使用
 
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
@@ -884,11 +888,11 @@ def resolve_use_item_in_combat(
     if err:
         return [err]
 
-    from game.item_use import resolve_use_item
-
-    return resolve_use_item(
-        character,
-        refs,
-        game_state=game_state,
-        attack_target=attack_target,
-    )
+    target = character.find_inventory_item(refs[0])
+    label = target.format_detail() if target else refs[0].strip()
+    cost_label = {
+        "free": "免费物件互动",
+        "bonus": "附加动作",
+        "main": "主要动作",
+    }.get(cost, "动作")
+    return [f"{cost_label}：使用 {label}"]

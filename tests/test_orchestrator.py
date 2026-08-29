@@ -8,19 +8,6 @@ from game.results import ActionRouteResult
 from game.scenario import Scenario
 
 
-def test_default_opening_suggestions_use_quest_and_scene():
-    from game.models import Quest
-
-    scenario = Scenario(id="test", title="测试", opening_scene_name="酒馆")
-    state = GameState(
-        current_scene="灰港·海鸥尾酒馆",
-        active_quests=[Quest(id="q1", title="调查失踪渔民", description="")],
-    )
-    suggestions = GameOrchestrator._default_opening_suggestions(scenario, state)
-    assert len(suggestions) == 3
-    assert any("失踪渔民" in item for item in suggestions)
-
-
 def test_memory_process_after_turn_interval():
     summarizer = MagicMock()
     summarizer.merge_summary.return_value = "新的摘要"
@@ -45,14 +32,10 @@ def test_memory_process_after_turn_interval():
 
 
 def test_narrative_brief_static_contains_route_fields():
-    route = ActionRouteResult(
-        approved=True,
-        action_intent="观察周围",
-        scope_stop="观察完毕",
-        must_not_narrate=["离开场景"],
-    )
+    route = ActionRouteResult(approved=True, mode="exploration")
     brief = build_narrative_brief_static("观察周围", route, ["敏捷检定 成功"])
     assert "【叙事简报】" in brief
+    assert "【玩家输入】" in brief
     assert "观察周围" in brief
     assert "敏捷检定" in brief
 

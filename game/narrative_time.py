@@ -1,4 +1,4 @@
-"""叙事时间轴：故事内时钟、行动耗时估算与时限触发。"""
+"""叙事时间轴：故事内时钟与时限触发。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ _DEFAULT_START_MINUTE = 8 * 60  # 第1天 08:00
 _IMMINENT_MINUTES = 30
 _TIME_ADVANCE_RE = re.compile(r"时间推进\s+(.+?)（")
 _CLOCK_LABEL_RE = re.compile(r"第(\d+)天\s*(\d{1,2}):(\d{2})")
-_INJURY_KEYWORDS = ("受伤", "爆炸", "伤害", "灼烧", "中毒", "失血", "遇袭", "遇险")
 
 
 def parse_time_label(label: str) -> tuple[int, int, int] | None:
@@ -54,32 +53,10 @@ def narrative_time_display(game_state: GameState) -> str:
     )
 
 
-def infer_opening_time_label(scenario: Scenario) -> str:
-    text = " ".join(
-        part
-        for part in (
-            scenario.opening_prompt,
-            scenario.opening_scene_name,
-            scenario.tone,
-            scenario.description,
-        )
-        if part
-    )
-    rules: list[tuple[tuple[str, ...], tuple[int, int, int]]] = [
-        (("凌晨", "拂晓", "黎明", "清晨", "天亮"), (1, 5, 30)),
-        (("上午", "早晨", "早间"), (1, 9, 0)),
-        (("正午", "中午"), (1, 12, 0)),
-        (("下午", "午后"), (1, 15, 0)),
-        (("黄昏", "日落", "傍晚"), (1, 18, 30)),
-        (("夜班", "值夜"), (1, 23, 0)),
-        (("深夜",), (1, 23, 30)),
-        (("午夜", "子夜"), (1, 0, 0)),
-        (("夜晚", "晚上", "夜间", "夜里", "雨夜", "月夜"), (1, 21, 0)),
-    ]
-    for keywords, (day, hour, minute) in rules:
-        if any(keyword in text for keyword in keywords):
-            return format_clock(0, absolute_minutes_from_day_time(day, hour, minute))
-    return format_clock(0, _DEFAULT_START_MINUTE)
+def initialize_story_clock_from_scenario(game_state: GameState, scenario: Scenario) -> None:
+    """开场时钟由 State Agent 的 time.time_label 写入，此处不做推断。"""
+    del scenario
+    return
 
 
 def apply_story_clock_label(game_state: GameState, label: str) -> None:
@@ -101,14 +78,6 @@ def apply_story_clock_label(game_state: GameState, label: str) -> None:
         game_state.elapsed_minutes,
         game_state.story_start_absolute_minutes,
     )
-
-
-def initialize_story_clock_from_scenario(game_state: GameState, scenario: Scenario) -> None:
-    if game_state.elapsed_minutes != 0:
-        return
-    if parse_time_label(game_state.narrative_time_label):
-        return
-    apply_story_clock_label(game_state, infer_opening_time_label(scenario))
 
 
 def format_duration(minutes: int) -> str:
@@ -213,86 +182,6 @@ def format_time_advance_event(minutes: int, clock_label: str, reason: str = "") 
     if cleaned:
         return f"{base} — {cleaned}"
     return base
-
-
-def estimate_turn_time(
-    route: ActionRouteResult | None,
-    user_input: str,
-    game_state: GameState,
-) -> tuple[int, str]:
-    explicit = parse_explicit_wait_minutes(
-        user_input,
-        elapsed_minutes=game_state.elapsed_minutes,
-        story_start_absolute=game_state.story_start_absolute_minutes,
-    )
-    if explicit is not None:
-        return explicit, _explicit_wait_reason(user_input)
-
-    text = user_input.strip()
-    intent = route.action_intent.strip() if route else ""
-    combined = f"{intent} {text}"
-
-    if game_state.is_in_combat():
-        return 6, "战斗中进行了一轮行动（系统估算）"
-
-    if route and route.trigger_combat:
-        return 5, "触发战斗，进入交战（系统估算）"
-
-    long_wait_markers = ("整晚", "半天", "一整天", "一天", "数日")
-    if any(marker in combined for marker in long_wait_markers):
-        if "半天" in combined:
-            return 12 * 60, "长时间等待：约半天（系统估算）"
-        if "一天" in combined or "整日" in combined:
-            return _STORY_DAY_MINUTES, "长时间等待：约一整天（系统估算）"
-        if "数日" in combined:
-            return 2 * _STORY_DAY_MINUTES, "长时间等待：约数日（系统估算）"
-
-    travel_markers = ("长途", "跨城", "赶到", "前往", "驱车", "飞行", "坐火车", "转场")
-    if any(marker in combined for marker in travel_markers):
-        return 45, "跨场景移动/赶路（系统估算）"
-
-    scene_markers = ("进入", "离开", "返回", "赶到", "抵达")
-    if any(marker in combined for marker in scene_markers):
-        return 25, "场景切换与就位（系统估算）"
-
-    search_markers = ("搜查", "搜证", "排查", "全面调查", "翻找")
-    if any(marker in combined for marker in search_markers):
-        return 30, "搜查/调查耗时（系统估算）"
-
-    negotiation_markers = ("谈判", "交涉", "讨价还价", "商量条件")
-    if any(marker in combined for marker in negotiation_markers):
-        return 10, "谈判/交涉（系统估算）"
-
-    talk_markers = ("交谈", "对话", "询问", "闲聊", "搭话", "追问", "质疑", "盘问")
-    question_markers = (
-        "?", "？", "谁", "什么", "啥", "怎么", "如何", "为何", "为什么",
-        "哪", "吗", "么", "是不是", "多少", "几点", "干嘛", "干什么",
-    )
-    if any(marker in combined for marker in talk_markers) or any(
-        marker in text for marker in question_markers
-    ):
-        return 2, "简短对话/问答（系统估算）"
-
-    quick_markers = ("观察", "查看", "检查", "倾听", "偷听", "阅读", "点头", "沉默")
-    if any(marker in combined for marker in quick_markers):
-        return 3, "快速观察/检查（系统估算）"
-
-    if route and route.item_usage == "purchase":
-        return 12, "购买与交割（系统估算）"
-
-    if route and route.combat_action == "talk":
-        return 3, "战斗中简短喊话（系统估算）"
-
-    return 4, "常规行动（系统估算）"
-
-
-def estimate_turn_minutes(
-    route: ActionRouteResult | None,
-    user_input: str,
-    game_state: GameState,
-) -> int:
-    minutes, _ = estimate_turn_time(route, user_input, game_state)
-    return minutes
 
 
 def extract_turn_time_cost(mechanical_events: list[str]) -> str | None:
@@ -486,12 +375,8 @@ def _resolve_fail_quest_ids(
     return quest_ids
 
 
-def _default_hp_loss(consequence: str, configured: int) -> int:
-    if configured > 0:
-        return configured
-    if any(keyword in consequence for keyword in _INJURY_KEYWORDS):
-        return 5
-    return 0
+def _default_hp_loss(configured: int) -> int:
+    return max(0, int(configured or 0))
 
 
 def _apply_deadline_penalties(
@@ -507,7 +392,7 @@ def _apply_deadline_penalties(
         quest.status = "failed"
         events.append(f"❌ 任务失败：[{quest.id}] {quest.title}")
 
-    hp_loss = _default_hp_loss(deadline.consequence, deadline.hp_loss)
+    hp_loss = _default_hp_loss(deadline.hp_loss)
     if character is not None and hp_loss > 0:
         from game.effect_resolver import apply_incoming_damage
 
@@ -677,8 +562,6 @@ def format_narrative_time_context(game_state: GameState) -> str:
                     penalty_parts.append(f"可能失败任务 {', '.join(deadline.fail_quest_ids)}")
                 if deadline.hp_loss > 0:
                     penalty_parts.append(f"可能伤害 {deadline.hp_loss}")
-                elif any(keyword in deadline.consequence for keyword in _INJURY_KEYWORDS):
-                    penalty_parts.append("可能伤害（默认 5）")
                 if penalty_parts:
                     lines.append(f"  到期后若后果成立：{'；'.join(penalty_parts)}")
 
@@ -761,7 +644,7 @@ def resolve_turn_time(
     game_state: GameState,
     has_time_field: bool,
 ) -> tuple[int, str]:
-    """决定本轮应推进的分钟数及原因：显式等待 > State Agent 裁定 > 启发式兜底。"""
+    """决定本轮应推进的分钟数：玩家明确等待 > State Agent 的 advance_minutes。"""
     explicit = parse_explicit_wait_minutes(
         user_input,
         elapsed_minutes=game_state.elapsed_minutes,
@@ -779,7 +662,7 @@ def resolve_turn_time(
             return 0, ""
         return 0, ""
 
-    return estimate_turn_time(route, user_input, game_state)
+    return 0, ""
 
 
 def resolve_turn_advance_minutes(
@@ -790,7 +673,7 @@ def resolve_turn_advance_minutes(
     game_state: GameState,
     has_time_field: bool,
 ) -> int:
-    """决定本轮应推进的分钟数：显式等待 > State Agent 裁定 > 启发式兜底。"""
+    """决定本轮应推进的分钟数：玩家明确等待 > State Agent 的 advance_minutes。"""
     minutes, _ = resolve_turn_time(
         time_patch,
         route=route,
@@ -860,13 +743,3 @@ def _finalize_turn_time_events(
     events.extend(check_imminent_deadlines(game_state, character=character))
     events.extend(resolve_background_processes(game_state))
     return events
-
-
-def advance_narrative_time_for_turn(
-    route: ActionRouteResult | None,
-    user_input: str,
-    game_state: GameState,
-    character: Character | None = None,
-) -> list[str]:
-    minutes, reason = estimate_turn_time(route, user_input, game_state)
-    return advance_narrative_clock(game_state, minutes, character, reason=reason)

@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from game.inventory import InventoryItem
 from game.models import Character, GameState
 from game.results import ActionRouteResult, EquipmentPatch, InventoryPatch, NpcPatch, StatePatch
@@ -8,10 +11,23 @@ def test_apply_inventory_change_add():
     character = Character(name="测试")
     result = apply_inventory_change(
         character,
-        InventoryPatch(action="add", item="火把", quantity=1, unit="个"),
+        InventoryPatch(
+            action="add", item="火把", quantity=1, unit="个", description="照明用"
+        ),
     )
     assert "获得" in result
     assert character.has_inventory_item("火把")
+
+
+def test_apply_inventory_change_rejects_missing_description():
+    with pytest.raises(ValidationError):
+        InventoryPatch(action="add", item="火把", quantity=1, unit="个")
+
+
+def test_add_inventory_item_rejects_new_item_without_description():
+    character = Character(name="测试")
+    assert character.add_inventory_item("短剑") is False
+    assert not character.has_inventory_item("短剑")
 
 
 def test_apply_inventory_change_respects_explicit_kind():
@@ -24,6 +40,7 @@ def test_apply_inventory_change_respects_explicit_kind():
             quantity=15,
             unit="枚",
             kind="document",
+            description="任务凭证",
         ),
     )
     item = character.find_inventory_item("定金币")
@@ -41,6 +58,7 @@ def test_patch_from_dict_coerces_kind():
                     "quantity": 3,
                     "unit": "包",
                     "kind": "consumable",
+                    "description": "应急口粮",
                 }
             ]
         }
@@ -48,17 +66,46 @@ def test_patch_from_dict_coerces_kind():
     assert patch.inventory[0].kind == "consumable"
 
 
+def test_patch_from_dict_skips_add_without_description():
+    patch = patch_from_dict(
+        {
+            "inventory": [
+                {
+                    "action": "add",
+                    "item": "压缩饼干",
+                    "quantity": 3,
+                    "unit": "包",
+                    "kind": "consumable",
+                }
+            ]
+        }
+    )
+    assert patch.inventory == []
+
+
 def test_apply_inventory_change_blocks_delivered_duplicate():
     character = Character(name="测试")
     delivered = frozenset({"止血凝胶"})
     apply_inventory_change(
         character,
-        InventoryPatch(action="add", item="止血凝胶", quantity=3, unit="瓶"),
+        InventoryPatch(
+            action="add",
+            item="止血凝胶",
+            quantity=3,
+            unit="瓶",
+            description="军用急救凝胶",
+        ),
         delivered_items=delivered,
     )
     result = apply_inventory_change(
         character,
-        InventoryPatch(action="add", item="止血凝胶", quantity=3, unit="瓶"),
+        InventoryPatch(
+            action="add",
+            item="止血凝胶",
+            quantity=3,
+            unit="瓶",
+            description="军用急救凝胶",
+        ),
         delivered_items=delivered,
     )
     assert "跳过重复添加" in result
@@ -86,7 +133,11 @@ def test_apply_state_patch_blocks_purchase_duplicate():
     )
     mechanical = ["获得：短剑"]
     patch = StatePatch(
-        inventory=[InventoryPatch(action="add", item="短剑", quantity=1)]
+        inventory=[
+            InventoryPatch(
+                action="add", item="短剑", quantity=1, description="购买所得"
+            )
+        ]
     )
     events = apply_state_patch(
         patch,
@@ -175,17 +226,24 @@ def test_item_sync_allows_add_when_route_is_pickup_but_not_mechanically_granted(
     assert any("获得" in event for event in events)
 
 
-def test_world_state_still_blocks_pickup_without_mechanical_grant():
+def test_item_sync_adds_exploration_pickup_from_kp():
     character = Character(name="测试")
     game_state = GameState()
     route = ActionRouteResult(
         approved=True,
         item_usage="pickup",
-        referenced_items=["量子纠缠通信器"],
+        referenced_items=["红色编织绳"],
     )
     patch = StatePatch(
         inventory=[
-            InventoryPatch(action="add", item="量子纠缠通信器", quantity=1, unit="枚"),
+            InventoryPatch(
+                action="add",
+                item="红色编织绳",
+                quantity=1,
+                unit="个",
+                kind="durable",
+                description="折叠成花朵形状，来自杂物间铁皮文具盒",
+            ),
         ],
     )
     events = apply_state_patch(
@@ -194,32 +252,46 @@ def test_world_state_still_blocks_pickup_without_mechanical_grant():
         game_state,
         route=route,
         mechanical_events=[],
-        inventory_sync=False,
+        inventory_sync=True,
     )
-    assert not character.has_inventory_item("量子纠缠通信器")
-    assert any("拾取未成功" in event for event in events)
+    item = character.find_inventory_item("红色编织绳")
+    assert item is not None
+    assert item.quantity == 1
+    assert "折叠成花朵形状" in item.description
+    assert any("获得" in event for event in events)
+    assert not any("跳过重复添加" in event for event in events)
 
 
-def test_apply_state_patch_blocks_exploration_duplicate_pickup():
+def test_item_sync_blocks_pickup_after_roll_failure():
     character = Character(name="测试")
     game_state = GameState()
     route = ActionRouteResult(
         approved=True,
         item_usage="pickup",
-        referenced_items=["药瓶"],
+        referenced_items=["钱包"],
     )
-    patch = patch_from_dict(
-        {"inventory": [{"action": "add", "item": "药瓶", "quantity": 1, "unit": "个"}]}
+    patch = StatePatch(
+        inventory=[
+            InventoryPatch(
+                action="add",
+                item="钱包",
+                quantity=1,
+                unit="个",
+                kind="durable",
+                description="从目标身上摸到的钱包",
+            ),
+        ],
     )
     events = apply_state_patch(
         patch,
         character,
         game_state,
         route=route,
-        mechanical_events=["获得：药瓶"],
+        mechanical_events=["敏捷检定 失败 ✗（DC 25）"],
+        inventory_sync=True,
     )
-    assert any("机械层已结算" in event for event in events)
-    assert not character.has_inventory_item("药瓶")
+    assert not character.has_inventory_item("钱包")
+    assert any("拾取检定失败" in event for event in events)
 
 
 def test_apply_state_patch_blocks_duplicate_remove_after_use():

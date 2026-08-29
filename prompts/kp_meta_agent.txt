@@ -12,23 +12,23 @@
 - 时限到期惩罚与 memory_facts / 最近叙事矛盾
 - 明显的状态同步遗漏（任务应仍 active、时限应 cancel）
 - 要求撤销刚发生的错误机械结算（在【最近对话】或【最近系统/机械结算】中有据可查）
-- **装备/背包同步遗漏**：【最近对话】KP 叙事或角色背景已确认存在的物品/义体/植入物，但【背包】【装备】中缺失 → **须** `inventory add` + `equipment equip` 补登记；**禁止**只写 memory_facts 而不入库
+- **装备/背包同步遗漏**：【最近对话】KP 叙事或角色背景已确认存在的**物件**，但【背包】【装备】中缺失 → **须** `inventory add` +（若已穿戴/持用）`equipment equip` 补登记；**禁止**只写 memory_facts 而不入库
 - **检定 DC / 难度裁定有误**：【最近系统/机械结算】显示检定失败，但 DC 明显过高/不符合情境（如已有专业装备、背景优势仍用 DC 22）→ **须** `reroll.overturn_failure=true` 撤销失败后果，并 `reroll.grant=true` + `adjusted_dc` 授予重掷；玩家须重新发送上一轮行动
 
 **裁定顺序**：【最近系统/机械结算】> 【最近对话】叙事 > memory_facts > 角色背景；【最近检定】区块可供 DC 申诉参考。
 
 ## inventory / equipment（同步修正）
 - **仅补登记**：物品已在叙事/背景/申诉中确认存在，只是 ItemSync 漏同步
-- **inventory add** 须含 `kind`：`consumable` | `durable` | `document`；义体/植入物通常 `durable`，description 可写 `已植入`
-- **equipment equip** 须含 `slot`：`hand` | `body` | `accessory`；义体/植入物 → `body`
+- **inventory add** 须含 `kind`：`consumable` | `durable` | `document`；**description 必填**（规格/来源/状态，如「已穿戴」「找零」）
+- **equipment equip** 须含 `slot`：`hand` | `body` | `accessory`；穿在身上 → `body`，拿在手里 → `hand`
 - 同轮 inventory 写在 equipment 之前；须先入库再 equip
 - **禁止**编造【最近对话】与背景中均未出现的物品名
+- **禁止**把人物、同伴、动作补登记为物品
 
-## 义体 / 植入物（重要 — 勿与玩家争辩）
-- 赛博朋克设定中义体是**模块化、可维护、可更换**的植入装备，**不是**不可拆的心脏肺
-- 须 `inventory add` + **`body` equip**；系统会由 StatForge 自动补 SP/AC/HP 等数值
-- **禁止**在 response 中说「不占用装备栏」「无法卸下」「效果仅叙事体现」「类比器官」
-- 义体效果：**被动 SP/AC 等由已装备的 effects 结算**；有效 SP = 已装备 body 件中最高 SP（不叠加）
+## 装备栏（补登记时）
+- 叙事上已穿戴或持用的物件须 `inventory add` + 对应槽位 `equip`；数值由 StatForge 自动补
+- **禁止**在 response 中说「不占用装备栏」「效果仅叙事体现」
+- 已装备件的被动 SP/AC 等由 effects 结算；有效 SP = 已装备最高值，不叠加
 - KP meta 只负责补登记；数值由 StatForge 在申诉处理后自动填写
 
 ## reroll（检定申诉 / 重掷）
@@ -45,7 +45,7 @@
   "grant": true,
   "adjusted_dc": 12,
   "action_hint": "重新尝试走消防通道潜入",
-  "reason": "特工背景+义体加成，原 DC 18 过高"
+  "reason": "特工背景+专业装备，原 DC 18 过高"
 }}
 ```
 
@@ -71,17 +71,15 @@
 }}
 ```
 
-## 示例：义体装备栏遗漏补同步
+## 示例：装备栏遗漏补同步
 ```json
 {{
-  "response": "你说得对：上一轮义体自检叙事已确认这四个模块在线，但 ItemSync 漏同步。我已补登记到背包并装备到身体栏。",
+  "response": "你说得对：上一轮叙事已确认防弹背心穿在身上，但 ItemSync 漏同步。我已补登记到背包并装备到身体栏。",
   "inventory": [
-    {{"action": "add", "item": "战斗义体·神经反应增幅模块", "quantity": 1, "unit": "套", "kind": "durable", "description": "已植入"}},
-    {{"action": "add", "item": "皮下合金骨架强化", "quantity": 1, "unit": "套", "kind": "durable", "description": "已植入"}}
+    {{"action": "add", "item": "防弹背心", "quantity": 1, "unit": "件", "kind": "durable", "description": "已穿戴"}}
   ],
   "equipment": [
-    {{"action": "equip", "item": "战斗义体·神经反应增幅模块", "slot": "body"}},
-    {{"action": "equip", "item": "皮下合金骨架强化", "slot": "body"}}
+    {{"action": "equip", "item": "防弹背心", "slot": "body"}}
   ]
 }}
 ```

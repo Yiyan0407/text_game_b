@@ -1,15 +1,19 @@
 from chain.action_router import ActionRouter
-from chain.async_utils import run_async
-from chain.item_sync_agent import ItemSyncAgent
+from chain.async_utils import gather_best_effort, run_async
+from chain.inventory_sync_agent import InventorySyncAgent
 from chain.opening_integrator import OpeningIntegrator
 from chain.kp_chain import KPChain
 from chain.kp_meta_agent import KpMetaAgent, KpMetaResult
 from chain.memory import ConversationWindowMemory
 from chain.memory_manager import LongTermMemoryManager
+from chain.settlement_router import SettlementRouterAgent
+from chain.skill_sync_agent import SkillSyncAgent
 from chain.suggestions import ActionSuggester
+from chain.scene_map_agent import SceneMapAgent
 from chain.stat_forge_agent import StatForgeAgent
 from chain.summarizer import StorySummarizer
-from chain.world_state_agent import WorldStateAgent
+from chain.time_sync_agent import TimeSyncAgent
+from chain.world_sync_agent import WorldSyncAgent
 from config.settings import get_settings
 from game.adventure_snapshot import restore_adventure, snapshot_adventure
 from game.combat import (
@@ -33,8 +37,7 @@ from game.combat import (
     start_combat,
 )
 from game.dice import roll
-from game.inventory import item_name_from_ref
-from game.item_use import resolve_use_item
+from game.post_kp_mechanics import delivered_item_names
 from game.game_config import GameConfig, apply_guidance_hint, default_game_config
 from game.models import Character, ChatMessage, GameState
 from game.opening_brief import OpeningBrief
@@ -49,19 +52,18 @@ from game.check_consequences import apply_check_failure_consequences
 from game.rules import ability_check, format_check_for_kp
 from game.skill_check import skill_bonus_for_route
 from game.scenario import Scenario
-from game.opening_suggestions import default_opening_suggestions
 
 START_GAME_INSTRUCTION = """\
 游戏刚刚开始。请根据下方【模组信息】做开场，并全程担任引导型 KP。
 
-开场叙事必须包含（融入故事，不要列清单、不要出戏）：
-1. 场景：你在哪里，环境有什么可见/可闻的细节；
+开场叙事必须包含（**融入故事**，有画面、有气氛，不要列清单、不要出戏）：
+1. 场景：你在哪里——用可见/可闻/可触的细节让人「身临其境」；
 2. 处境：刚发生了什么，你为什么在这里；
 3. 目标：当前最重要的一件事是什么（与 initial_quests 一致）；
-4. 引导：用 1–2 句自然语言提示「你可以尝试做什么方向」，例如调查、交谈、移动、检查物品——但不要替玩家做决定。
+4. 引导：用 1–2 句**自然融入剧情**的方向暗示（调查、交谈、移动等），不要替玩家做决定，不要菜单式列举。
 
 工具：开场场景/NPC/任务由系统自动同步；你只需写开场叙事。
-篇幅 200–400 字，结尾留明确的行动入口，让玩家知道第一句话该说什么。
+结尾留明确的行动入口，让玩家知道第一句话该说什么。
 
 若输入含【长期角色履历】：这是老角色进入新模组。尊重其过往战役、技能与背包；开场可自然提及来历，但剧情仍从新模组 initial_quests 起步，不要复述全部履历。
 
@@ -123,10 +125,13 @@ class GameOrchestrator:
         memory_manager: LongTermMemoryManager | None = None,
         action_router: ActionRouter | None = None,
         opening_integrator: OpeningIntegrator | None = None,
-        world_state_agent: WorldStateAgent | None = None,
-        item_sync_agent: ItemSyncAgent | None = None,
+        settlement_router: SettlementRouterAgent | None = None,
+        inventory_sync_agent: InventorySyncAgent | None = None,
+        skill_sync_agent: SkillSyncAgent | None = None,
+        time_sync_agent: TimeSyncAgent | None = None,
+        world_sync_agent: WorldSyncAgent | None = None,
         stat_forge_agent: StatForgeAgent | None = None,
-        state_agent: WorldStateAgent | None = None,
+        scene_map_agent: SceneMapAgent | None = None,
         kp_meta_agent: KpMetaAgent | None = None,
     ):
         self.kp = kp_chain if kp_chain is not None else KPChain()
@@ -135,11 +140,17 @@ class GameOrchestrator:
         self.suggester = suggester if suggester is not None else ActionSuggester()
         self.memory = LongTermMemoryManager(self.summarizer) if memory_manager is None else memory_manager
         self.router = action_router if action_router is not None else ActionRouter()
-        legacy_state = state_agent or world_state_agent
-        self.world_state = legacy_state if legacy_state is not None else WorldStateAgent()
-        self.item_sync = item_sync_agent if item_sync_agent is not None else ItemSyncAgent()
+        self.settlement_router = (
+            settlement_router if settlement_router is not None else SettlementRouterAgent()
+        )
+        self.inventory_sync = (
+            inventory_sync_agent if inventory_sync_agent is not None else InventorySyncAgent()
+        )
+        self.skill_sync = skill_sync_agent if skill_sync_agent is not None else SkillSyncAgent()
+        self.time_sync = time_sync_agent if time_sync_agent is not None else TimeSyncAgent()
+        self.world_sync = world_sync_agent if world_sync_agent is not None else WorldSyncAgent()
         self.stat_forge = stat_forge_agent if stat_forge_agent is not None else StatForgeAgent()
-        self.state_agent = self.world_state
+        self.scene_map = scene_map_agent if scene_map_agent is not None else SceneMapAgent()
         self.opening_integrator = (
             opening_integrator if opening_integrator is not None else OpeningIntegrator()
         )
@@ -147,15 +158,19 @@ class GameOrchestrator:
         self.window_memory = ConversationWindowMemory(window_size=settings.max_history_messages)
         self.pipeline = TurnPipeline(
             router=self.router,
-            world_state=self.world_state,
-            item_sync=self.item_sync,
+            settlement_router=self.settlement_router,
+            inventory_sync=self.inventory_sync,
+            skill_sync=self.skill_sync,
+            time_sync=self.time_sync,
+            world_sync=self.world_sync,
             stat_forge=self.stat_forge,
             kp=self.kp,
             memory=self.memory,
             suggester=self.suggester,
             window_memory=self.window_memory,
+            scene_map=self.scene_map,
             resolve_mechanics=self._resolve_mechanics,
-            delivered_item_names=self._delivered_item_names,
+            delivered_item_names=delivered_item_names,
         )
 
     def start_game(
@@ -208,7 +223,6 @@ class GameOrchestrator:
             is_opening=True,
             game_config=config,
         )
-        turn.opening_used_fallback = brief.used_fallback
         return turn
 
     def start_game_stream(
@@ -254,9 +268,7 @@ class GameOrchestrator:
             restore_adventure(character, game_state, char_snap, state_snap)
 
         def finish_with_opening(response: str) -> TurnResult:
-            turn = finish(response)
-            turn.opening_used_fallback = brief.used_fallback
-            return turn
+            return finish(response)
 
         return rejection, pre_events, run_state, stream, item_sync, mem, finish_with_opening, rollback_turn
 
@@ -439,9 +451,9 @@ class GameOrchestrator:
             ctx.route = None
             ctx.enriched_input = user_input
             ctx.mechanical_events = []
-            await self.pipeline.sync_world_state(ctx)
+            await self.pipeline.build_narrative_brief(ctx)
             await self.pipeline.narrate(ctx)
-            await self.pipeline.sync_items(ctx)
+            await self.pipeline.settle_after_kp(ctx)
             await self.pipeline.define_entities(ctx)
             return await self.pipeline.finalize(ctx, ctx.kp_response)
         return await self.pipeline.run_turn(ctx)
@@ -579,58 +591,44 @@ class GameOrchestrator:
         self,
         ctx: TurnContext,
     ):
-        """分阶段流式回合：机械 → 世界状态 → KP 流 → 物品同步 → 异步收尾。"""
+        """分阶段流式回合：机械 → 叙事简报 → KP 流 → KP 后结算 → 异步收尾。"""
         tool_events = list(ctx.mechanical_events)
         state_result: dict[str, object] = {}
 
         def run_state_phase() -> list[str]:
-            events = run_async(self.pipeline.sync_world_state(ctx))
-            tool_events.extend(events)
+            run_async(self.pipeline.build_narrative_brief(ctx))
             state_result["brief"] = ctx.narrative_brief
-            return events
+            return []
 
         def text_stream():
-            import asyncio
-
             brief = state_result.get("brief")
             if brief is None:
                 raise RuntimeError("run_state_phase must be called before consuming text_stream")
-
-            loop = asyncio.new_event_loop()
-            try:
-                async def _consume():
-                    async for chunk in self.kp.anarrate_stream(
-                        character=ctx.character,
-                        game_state=ctx.game_state,
-                        scenario_context=ctx.scenario.format_for_prompt(),
-                        world_id=ctx.scenario.world_id,
-                        user_input=str(brief),
-                        history=ctx.windowed_history or ctx.history,
-                        kp_guidance=ctx.game_config.kp_guidance,
-                    ):
-                        yield chunk
-
-                gen = _consume().__aiter__()
-                while True:
-                    try:
-                        yield loop.run_until_complete(gen.__anext__())
-                    except StopAsyncIteration:
-                        break
-            finally:
-                loop.close()
+            yield from self.kp.narrate_stream(
+                character=ctx.character,
+                game_state=ctx.game_state,
+                scenario_context=ctx.scenario.format_for_prompt(),
+                world_id=ctx.scenario.world_id,
+                user_input=str(brief),
+                history=ctx.windowed_history or ctx.history,
+                kp_guidance=ctx.game_config.kp_guidance,
+            )
 
         def run_item_sync_phase(kp_response: str) -> list[str]:
             ctx.kp_response = kp_response.strip()
-            events = run_async(self.pipeline.sync_items(ctx))
-            tool_events.extend(events)
+            settle_events = run_async(self.pipeline.settle_after_kp(ctx))
+            tool_events.extend(settle_events)
             forge_events = run_async(self.pipeline.define_entities(ctx))
             tool_events.extend(forge_events)
-            return events + forge_events
+            return settle_events + forge_events
 
         def run_memory_finalize() -> bool:
             summary_before = ctx.game_state.story_summary
             run_async(
-                self.memory.process_after_turn_async(ctx.game_state, ctx.history)
+                gather_best_effort(
+                    self.memory.process_after_turn_async(ctx.game_state, ctx.history),
+                    self._refresh_scene_map_if_needed(ctx),
+                )
             )
             return ctx.game_state.story_summary != summary_before
 
@@ -662,7 +660,9 @@ class GameOrchestrator:
         if not route.approved:
             return enriched_input, [], route
         try:
-            pre_tool_events = self._resolve_mechanics(route, character, game_state, scenario)
+            pre_tool_events = self._resolve_mechanics(
+                route, character, game_state, scenario, enriched_input
+            )
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
                 approved=False,
@@ -688,7 +688,9 @@ class GameOrchestrator:
         if not route.approved:
             return enriched_input, [], route
         try:
-            pre_tool_events = self._resolve_mechanics(route, character, game_state, scenario)
+            pre_tool_events = self._resolve_mechanics(
+                route, character, game_state, scenario, enriched_input
+            )
         except ValueError as exc:
             return enriched_input, [], ActionRouteResult(
                 approved=False,
@@ -702,6 +704,7 @@ class GameOrchestrator:
         character: Character,
         game_state: GameState,
         scenario: Scenario | None = None,
+        user_input: str = "",
     ) -> list[str]:
         pre_tool_events: list[str] = []
         world_id = scenario.world_id if scenario else ""
@@ -739,7 +742,9 @@ class GameOrchestrator:
                 raise ValueError("请明确要攻击的敌人。")
             else:
                 pre_tool_events.extend(
-                    self._execute_combat_action(route, character, game_state)
+                    self._execute_combat_action(
+                        route, character, game_state, user_input=user_input
+                    )
                 )
                 if self._should_advance_combat_after_action(route, game_state):
                     pre_tool_events.extend(
@@ -789,85 +794,15 @@ class GameOrchestrator:
 
             pre_tool_events.extend(apply_pending_reroll_to_route(route, game_state))
             roll_events, roll_success = self._execute_pre_roll(
-                route, character, game_state
+                route, character, game_state, user_input=user_input
             )
             pre_tool_events.extend(roll_events)
-            if (
-                route.item_usage == "pickup"
-                and roll_success is True
-                and route.referenced_items
-            ):
-                for item in route.referenced_items:
-                    if character.add_inventory_item(item):
-                        pre_tool_events.append(f"获得：{item}")
-        elif route.item_usage == "pickup" and not game_state.is_in_combat():
-            for item in route.referenced_items:
-                if character.add_inventory_item(item):
-                    pre_tool_events.append(f"获得：{item}")
-        elif route.item_usage == "purchase" and not game_state.is_in_combat():
-            pre_tool_events.extend(self._execute_purchase(route, character))
-        elif route.item_usage == "use" and not game_state.is_in_combat():
-            pre_tool_events.extend(resolve_use_item(character, route.referenced_items))
 
         end_msg, _defeated = maybe_end_combat(game_state, character)
         if end_msg:
             pre_tool_events.append(end_msg)
 
         return pre_tool_events
-
-    @staticmethod
-    def _execute_purchase(route: ActionRouteResult, character: Character) -> list[str]:
-        events: list[str] = []
-        quantity = max(1, route.payment_quantity or 1)
-
-        if not route.payment_items:
-            events.append("支付失败：未指定支付物品。")
-            return events
-
-        for payment in route.payment_items:
-            target = character.find_inventory_item(payment)
-            if target is None:
-                events.append(f"支付失败：背包中没有：{payment}")
-                return events
-            if quantity > target.quantity:
-                events.append(f"支付失败：背包中 {target.display()} 数量不足。")
-                return events
-
-        for payment in route.payment_items:
-            ok, message = character.consume_inventory_quantity(payment, quantity)
-            if ok:
-                events.append(message)
-            else:
-                events.append(f"支付失败：{message}")
-                return events
-
-        for goods in route.referenced_items:
-            if character.add_inventory_item(goods):
-                matched = character.find_inventory_item(goods)
-                label = matched.format_detail() if matched else goods
-                events.append(f"获得：{label}")
-        return events
-
-    @staticmethod
-    def _delivered_item_names(
-        route: ActionRouteResult | None,
-        mechanical_events: list[str],
-    ) -> frozenset[str]:
-        if route is None or not GameOrchestrator._purchase_settled(route, mechanical_events):
-            return frozenset()
-        return frozenset(
-            item_name_from_ref(item)
-            for item in route.referenced_items
-            if item.strip()
-        )
-
-    @staticmethod
-    def _purchase_settled(route: ActionRouteResult | None, mechanical_events: list[str]) -> bool:
-        if route is None or route.item_usage != "purchase":
-            return False
-        if any("支付失败" in event for event in mechanical_events):
-            return False
-        return any("获得：" in event or "背包新增" in event for event in mechanical_events)
 
     @staticmethod
     def _execute_pre_move(
@@ -904,6 +839,8 @@ class GameOrchestrator:
         route: ActionRouteResult,
         character: Character,
         game_state: GameState,
+        *,
+        user_input: str = "",
     ) -> list[str]:
         action = route.combat_action
         if action == "end_turn":
@@ -961,7 +898,7 @@ class GameOrchestrator:
                     action_cost=route.action_cost
                     if route.action_cost in ("main", "bonus")
                     else "main",
-                    action_intent=route.action_intent,
+                    action_intent=user_input,
                 )
             ],
             "grapple": lambda: [
@@ -999,6 +936,8 @@ class GameOrchestrator:
         route: ActionRouteResult,
         character: Character,
         game_state: GameState,
+        *,
+        user_input: str = "",
     ) -> tuple[list[str], bool | None]:
         events: list[str] = []
         if route.roll_type == "ability_check":
@@ -1025,15 +964,19 @@ class GameOrchestrator:
                 check_total=result.check_total or result.roll.total,
                 roll_total=result.roll.total,
                 success=result.success,
-                action_intent=route.action_intent,
-                user_input=route.action_intent,
+                action_intent=user_input,
+                user_input=user_input,
                 proficiency_bonus=route.proficiency_bonus,
                 hp_before=hp_before,
             )
             if not result.success:
                 events.extend(
                     apply_check_failure_consequences(
-                        route, result, character, game_state
+                        route,
+                        result,
+                        character,
+                        game_state,
+                        user_input=user_input,
                     )
                 )
             return events, result.success
@@ -1042,9 +985,24 @@ class GameOrchestrator:
             return events, None
         return events, None
 
-    @staticmethod
-    def _default_opening_suggestions(
-        scenario: Scenario,
+    async def _refresh_scene_map_if_needed(self, ctx: TurnContext) -> None:
+        from game.turn_pipeline import _should_refresh_scene_map
+
+        if not _should_refresh_scene_map(ctx):
+            return
+        await self.scene_map.aupdate(
+            ctx.game_state,
+            ctx.scenario,
+            ctx.history,
+            travel_from=ctx.map_travel_from,
+        )
+        ctx.game_state.map_travel_from = ""
+
+    def refresh_scene_map(
+        self,
         game_state: GameState,
-    ) -> list[str]:
-        return default_opening_suggestions(scenario, game_state)
+        scenario: Scenario,
+        history: list[ChatMessage],
+    ) -> bool:
+        """手动刷新地图（侧边栏按钮）。"""
+        return self.scene_map.update(game_state, scenario, history)

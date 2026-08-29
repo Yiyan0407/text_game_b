@@ -53,12 +53,9 @@ def format_route_summary(route: ActionRouteResult | None) -> str:
     if route is None:
         return "（无路由，开场模式）"
     lines = [
-        f"行动意图：{route.action_intent}",
-        f"叙事边界：{route.scope_stop}",
         f"模式：{route.mode}",
         f"物品用途：{route.item_usage}",
         f"技能用途：{route.skill_usage}",
-        f"物品同步：{'是' if route.sync_inventory else '否（跳过 ItemSync）'}",
     ]
     if route.referenced_items:
         lines.append(f"涉及物品：{', '.join(route.referenced_items)}")

@@ -11,7 +11,7 @@ from prompts.templates import build_narrative_prompt
 
 class KPChain:
     def __init__(self):
-        self.llm = create_chat_llm(streaming=True)
+        self.llm = create_chat_llm(role="kp", streaming=True)
 
     def narrate(
         self,

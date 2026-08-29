@@ -1,3 +1,7 @@
+"""战斗中使用物品的动作成本判定。"""
+
+from __future__ import annotations
+
 from langchain_core.prompts import ChatPromptTemplate
 
 from chain.json_utils import extract_json_list
@@ -6,7 +10,7 @@ from chain.llm import create_chat_llm
 
 class ActionSuggester:
     def __init__(self):
-        self.llm = create_chat_llm(temperature=0.7)
+        self.llm = create_chat_llm(role="suggestions", temperature=0.7)
         self.prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -37,17 +41,6 @@ class ActionSuggester:
         in_combat: bool = False,
         enemy_names: list[str] | None = None,
     ) -> list[str]:
-        if in_combat:
-            enemies = enemy_names or []
-            if enemies:
-                target = enemies[0]
-                return [
-                    f"攻击{target}",
-                    f"推撞{target}",
-                    "结束回合",
-                ][:3]
-            return ["举盾防御", "观察弱点", "结束回合"]
-
         guidance = ""
         if turn_count <= 3:
             guidance = (
@@ -65,20 +58,16 @@ class ActionSuggester:
             }
         )
         text = (response.content or "").strip()
-        parsed = self._parse_suggestions(text)
-        if parsed:
-            return parsed
-        if turn_count <= 1:
-            return ActionSuggester._fallback_opening_suggestions(scene)
-        return []
+        return self._parse_suggestions(text)
 
     @staticmethod
     def _parse_suggestions(text: str) -> list[str]:
         items = extract_json_list(text)
         if isinstance(items, list):
-            return [str(item).strip() for item in items[:3] if str(item).strip()]
-        lines = [line.strip("-•* ").strip() for line in text.splitlines() if line.strip()]
-        return lines[:3]
+            parsed = [str(item).strip() for item in items[:3] if str(item).strip()]
+            if parsed:
+                return parsed
+        raise ValueError("行动建议生成器未返回有效 JSON 数组。")
 
     async def asuggest(
         self,
@@ -96,12 +85,3 @@ class ActionSuggester:
             in_combat=in_combat,
             enemy_names=enemy_names,
         )
-
-    @staticmethod
-    def _fallback_opening_suggestions(scene: str) -> list[str]:
-        label = scene or "周围"
-        return [
-            f"观察{label}",
-            "和在场的人交谈",
-            "检查随身物品",
-        ]

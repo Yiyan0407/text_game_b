@@ -27,28 +27,24 @@ class OpeningIntegrator:
         )
 
     def generate(self, character: Character, scenario: Scenario) -> OpeningBrief:
-        try:
-            chain = self.prompt | self.llm
-            response = chain.invoke(
-                {
-                    "character_name": character.name,
-                    "character_background": character.background,
-                    "scenario_context": scenario.format_for_prompt(),
-                }
-            )
-            brief = self._parse_response((response.content or "").strip())
-            if brief.role_in_story.strip():
-                return brief
-        except Exception:
-            pass
-        fallback = OpeningBrief.fallback(character.name, character.background, scenario)
-        return fallback.model_copy(update={"used_fallback": True})
+        chain = self.prompt | self.llm
+        response = chain.invoke(
+            {
+                "character_name": character.name,
+                "character_background": character.background,
+                "scenario_context": scenario.format_for_prompt(),
+            }
+        )
+        brief = self._parse_response((response.content or "").strip())
+        if not brief.role_in_story.strip():
+            raise ValueError("Opening Integrator 未返回有效的 role_in_story。")
+        return brief
 
     @staticmethod
     def _parse_response(text: str) -> OpeningBrief:
         data = extract_json_dict(text)
         if not isinstance(data, dict):
-            return OpeningBrief()
+            raise ValueError("Opening Integrator 未返回有效 JSON。")
         constraints = data.get("narrative_constraints", [])
         if not isinstance(constraints, list):
             constraints = []

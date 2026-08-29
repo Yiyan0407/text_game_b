@@ -4,10 +4,8 @@ from game.narrative_time import (
     apply_story_clock_label,
     apply_time_patch,
     apply_turn_time_from_patch,
-    estimate_turn_minutes,
     format_clock,
     format_duration,
-    infer_opening_time_label,
     initialize_story_clock_from_scenario,
     parse_explicit_wait_minutes,
     parse_stated_action_minutes,
@@ -29,17 +27,7 @@ def test_format_clock_uses_story_anchor():
     assert format_clock(90, 23 * 60) == "第2天 00:30"
 
 
-def test_infer_opening_time_label_for_night_scene():
-    scenario = Scenario(
-        id="night_case",
-        title="夜班",
-        opening_prompt="深夜的报社编辑部，匿名账号发来压缩包。",
-        opening_scene_name="报社·夜班工位",
-    )
-    assert infer_opening_time_label(scenario) == "第1天 23:00"
-
-
-def test_initialize_story_clock_from_scenario():
+def test_initialize_story_clock_from_scenario_is_noop():
     scenario = Scenario(
         id="night_case",
         title="夜班",
@@ -47,9 +35,9 @@ def test_initialize_story_clock_from_scenario():
     )
     state = GameState()
     initialize_story_clock_from_scenario(state, scenario)
-    assert state.story_start_absolute_minutes == 23 * 60 + 30
+    assert state.story_start_absolute_minutes == 8 * 60
     assert state.elapsed_minutes == 0
-    assert state.narrative_time_label == "第1天 23:30"
+    assert state.narrative_time_label == ""
 
 
 def test_apply_story_clock_label_reanchors_opening():
@@ -345,26 +333,28 @@ def test_apply_time_patch_adds_deadline():
     assert any("已登记时限" in event for event in events)
 
 
-def test_estimate_turn_minutes_for_wait():
+def test_resolve_turn_advance_minutes_explicit_wait():
     route = ActionRouteResult(approved=True, action_intent="等待")
-    minutes = estimate_turn_minutes(route, "我决定等三天再行动", GameState())
+    minutes = resolve_turn_advance_minutes(
+        None,
+        route=route,
+        user_input="我决定等三天再行动",
+        game_state=GameState(),
+        has_time_field=False,
+    )
     assert minutes == 3 * 24 * 60
 
 
-def test_estimate_turn_minutes_for_brief_question():
-    route = ActionRouteResult(approved=True, action_intent="质问对方身份")
-    minutes = estimate_turn_minutes(
-        route,
-        "不是，你是谁？是怎么找到我的？",
-        GameState(),
+def test_resolve_turn_advance_minutes_no_patch_without_agent():
+    route = ActionRouteResult(approved=True, action_intent="继续")
+    minutes = resolve_turn_advance_minutes(
+        None,
+        route=route,
+        user_input="好的",
+        game_state=GameState(),
+        has_time_field=False,
     )
-    assert minutes == 2
-
-
-def test_estimate_turn_minutes_default_is_modest():
-    route = ActionRouteResult(approved=True, action_intent="继续行动")
-    minutes = estimate_turn_minutes(route, "好的", GameState())
-    assert minutes == 4
+    assert minutes == 0
 
 
 def test_format_turn_time_hint():
@@ -389,7 +379,7 @@ def test_resolve_turn_advance_minutes_prefers_agent():
     assert agent_minutes == 2
 
 
-def test_resolve_turn_advance_minutes_fallback_when_no_time_field():
+def test_resolve_turn_advance_minutes_without_time_field_stays_zero():
     route = ActionRouteResult(approved=True, action_intent="继续")
     minutes = resolve_turn_advance_minutes(
         None,
@@ -398,7 +388,7 @@ def test_resolve_turn_advance_minutes_fallback_when_no_time_field():
         game_state=GameState(),
         has_time_field=False,
     )
-    assert minutes == 4
+    assert minutes == 0
 
 
 def test_apply_turn_time_from_patch_uses_agent_value():
@@ -418,7 +408,7 @@ def test_apply_turn_time_from_patch_uses_agent_value():
     assert any("与门卫简短交谈" in event for event in events)
 
 
-def test_apply_turn_time_from_patch_heuristic_includes_reason():
+def test_apply_turn_time_from_patch_without_agent_does_not_advance():
     state = GameState()
     events = apply_turn_time_from_patch(
         state,
@@ -428,8 +418,8 @@ def test_apply_turn_time_from_patch_heuristic_includes_reason():
         character=None,
         has_time_field=False,
     )
-    assert state.elapsed_minutes == 45
-    assert any("跨场景移动/赶路" in event for event in events)
+    assert state.elapsed_minutes == 0
+    assert not any("时间推进" in event for event in events)
 
 
 def test_apply_state_patch_skips_time_when_disabled():

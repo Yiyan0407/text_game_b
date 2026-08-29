@@ -1,3 +1,5 @@
+import pytest
+
 from chain.suggestions import ActionSuggester
 
 
@@ -7,11 +9,10 @@ def test_parse_suggestions_json():
     assert items == ["调查酒馆", "询问酒保", "观察门口"]
 
 
-def test_parse_suggestions_lines():
+def test_parse_suggestions_rejects_non_json():
     text = "- 搜索房间\n- 打开箱子\n- 离开"
-    items = ActionSuggester._parse_suggestions(text)
-    assert len(items) == 3
-    assert "搜索房间" in items[0]
+    with pytest.raises(ValueError, match="JSON"):
+        ActionSuggester._parse_suggestions(text)
 
 
 def test_load_world_prompts():

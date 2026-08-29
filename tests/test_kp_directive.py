@@ -53,7 +53,14 @@ def test_sanitize_kp_meta_patch_keeps_inventory_and_strips_time():
     patch = sanitize_kp_meta_patch(
         StatePatch(
             inventory=[
-                InventoryPatch(action="add", item="战斗义体·神经反应增幅模块", quantity=1, unit="套", kind="durable"),
+                InventoryPatch(
+                    action="add",
+                    item="战斗义体·神经反应增幅模块",
+                    quantity=1,
+                    unit="套",
+                    kind="durable",
+                    description="已植入",
+                ),
                 InventoryPatch(action="remove", item="空瓶"),
             ],
             equipment=[
@@ -102,7 +109,7 @@ def test_kp_meta_sync_correction_applies_inventory_and_equipment():
     assert any("装备" in event for event in events)
 
 
-def test_apply_quest_fills_missing_title_from_existing():
+def test_apply_quest_requires_title():
     state = GameState(
         active_quests=[Quest(id="q1", title="原任务名", status="failed")]
     )
@@ -110,9 +117,9 @@ def test_apply_quest_fills_missing_title_from_existing():
         state,
         QuestPatch(quest_id="q1", title="", status="active"),
     )
-    assert message
+    assert message == ""
     assert state.active_quests[0].title == "原任务名"
-    assert state.active_quests[0].status == "active"
+    assert state.active_quests[0].status == "failed"
 
 
 def test_kp_meta_turn_applies_patch_without_router():

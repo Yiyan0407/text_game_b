@@ -15,12 +15,6 @@ def build_narrative_brief_static(
     """构建不含补丁后状态的静态段（可在 StateAgent 等待期间预组装）。"""
     lines: list[str] = ["【叙事简报】"]
     if route is not None:
-        lines.append(f"【本轮行动】{route.action_intent}")
-        lines.append(f"【叙事收笔】{route.scope_stop}")
-        if route.must_not_narrate:
-            lines.append("【禁止推进】")
-            for item in route.must_not_narrate:
-                lines.append(f"- {item}")
         in_combat = route.mode == "combat" or route.trigger_combat
         if in_combat:
             lines.append("【模式】战斗 — 根据机械结果叙事，勿编骰点。")
@@ -41,12 +35,16 @@ def build_narrative_brief_static(
         lines.append("")
         lines.append(combat_constraints)
     lines.append(
-        "【写作要求】第二人称「你」，遵守叙事收笔与禁止推进；勿复述本简报字段；勿列编号选项。"
+        "【写作要求】第二人称「你」，只写玩家本句请求范围内的事，勿擅自推进未提及的后续情节；"
+        "勿复述本简报字段；勿列编号选项。"
+        "文笔：具体可感、有画面与气氛，像小说片段而非状态说明；五感与对话优先，机制词勿入文。"
         "叙事须与下方【当前状态】背包、装备、技能一致：【装备·手持】中的武器/工具/手电即已在手上；"
-        "【装备·身体】中的防具/义体应体现在叙事中；SP 阻挡/磨损/击穿以机械结果为准；检定失败须体现系统已记录的受伤/关系/暴露等后果，"
+        "【装备·身体】中的防具/穿戴物应体现在叙事中；SP 阻挡/磨损/击穿以机械结果为准；检定失败须体现系统已记录的受伤/关系/暴露等后果，"
         "写察觉不足或环境干扰，勿否定玩家持有物，更不可写失败检定却行动成功。"
+        "购买/用物/拾取：KP 先写过程与结果，系统会在叙事后结算背包变更。"
     )
     lines.append("")
+    lines.append("【玩家输入】")
     lines.append(user_input.strip())
     return "\n".join(lines)
 

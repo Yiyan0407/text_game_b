@@ -1,6 +1,6 @@
 from chain.action_router import ActionRouter
 from game.models import Character, GameState
-from game.orchestrator import GameOrchestrator
+from game.post_kp_mechanics import execute_purchase
 from game.results import ActionRouteResult
 
 
@@ -25,7 +25,7 @@ def test_execute_purchase_deducts_payment_and_adds_goods():
         payment_quantity=1,
         referenced_items=["食盐（一袋）"],
     )
-    events = GameOrchestrator._execute_purchase(route, character)
+    events = execute_purchase(route, character)
     assert any("14枚" in event or "获得" in event for event in events)
     assert any("食盐" in event for event in events)
     assert character.has_inventory_item("定金币（14枚）")
@@ -40,7 +40,7 @@ def test_execute_purchase_fails_without_payment_items():
         payment_items=[],
         referenced_items=["食盐（一袋）"],
     )
-    events = GameOrchestrator._execute_purchase(route, character)
+    events = execute_purchase(route, character)
     assert events == ["支付失败：未指定支付物品。"]
     assert character.has_inventory_item("定金币（15枚）")
     assert not character.has_inventory_item("食盐（一袋）")
@@ -55,7 +55,7 @@ def test_execute_purchase_fails_when_insufficient_funds():
         payment_quantity=5,
         referenced_items=["食盐（一袋）"],
     )
-    events = GameOrchestrator._execute_purchase(route, character)
+    events = execute_purchase(route, character)
     assert any("支付失败" in event for event in events)
     assert character.has_inventory_item("定金币（1枚）")
     assert not character.has_inventory_item("食盐（一袋）")

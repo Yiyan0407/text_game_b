@@ -11,16 +11,12 @@ from game.results import ActionRouteResult, StatePatch, TurnResult
 from game.scenario import Scenario
 
 
-def _setup_async_mocks(router, kp, state_agent=None):
+def _setup_async_mocks(router, kp):
     router.aevaluate = AsyncMock(side_effect=lambda *args, **kwargs: router.evaluate(*args, **kwargs))
-    if state_agent is None:
-        state_agent = MagicMock()
-    state_agent.apropose = AsyncMock(return_value=StatePatch())
     turn_result = TurnResult(response="好的。", tool_events=[])
     if getattr(kp, "narrate", None) and kp.narrate.return_value:
         turn_result = kp.narrate.return_value
     kp.anarrate = AsyncMock(return_value=turn_result)
-    return state_agent
 
 
 def _approved_route(**overrides) -> ActionRouteResult:
@@ -35,7 +31,6 @@ def _approved_route(**overrides) -> ActionRouteResult:
         "referenced_items": [],
         "referenced_skills": [],
         "item_usage": "none",
-        "action_intent": "调查周围",
     }
     data.update(overrides)
     return ActionRouteResult(**data)
@@ -140,7 +135,6 @@ def test_parse_route_from_json():
         "referenced_items": [],
         "referenced_skills": [],
         "item_usage": "none",
-        "action_intent": "悄悄靠近",
     }
     route = ActionRouter._parse_route(json.dumps(payload))
     assert route.approved is True
@@ -152,57 +146,34 @@ def test_parse_route_from_json():
 def test_parse_route_from_markdown_json():
     payload = {
         "approved": True,
-        "action_intent": "答应老周，一起查看压缩包",
         "needs_roll": False,
         "roll_type": "none",
+        "item_usage": "observe",
     }
     wrapped = f"```json\n{json.dumps(payload, ensure_ascii=False)}\n```"
     route = ActionRouter._parse_route(wrapped)
     assert route.approved is True
-    assert "压缩包" in route.action_intent
+    assert route.item_usage == "observe"
 
 
 def test_parse_route_tolerates_invalid_dc_and_string_list_fields():
     payload = {
         "approved": True,
-        "action_intent": "检查文件",
         "dc": "偏高",
-        "must_not_narrate": "离开现场",
         "referenced_items": "手机",
     }
     route = ActionRouter._parse_route(json.dumps(payload, ensure_ascii=False))
     assert route.approved is True
     assert route.dc == 0
-    assert route.must_not_narrate == ["离开现场"]
     assert route.referenced_items == ["手机"]
 
 
 def test_parse_route_repairs_malformed_json():
-    broken = "{'approved': True, 'action_intent': '答应老周一起查看压缩包',}"
+    broken = "{'approved': True, 'item_usage': 'observe',}"
     route = ActionRouter._parse_route(broken)
     assert route.approved is True
-    assert "压缩包" in route.action_intent
+    assert route.item_usage == "observe"
 
-
-def test_fallback_route_approves_short_dialogue_in_exploration():
-    route = ActionRouter._fallback_route("行，我们一块看看吧", GameState())
-    assert route.approved is True
-    assert route.action_intent == "行，我们一块看看吧"
-
-
-def test_fallback_route_stays_strict_in_combat():
-    from game.models import CombatEnemy, CombatState
-
-    game_state = GameState()
-    game_state.combat = CombatState(
-        active=True,
-        round=1,
-        enemies=[CombatEnemy(name="守卫", hp=12, max_hp=12, ac=12)],
-        turn_order=["player"],
-        turn_index=0,
-    )
-    route = ActionRouter._fallback_route("行，我们一块看看吧", game_state)
-    assert route.approved is False
 
 
 @patch("game.orchestrator.get_settings")
@@ -244,41 +215,6 @@ def test_validate_rejects_roll_when_needs_roll_without_roll_type():
     assert "缺少掷骰类型" in result.rejection_reason
 
 
-def test_infiltration_roll_skipped_for_dialogue_in_restricted_context():
-    route = _approved_route(action_intent="悄悄询问公司内部情况")
-    history = [
-        ChatMessage(
-            role="assistant",
-            content="你来到星辰科技大楼，安保在前台巡逻，非授权人员禁止入内。",
-        ),
-    ]
-    result = ActionRouter._maybe_require_infiltration_roll(
-        route,
-        "我悄悄问前台能否介绍一下公司内部架构",
-        history,
-    )
-    assert result.needs_roll is False
-
-
-def test_require_infiltration_roll_for_continue_deeper():
-    route = _approved_route(action_intent="沿消防通道继续深入")
-    history = [
-        ChatMessage(
-            role="assistant",
-            content="你来到星辰科技大楼，安保在前台巡逻，机房重地非授权禁止入内。",
-        ),
-    ]
-    result = ActionRouter._maybe_require_infiltration_roll(
-        route,
-        "继续深入",
-        history,
-    )
-    assert result.needs_roll is True
-    assert result.roll_type == "ability_check"
-    assert result.ability == "dex"
-    assert result.dc >= 14
-
-
 @patch("game.orchestrator.get_settings")
 def test_orchestrator_pre_roll_before_kp(mock_settings):
     mock_settings.return_value = MagicMock(
@@ -295,9 +231,9 @@ def test_orchestrator_pre_roll_before_kp(mock_settings):
     )
     kp = MagicMock()
     kp.narrate.return_value = TurnResult(response="你成功听到了对话。", tool_events=[])
-    state_agent = _setup_async_mocks(router, kp)
+    _setup_async_mocks(router, kp)
     orchestrator = GameOrchestrator(
-        kp_chain=kp, action_router=router, state_agent=state_agent
+        kp_chain=kp, action_router=router
     )
     character = Character(name="测试", dex=14)
     game_state = GameState()
@@ -313,7 +249,6 @@ def test_orchestrator_pre_roll_before_kp(mock_settings):
 
     assert turn.rejected is False
     assert any("检定" in event for event in turn.tool_events)
-    assert any("时间推进" in event for event in turn.tool_events)
     assert "敏捷检定" in turn.tool_events[0]
     kp.anarrate.assert_called_once()
     kp_input = kp.anarrate.call_args.kwargs["user_input"]
@@ -331,8 +266,8 @@ def test_orchestrator_always_routes_player_input(mock_settings):
     router.evaluate.return_value = _approved_route(action_intent="观察四周")
     kp = MagicMock()
     kp.narrate.return_value = TurnResult(response="好的。", tool_events=[])
-    state_agent = _setup_async_mocks(router, kp)
-    orchestrator = GameOrchestrator(kp_chain=kp, action_router=router, state_agent=state_agent)
+    _setup_async_mocks(router, kp)
+    orchestrator = GameOrchestrator(kp_chain=kp, action_router=router)
     character = Character(name="测试")
     game_state = GameState()
     scenario = Scenario(id="test", title="测试", world_id="modern")
@@ -367,8 +302,8 @@ def test_orchestrator_combat_attack_does_not_advance_until_actions_spent(mock_se
     )
     kp = MagicMock()
     kp.narrate.return_value = TurnResult(response="你挥剑砍去。", tool_events=[])
-    state_agent = _setup_async_mocks(router, kp)
-    orchestrator = GameOrchestrator(kp_chain=kp, action_router=router, state_agent=state_agent)
+    _setup_async_mocks(router, kp)
+    orchestrator = GameOrchestrator(kp_chain=kp, action_router=router)
     character = Character(name="测试", strength=16)
     game_state = GameState()
     game_state.combat = CombatState(
@@ -486,31 +421,24 @@ def test_validate_trigger_combat_requires_enemies_spec():
 
 def test_apply_granularity_allows_compound_action():
     route = _approved_route(
-        action_intent="购买连弩和短剑并询问盔甲",
-        scope_stop="交易与询价完成",
+        item_usage="purchase",
+        payment_items=["金币"],
+        referenced_items=["连弩", "短剑"],
     )
-    ActionRouter._finalize_scope(route)
     assert route.approved is True
-    assert route.scope_stop
 
 
 def test_apply_granularity_allows_single_purchase_action():
     route = _approved_route(
-        action_intent="向瘦小摊主购买破禁符",
-        scope_stop="破禁符到手、交易完成",
-        must_not_narrate=["离开坊市", "与沈渊会面"],
+        item_usage="purchase",
+        payment_items=["定金币"],
+        referenced_items=["破禁符"],
     )
-    ActionRouter._finalize_scope(route)
     assert route.approved is True
-    assert route.scope_stop
-    assert route.must_not_narrate
 
 
-def test_narrative_brief_includes_scope_and_mechanical_events():
+def test_narrative_brief_includes_mechanical_events():
     route = _approved_route(
-        action_intent="向瘦小摊主购买破禁符",
-        scope_stop="破禁符到手、仍停留在摊位前",
-        must_not_narrate=["返回后院", "与沈渊对话"],
         item_usage="purchase",
         payment_items=["定金币"],
         referenced_items=["破禁符"],
@@ -521,9 +449,7 @@ def test_narrative_brief_includes_scope_and_mechanical_events():
         ["背包新增：破禁符。当前：定金币（14枚）、破禁符"],
     )
     assert "【叙事简报】" in brief
-    assert "破禁符到手" in brief
-    assert "【禁止推进】" in brief
-    assert "返回后院" in brief
+    assert "【玩家输入】" in brief
     assert "背包新增：破禁符" in brief
     assert "前往瘦小摊主处购买破禁符" in brief
 
@@ -640,11 +566,6 @@ def test_validate_rejects_purchase_in_combat():
     assert result.approved is False
     assert "购买" in result.rejection_reason
 
-
-def test_fallback_route_allows_compound_action():
-    route = ActionRouter._fallback_route("购买食盐然后离开", GameState())
-    ActionRouter._finalize_scope(route)
-    assert route.approved is True
 
 
 def test_narrative_brief_includes_failed_purchase_event():

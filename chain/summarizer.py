@@ -1,7 +1,10 @@
 import re
 
 from langchain_core.prompts import ChatPromptTemplate
+
+from chain.json_utils import extract_json_dict
 from chain.llm import create_chat_llm
+from game.memory_journal import MemoryEntry, entry_from_text, format_entries_for_compress
 
 
 class StorySummarizer:
@@ -69,6 +72,24 @@ class StorySummarizer:
             ]
         )
 
+        self.journal_compress_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "你是跑团「关键记忆」整理员。将多条按主题分组的事实**合并压缩**为更少条目。"
+                    "规则："
+                    "1. 同一主题内语义重复或可合并的条目须合成一条；"
+                    "2. 不同主题、不同 NPC、不同线索须分开保留，不可丢关键人名/数字/承诺；"
+                    "3. 输出 JSON：`{{\"entries\": [{{\"topic\": \"主题\", \"text\": \"合并后事实\"}}]}}`；"
+                    "4. 总条数不超过 target_count；text 每条 15-80 字；topic 复用输入中的主题名。",
+                ),
+                (
+                    "human",
+                    "目标条数上限：{target_count}\n\n待整理记忆：\n{blob}\n\n请输出 JSON：",
+                ),
+            ]
+        )
+
     def merge_summary(self, existing_summary: str, recent_dialogue: str, max_chars: int) -> str:
         chain = self.merge_prompt | self.llm
         response = chain.invoke(
@@ -114,6 +135,40 @@ class StorySummarizer:
             }
         )
         return _parse_fact_lines(response.content or "")
+
+    def compress_memory_entries(
+        self,
+        entries: list[MemoryEntry],
+        *,
+        target_count: int,
+    ) -> list[MemoryEntry]:
+        if not entries or len(entries) <= target_count:
+            return list(entries)
+        chain = self.journal_compress_prompt | self.llm
+        response = chain.invoke(
+            {
+                "target_count": max(1, target_count),
+                "blob": format_entries_for_compress(entries),
+            }
+        )
+        return _parse_compressed_entries(response.content or "")
+
+    async def acompress_memory_entries(
+        self,
+        entries: list[MemoryEntry],
+        *,
+        target_count: int,
+    ) -> list[MemoryEntry]:
+        if not entries or len(entries) <= target_count:
+            return list(entries)
+        chain = self.journal_compress_prompt | self.llm
+        response = await chain.ainvoke(
+            {
+                "target_count": max(1, target_count),
+                "blob": format_entries_for_compress(entries),
+            }
+        )
+        return _parse_compressed_entries(response.content or "")
 
     async def amerge_summary(self, existing_summary: str, recent_dialogue: str, max_chars: int) -> str:
         chain = self.merge_prompt | self.llm
@@ -169,3 +224,22 @@ def _parse_fact_lines(text: str) -> list[str]:
         if cleaned and len(cleaned) >= 4:
             facts.append(cleaned)
     return facts
+
+
+def _parse_compressed_entries(text: str) -> list[MemoryEntry]:
+    data = extract_json_dict(text)
+    if data is None:
+        return []
+    raw_entries = data.get("entries")
+    if not isinstance(raw_entries, list):
+        return []
+    parsed: list[MemoryEntry] = []
+    for item in raw_entries:
+        if not isinstance(item, dict):
+            continue
+        fact_text = str(item.get("text") or item.get("fact") or "").strip()
+        if not fact_text:
+            continue
+        topic = str(item.get("topic") or item.get("category") or "").strip() or None
+        parsed.append(entry_from_text(fact_text, topic=topic))
+    return parsed

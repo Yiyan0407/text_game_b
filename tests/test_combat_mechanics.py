@@ -193,6 +193,7 @@ def test_state_patch_blocks_combat_pickup_without_mechanical_gain():
                     "item": "格洛克手枪",
                     "quantity": 1,
                     "unit": "把",
+                    "description": "从敌人处夺取",
                 }
             ]
         }
@@ -203,6 +204,7 @@ def test_state_patch_blocks_combat_pickup_without_mechanical_gain():
         game_state,
         route=route,
         mechanical_events=["本回合主要动作已用尽。可使用附加动作，或输入「结束回合」。"],
+        inventory_sync=True,
     )
     assert any("跳过重复添加" in event for event in events)
     assert not character.has_inventory_item("格洛克手枪")
@@ -270,7 +272,7 @@ def test_state_patch_blocks_duplicate_after_mechanical_pickup():
     patch = patch_from_dict(
         {
             "inventory": [
-                {"action": "add", "item": "格洛克手枪", "quantity": 1, "unit": "把"}
+                {"action": "add", "item": "格洛克手枪", "quantity": 1, "unit": "把", "description": "战斗缴获"}
             ]
         }
     )
@@ -341,7 +343,6 @@ def test_orchestrator_pickup_branch_in_combat():
     orchestrator = GameOrchestrator(
         kp_chain=MagicMock(),
         action_router=MagicMock(),
-        state_agent=MagicMock(),
     )
     character = Character(name="测试")
     game_state = GameState()
@@ -354,14 +355,16 @@ def test_orchestrator_pickup_branch_in_combat():
     )
     route = _approved_route(item_usage="pickup", referenced_items=["格洛克手枪"])
     events = orchestrator._resolve_mechanics(route, character, game_state, None)
-    assert any("获得：格洛克手枪" in event for event in events)
+    assert any("免费物件互动：拾取 格洛克手枪" in event for event in events)
+    assert not character.has_inventory_item("格洛克手枪")
     assert game_state.combat.free_interact_used is True
     assert game_state.combat.has_bonus_action() is True
 
 
-def test_pickup_weapon_equips_without_extra_draw():
+def test_pickup_weapon_then_attack_without_extra_draw():
     from game.combat import resolve_pickup_in_combat, player_attack
     from game.effects import EntityEffects
+    from game.post_kp_mechanics import resolve_post_kp_mechanics
 
     character = Character(name="测试", inventory=[], skills=["射击"])
     game_state = GameState()
@@ -373,21 +376,27 @@ def test_pickup_weapon_equips_without_extra_draw():
         turn_index=0,
         enemy_distances={"敌人": 10},
     )
+    route = _approved_route(item_usage="pickup", referenced_items=["格洛克手枪"])
     pickup_events = resolve_pickup_in_combat(character, game_state, ["格洛克手枪"])
-    assert any("装备" in event for event in pickup_events)
+    assert any("免费物件互动" in event for event in pickup_events)
     assert game_state.combat.free_interact_used is True
+    settle_events = resolve_post_kp_mechanics(
+        route, character, game_state, pickup_events
+    )
+    assert any("获得" in event for event in settle_events)
     item = character.find_inventory_item("格洛克手枪")
     assert item is not None
     item.effects = EntityEffects(attack_damage="1d10", use_dex=True, forged=True)
+    character.equip_item("格洛克手枪", slot="hand")
 
-    route = _approved_route(
+    attack_route = _approved_route(
         combat_action="attack",
         attack_target="敌人",
         referenced_items=["格洛克手枪"],
         move_meters=8,
         move_target="敌人",
     )
-    result = player_attack(character, game_state, "敌人", route=route)
+    result = player_attack(character, game_state, "敌人", route=attack_route)
     assert "免费物件互动" not in result
     assert game_state.combat.has_bonus_action() is True
 
@@ -459,7 +468,6 @@ def test_orchestrator_combat_use_item_spends_bonus():
     orchestrator = GameOrchestrator(
         kp_chain=MagicMock(),
         action_router=MagicMock(),
-        state_agent=MagicMock(),
     )
     character = Character(name="测试", inventory=[forged_heal_item()])
     game_state = GameState()

@@ -39,9 +39,7 @@ _DEESCALATION_TALK_MARKERS = (
 def _is_deescalation_talk(user_input: str, route: ActionRouteResult) -> bool:
     if route.combat_action != "talk":
         return False
-    text = " ".join(
-        part for part in (user_input, route.action_intent) if part and part.strip()
-    )
+    text = user_input.strip()
     return any(marker in text for marker in _DEESCALATION_TALK_MARKERS)
 
 
@@ -62,27 +60,34 @@ def _pickup_covers_attack_weapon(character: Character, route: ActionRouteResult)
     return False
 
 
-def _attack_needs_weapon_draw(character: Character, route: ActionRouteResult) -> bool:
+def _attack_needs_weapon_draw(
+    character: Character,
+    route: ActionRouteResult,
+    *,
+    user_input: str = "",
+) -> bool:
     if route.combat_action != "attack":
         return False
     if _pickup_covers_attack_weapon(character, route):
         return False
     from game.weapon_combat import resolve_weapon_profile, weapon_needs_draw
 
-    weapon = resolve_weapon_profile(character, route)
+    weapon = resolve_weapon_profile(character, route, user_input=user_input)
     return weapon_needs_draw(character, weapon)
 
 
 def _free_interact_uses_for_route(
     character: Character,
     route: ActionRouteResult,
+    *,
+    user_input: str = "",
 ) -> int:
     uses = 0
     if route.item_usage == "pickup":
         uses += 1
     if route.combat_action == "use_item" and route.action_cost == "free":
         uses += 1
-    if _attack_needs_weapon_draw(character, route):
+    if _attack_needs_weapon_draw(character, route, user_input=user_input):
         uses += 1
     return uses
 
@@ -250,18 +255,6 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
     approved = data.get("approved", False)
     if isinstance(approved, str):
         approved = approved.strip().lower() in ("true", "1", "yes", "是", "批准", "通过")
-    sync_inventory_raw = data.get("sync_inventory", True)
-    if sync_inventory_raw is None:
-        sync_inventory = True
-    elif isinstance(sync_inventory_raw, str):
-        sync_inventory = sync_inventory_raw.strip().lower() in (
-            "true",
-            "1",
-            "yes",
-            "是",
-        )
-    else:
-        sync_inventory = bool(sync_inventory_raw)
     enemy_defs: list[EnemyDefPatch] = []
     for item in data.get("enemy_defs") or []:
         if isinstance(item, dict):
@@ -283,9 +276,6 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
         payment_quantity=max(1, _coerce_int(data.get("payment_quantity"), 1)),
         item_usage=item_usage,
         skill_usage=skill_usage,
-        action_intent=str(data.get("action_intent", "")).strip(),
-        scope_stop=str(data.get("scope_stop", "")).strip(),
-        must_not_narrate=_coerce_str_list(data.get("must_not_narrate")),
         mode=mode,
         trigger_combat=bool(data.get("trigger_combat", False)),
         enemies_spec=str(data.get("enemies_spec", "")).strip(),
@@ -298,13 +288,12 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
         move_toward=_coerce_bool(data.get("move_toward"), True),
         ends_turn=bool(data.get("ends_turn", False)),
         proficiency_bonus=_coerce_bool(data.get("proficiency_bonus"), False),
-        sync_inventory=sync_inventory,
     )
 
 
 class ActionRouter:
     def __init__(self):
-        self.llm = create_chat_llm(temperature=0.2)
+        self.llm = create_chat_llm(role="action_router", temperature=0.2)
         system_prompt = (PROMPTS_DIR / "action_router.txt").read_text(encoding="utf-8")
         self.prompt = ChatPromptTemplate.from_messages(
             [
@@ -362,11 +351,7 @@ class ActionRouter:
         history: list[ChatMessage],
     ) -> ActionRouteResult:
         route = self._parse_route(text)
-        if not route.approved and route.rejection_reason == _PARSE_FAILURE_REASON:
-            route = self._fallback_route(user_input.strip(), game_state)
         route = self.validate(route, character, game_state, user_input=user_input.strip(), history=history)
-        route = self._maybe_require_infiltration_roll(route, user_input.strip(), history)
-        ActionRouter._finalize_scope(route)
         return route
 
     def evaluate(
@@ -410,31 +395,6 @@ class ActionRouter:
         )
 
     @staticmethod
-    def _maybe_require_infiltration_roll(
-        route: ActionRouteResult,
-        user_input: str,
-        history: list[ChatMessage],
-    ) -> ActionRouteResult:
-        if not route.approved or route.mode != "exploration" or route.needs_roll:
-            return route
-        if not _looks_like_infiltration_action(user_input):
-            return route
-        context = _format_recent_history(history, limit=8)
-        if not _looks_like_restricted_area(context):
-            return route
-        route.needs_roll = True
-        route.roll_type = "ability_check"
-        route.ability = "dex"
-        ensure_ability_check_dc(
-            route,
-            user_input=user_input,
-            context=context,
-        )
-        if not route.action_intent:
-            route.action_intent = user_input.strip()
-        return route
-
-    @staticmethod
     def _parse_route(text: str) -> ActionRouteResult:
         data = extract_json_dict(text)
         if data is not None:
@@ -447,23 +407,6 @@ class ActionRouter:
         return ActionRouteResult(
             approved=False,
             rejection_reason=_PARSE_FAILURE_REASON,
-        )
-
-    @staticmethod
-    def _fallback_route(user_input: str, game_state: GameState) -> ActionRouteResult:
-        if game_state.is_in_combat() or not user_input.strip():
-            return ActionRouteResult(
-                approved=False,
-                rejection_reason=_PARSE_FAILURE_REASON,
-            )
-        return ActionRouteResult(
-            approved=True,
-            action_intent=user_input.strip(),
-            scope_stop="玩家本句回应的直接结果达成时",
-            must_not_narrate=[
-                "玩家未提及的后续移动或场景切换",
-                "与其他 NPC 的会面或长段情报灌输",
-            ],
         )
 
     @staticmethod
@@ -691,7 +634,9 @@ class ActionRouter:
             ) or (route.action_cost == "bonus" and route.combat_action not in main_actions)
             wants_move = route.combat_action == "move" or route.move_meters > 0
             combat = game_state.combat
-            free_uses = _free_interact_uses_for_route(character, route)
+            free_uses = _free_interact_uses_for_route(
+                character, route, user_input=user_input
+            )
             if combat and free_uses > 1:
                 route.approved = False
                 route.rejection_reason = (
@@ -797,11 +742,12 @@ class ActionRouter:
                     route.approved = False
                     route.rejection_reason = "行动裁定异常（无效属性），请重新描述。"
                     return route
-                ensure_ability_check_dc(
-                    route,
-                    user_input=user_input,
-                    context=roll_context,
-                )
+                if not ensure_ability_check_dc(route):
+                    route.approved = False
+                    route.rejection_reason = "行动裁定异常（缺少合法 DC），请重新描述。"
+                    route.needs_roll = False
+                    route.roll_type = "none"
+                    return route
             else:
                 route.needs_roll = False
                 route.roll_type = "none"
@@ -814,11 +760,12 @@ class ActionRouter:
                     route.needs_roll = False
                     route.roll_type = "none"
                     return route
-                ensure_ability_check_dc(
-                    route,
-                    user_input=user_input,
-                    context=roll_context,
-                )
+                if not ensure_ability_check_dc(route):
+                    route.approved = False
+                    route.rejection_reason = "行动裁定异常（缺少合法 DC），请重新描述你的行动。"
+                    route.needs_roll = False
+                    route.roll_type = "none"
+                    return route
             elif route.roll_type == "dice":
                 if not route.dice_notation:
                     route.approved = False
@@ -838,18 +785,4 @@ class ActionRouter:
         if not route.needs_roll:
             route.proficiency_bonus = False
 
-        if not route.action_intent:
-            route.action_intent = "执行玩家描述的行动"
-
         return route
-
-    @staticmethod
-    def _finalize_scope(route: ActionRouteResult) -> None:
-        if not route.scope_stop:
-            route.scope_stop = f"「{route.action_intent}」的直接结果达成时"
-        if not route.must_not_narrate:
-            route.must_not_narrate = [
-                "玩家未提及的后续移动或场景切换",
-                "与其他 NPC 的会面或长段情报灌输",
-                "未在本行动范围内触发的任务奖励或系统回馈",
-            ]

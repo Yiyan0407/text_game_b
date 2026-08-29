@@ -12,23 +12,8 @@ WORLD_SP_CAP: dict[str, int] = {
     "": 30,
 }
 
-WORLD_DAMAGE_HINT: dict[str, str] = {
-    "modern": "1d10",
-    "cyberpunk": "2d10+1d8",
-    "xianxia": "2d8+1d8",
-    "fantasy": "1d8",
-}
 
-
-WORLD_HEAL_HINT: dict[str, str] = {
-    "modern": "2d4+2",
-    "cyberpunk": "2d6+2",
-    "xianxia": "2d8+2",
-    "fantasy": "2d4+2",
-}
-
-
-def _validate_dice_field(value: str, *, fallback: str) -> str:
+def _validate_dice_field(value: str) -> str:
     if not value:
         return ""
     from game.dice import roll_damage
@@ -37,7 +22,7 @@ def _validate_dice_field(value: str, *, fallback: str) -> str:
         roll_damage(value)
         return value
     except ValueError:
-        return fallback
+        return ""
 
 
 def validate_effects(effects: EntityEffects, *, world_id: str = "") -> EntityEffects:
@@ -54,22 +39,13 @@ def validate_effects(effects: EntityEffects, *, world_id: str = "") -> EntityEff
     data.attack_bonus = max(-2, min(10, data.attack_bonus))
 
     if data.attack_damage:
-        data.attack_damage = _validate_dice_field(
-            data.attack_damage,
-            fallback=WORLD_DAMAGE_HINT.get(world_id, "1d6"),
-        )
+        data.attack_damage = _validate_dice_field(data.attack_damage)
 
     if data.use_damage:
-        data.use_damage = _validate_dice_field(
-            data.use_damage,
-            fallback=WORLD_DAMAGE_HINT.get(world_id, "2d6"),
-        )
+        data.use_damage = _validate_dice_field(data.use_damage)
 
     if data.heal_dice:
-        data.heal_dice = _validate_dice_field(
-            data.heal_dice,
-            fallback=WORLD_HEAL_HINT.get(world_id, "2d4+2"),
-        )
+        data.heal_dice = _validate_dice_field(data.heal_dice)
 
     if data.sp_max > 0 and data.sp <= 0:
         data.sp = data.sp_max

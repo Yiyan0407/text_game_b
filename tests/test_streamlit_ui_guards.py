@@ -52,3 +52,19 @@ def test_risky_action_pending_key_not_button_key():
     from ui.risky_action import CANCEL_BUTTON_KEY, CONFIRM_BUTTON_KEY, SESSION_KEY
 
     assert SESSION_KEY not in {CONFIRM_BUTTON_KEY, CANCEL_BUTTON_KEY}
+
+
+def test_game_state_panel_uses_memory_journal_dialog():
+    panel = ROOT / "ui" / "game_state_panel.py"
+    text = panel.read_text(encoding="utf-8")
+    assert "render_memory_journal_entry" in text
+    assert "关键记忆" in text
+    assert "render_scene_map_entry" in text
+    dialog = ROOT / "ui" / "memory_journal_dialog.py"
+    dialog_text = dialog.read_text(encoding="utf-8")
+    assert "open_memory_journal" in dialog_text
+    map_dialog = ROOT / "ui" / "scene_map_dialog.py"
+    map_text = map_dialog.read_text(encoding="utf-8")
+    assert "open_scene_map" in map_text
+    assert "render_cytoscape_html" in map_text
+    assert "st.iframe" in map_text

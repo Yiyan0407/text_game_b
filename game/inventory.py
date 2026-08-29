@@ -4,8 +4,14 @@ import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from game.item_kinds import ItemKind, infer_item_kind
+from game.item_kinds import ItemKind
 from game.effects import EntityEffects
+
+# 机械层入库时的默认描述（AI 同步层须自行写更具体的 description）
+MECHANICAL_PICKUP_DESCRIPTION = "从场景拾取"
+MECHANICAL_PURCHASE_DESCRIPTION = "购买所得"
+MECHANICAL_COMBAT_LOOT_DESCRIPTION = "战斗中获得"
+MECHANICAL_UNEQUIP_RESTORE_DESCRIPTION = "卸下后仍在背包"
 
 _STACK_ITEM_RE = re.compile(r"^(.+?)（(\d+)(.+?)）$")
 _QUALIFIER_RE = re.compile(r"^(.+?)（(.+?)）$")
@@ -59,12 +65,6 @@ class InventoryItem(BaseModel):
 
     @model_validator(mode="after")
     def _apply_kind(self) -> InventoryItem:
-        if self.kind is None:
-            object.__setattr__(
-                self,
-                "kind",
-                infer_item_kind(self.name, self.unit, self.description),
-            )
         return self
 
     def display(self) -> str:

@@ -1,7 +1,8 @@
-from typing import Literal
+from typing import Literal, Self, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from game.memory_journal import normalize_topic
 from game.models import DiceRoll
 
 
@@ -41,9 +42,6 @@ class ActionRouteResult(BaseModel):
     payment_quantity: int = 1
     item_usage: Literal["none", "use", "pickup", "observe", "purchase"] = "none"
     skill_usage: Literal["none", "use", "learn"] = "none"
-    action_intent: str = ""
-    scope_stop: str = ""
-    must_not_narrate: list[str] = Field(default_factory=list)
     mode: Literal["exploration", "combat"] = "exploration"
     trigger_combat: bool = False
     enemies_spec: str = ""
@@ -71,7 +69,6 @@ class ActionRouteResult(BaseModel):
     ends_turn: bool = False
     proficiency_bonus: bool = False
     enemy_defs: list["EnemyDefPatch"] = Field(default_factory=list)
-    sync_inventory: bool = True
 
 
 class EnemyDefPatch(BaseModel):
@@ -131,6 +128,12 @@ class InventoryPatch(BaseModel):
     description: str = ""
     kind: Literal["consumable", "durable", "document"] | None = None
 
+    @model_validator(mode="after")
+    def _require_description_on_add(self) -> Self:
+        if self.action == "add" and not self.description.strip():
+            raise ValueError("inventory add 必须填写 description")
+        return self
+
 
 class SkillPatch(BaseModel):
     action: Literal["add", "remove"] = "add"
@@ -181,6 +184,20 @@ class RerollPatch(BaseModel):
     reason: str = ""
 
 
+class MemoryFactPatch(BaseModel):
+    text: str = ""
+    topic: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("topic", mode="before")
+    @classmethod
+    def _normalize_topic(cls, value) -> str:
+        return normalize_topic(str(value or ""))
+
+
+MemoryFactInput = Union[str, MemoryFactPatch]
+
+
 class StatePatch(BaseModel):
     scene: ScenePatch | None = None
     npcs: list[NpcPatch] = Field(default_factory=list)
@@ -188,11 +205,12 @@ class StatePatch(BaseModel):
     inventory: list[InventoryPatch] = Field(default_factory=list)
     equipment: list[EquipmentPatch] = Field(default_factory=list)
     skills: list[SkillPatch] = Field(default_factory=list)
-    memory_facts: list[str] = Field(default_factory=list)
+    memory_facts: list[MemoryFactInput] = Field(default_factory=list)
     background_processes: list[BackgroundProcessPatch] = Field(default_factory=list)
     time: TimePatch | None = None
     end_combat: bool = False
     reroll: RerollPatch | None = None
+    map_discovery: bool = False
 
 
 class StreamPhase(BaseModel):
@@ -210,7 +228,6 @@ class TurnResult(BaseModel):
     action_suggestions: list[str] = Field(default_factory=list)
     rejected: bool = False
     rejection_reason: str = ""
-    opening_used_fallback: bool = False
 
     @property
     def has_tool_events(self) -> bool:

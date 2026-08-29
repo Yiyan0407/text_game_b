@@ -1,10 +1,19 @@
 """世界状态补丁：解析 StatePatch 并应用到 Character / GameState。"""
 
+import logging
 from typing import Literal
+
+from pydantic import ValidationError
 
 from config.settings import get_settings
 from game.combat import end_combat
-from game.inventory import item_name_from_ref
+from game.inventory import (
+    MECHANICAL_COMBAT_LOOT_DESCRIPTION,
+    MECHANICAL_PICKUP_DESCRIPTION,
+    MECHANICAL_PURCHASE_DESCRIPTION,
+    item_name_from_ref,
+)
+from game.post_kp_mechanics import combat_pickup_reserved
 from game.models import Character, GameState
 from game.results import (
     ActionRouteResult,
@@ -12,6 +21,7 @@ from game.results import (
     DeadlinePatch,
     EquipmentPatch,
     InventoryPatch,
+    MemoryFactPatch,
     NpcPatch,
     QuestPatch,
     RerollPatch,
@@ -22,6 +32,8 @@ from game.results import (
 )
 from game.text_match import fuzzy_match_name
 from game.narrative_time import apply_turn_time_from_patch
+
+logger = logging.getLogger(__name__)
 
 
 def apply_inventory_change(
@@ -45,6 +57,8 @@ def apply_inventory_change(
     description = patch.description or ""
 
     if patch.action == "add":
+        if not description.strip():
+            return f"跳过添加：{item_name} 缺少物品描述。"
         if delivered and any(
             fuzzy_match_name(item_name, delivered_name) for delivered_name in delivered
         ):
@@ -54,8 +68,7 @@ def apply_inventory_change(
             if existing and description.strip() and not existing.description.strip():
                 existing.description = description.strip()
                 return f"已补充描述：{existing.format_detail()}"
-            if quantity == 1 and (not unit or unit == "个"):
-                return f"跳过重复添加：{item_name}（本轮已入库）。"
+            return f"跳过重复添加：{item_name}（本轮已入库）。"
         if character.add_inventory_item(
             cleaned,
             quantity=quantity,
@@ -89,6 +102,7 @@ def apply_state_patch(
     apply_time: bool = True,
     inventory_sync: bool = False,
     recent_history: str = "",
+    scene_record_turn: int | None = None,
 ) -> list[str]:
     """将 StatePatch 应用到游戏状态，返回事件列表。"""
     events: list[str] = []
@@ -98,11 +112,19 @@ def apply_state_patch(
     roll_failed = _mechanical_roll_failed(mechanical)
     purchase_settled = route is not None and _purchase_settled_from_route(route, mechanical)
 
+    record_turn = (
+        scene_record_turn
+        if scene_record_turn is not None
+        else game_state.turn_count
+    )
+
     if patch.scene and patch.scene.scene_id.strip() and patch.scene.scene_name.strip():
         if in_combat:
             events.append("跳过场景变更：战斗中无法切换场景。")
         else:
-            events.append(_apply_scene(game_state, patch.scene))
+            result = _apply_scene(game_state, patch.scene, record_turn=record_turn)
+            if result:
+                events.append(result)
 
     for npc in patch.npcs:
         result = _apply_npc(game_state, npc)
@@ -116,6 +138,16 @@ def apply_state_patch(
 
     for inv in patch.inventory:
         if inv.action != "add":
+            continue
+        item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
+        if (
+            inventory_sync
+            and item_name
+            and _mechanical_already_settled_item(mechanical, item_name)
+        ):
+            enriched = _enrich_inventory_from_item_sync(character, inv)
+            if enriched:
+                events.append(enriched)
             continue
         if _should_block_inventory_add(
             route,
@@ -166,14 +198,6 @@ def apply_state_patch(
         if result:
             events.append(result)
 
-    events.extend(
-        _auto_equip_added_items(
-            character,
-            patch,
-            added_this_turn,
-        )
-    )
-
     unequipped_items = _unequipped_item_names(patch.equipment)
 
     for inv in patch.inventory:
@@ -208,21 +232,25 @@ def apply_state_patch(
             events.append(result)
 
     for fact in patch.memory_facts:
-        cleaned = fact.strip()
-        if cleaned:
+        if isinstance(fact, MemoryFactPatch):
+            payload: str | dict = fact.model_dump(exclude_none=True)
+            text = fact.text.strip()
+        elif isinstance(fact, dict):
+            payload = fact
+            text = str(fact.get("text") or fact.get("fact") or "").strip()
+        else:
+            payload = str(fact).strip()
+            text = payload
+        if text:
             settings = get_settings()
-            game_state.add_memory_facts([cleaned], settings.max_memory_facts)
-            events.append(f"已记录关键事实：{cleaned}")
+            added = game_state.add_memory_entries([payload], settings.max_memory_facts)
+            for item in added:
+                events.append(f"已记录关键事实：{item}")
 
-    from game.background_process import (
-        infer_background_process_from_facts,
-        register_background_process,
-        resolve_background_processes,
-    )
+    from game.background_process import register_background_process, resolve_background_processes
 
     for process_patch in patch.background_processes:
         events.extend(register_background_process(game_state, process_patch))
-    events.extend(infer_background_process_from_facts(game_state))
 
     if apply_time:
         events.extend(
@@ -245,10 +273,22 @@ def apply_state_patch(
     return [event for event in events if event]
 
 
-def _apply_scene(game_state: GameState, scene: ScenePatch) -> str:
-    game_state.scene_id = scene.scene_id.strip()
-    game_state.current_scene = scene.scene_name.strip()
-    game_state.scene_image_url = ""
+def _apply_scene(
+    game_state: GameState,
+    scene: ScenePatch,
+    *,
+    record_turn: int | None = None,
+) -> str:
+    from game.scene_map import apply_scene_change
+
+    changed = apply_scene_change(
+        game_state,
+        scene.scene_id,
+        scene.scene_name,
+        turn_count=record_turn if record_turn is not None else game_state.turn_count,
+    )
+    if not changed:
+        return ""
     return f"场景已更新：{scene.scene_name}（{scene.scene_id}）"
 
 
@@ -267,10 +307,7 @@ def _apply_quest(game_state: GameState, quest: QuestPatch) -> str:
     if not quest_id:
         return ""
     if not title:
-        existing = game_state.get_quest(quest_id)
-        if existing is None:
-            return ""
-        title = existing.title
+        return ""
     status = quest.status if quest.status in ("active", "completed", "failed") else "active"
     game_state.upsert_quest(
         quest_id=quest_id,
@@ -316,67 +353,6 @@ def _apply_equipment(character: Character, patch: EquipmentPatch) -> str:
     return message if ok else ""
 
 
-_INVENTORY_EQUIP_DESCRIPTION_MARKERS = (
-    "已植入",
-    "已装备",
-    "已穿戴",
-    "已挂载",
-    "已装配",
-    "安装完成",
-    "植入完成",
-)
-
-
-def _inventory_add_implies_equip(inv: InventoryPatch) -> bool:
-    description = inv.description.strip()
-    if not description:
-        return False
-    return any(marker in description for marker in _INVENTORY_EQUIP_DESCRIPTION_MARKERS)
-
-
-def _explicit_equip_item_names(patch: StatePatch) -> set[str]:
-    names: set[str] = set()
-    for entry in patch.equipment:
-        if entry.action != "equip":
-            continue
-        cleaned = entry.item.strip()
-        if cleaned:
-            names.add(cleaned)
-    return names
-
-
-def _auto_equip_added_items(
-    character: Character,
-    patch: StatePatch,
-    added_this_turn: set[str],
-) -> list[str]:
-    """State Agent 在 inventory description 中标明已装备/已植入时的兜底 equip。"""
-    if not added_this_turn:
-        return []
-
-    events: list[str] = []
-    explicit = _explicit_equip_item_names(patch)
-
-    for inv in patch.inventory:
-        if inv.action != "add":
-            continue
-        if not _inventory_add_implies_equip(inv):
-            continue
-        item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
-        if not item_name:
-            continue
-        if not any(fuzzy_match_name(item_name, added) for added in added_this_turn):
-            continue
-        if any(fuzzy_match_name(item_name, name) for name in explicit):
-            continue
-        if character.is_item_equipped(item_name):
-            continue
-        ok, message = character.equip_item(item_name)
-        if ok:
-            events.append(message)
-    return events
-
-
 def _unequipped_item_names(equipment_patches) -> set[str]:
     names: set[str] = set()
     for patch in equipment_patches:
@@ -410,6 +386,37 @@ def _inventory_remove_block_reason(
     if any(fuzzy_match_name(item_name, name) for name in unequipped_items):
         return f"跳过移除：{item_name}（卸下后应保留在背包，勿 inventory remove）"
     return f"跳过移除：{item_name}（仍装备中，请先 equipment unequip；卸下后物品回背包）"
+
+
+def _is_mechanical_inventory_placeholder(description: str) -> bool:
+    stripped = description.strip()
+    return stripped in {
+        MECHANICAL_PICKUP_DESCRIPTION,
+        MECHANICAL_PURCHASE_DESCRIPTION,
+        MECHANICAL_COMBAT_LOOT_DESCRIPTION,
+    }
+
+
+def _enrich_inventory_from_item_sync(character: Character, inv: InventoryPatch) -> str:
+    """机械层已入库时，ItemSync 用叙事 description/kind 覆盖占位信息。"""
+    existing = character.find_inventory_item(inv.item)
+    if existing is None:
+        return ""
+    incoming_desc = inv.description.strip()
+    updated = False
+    if incoming_desc and (
+        _is_mechanical_inventory_placeholder(existing.description)
+        or not existing.description.strip()
+        or len(incoming_desc) > len(existing.description.strip())
+    ):
+        existing.description = incoming_desc
+        updated = True
+    if inv.kind in ("consumable", "durable", "document") and not existing.kind:
+        existing.kind = inv.kind
+        updated = True
+    if not updated:
+        return ""
+    return f"已补充描述：{existing.format_detail()}"
 
 
 def _mechanical_roll_failed(mechanical_events: list[str]) -> bool:
@@ -462,8 +469,29 @@ def _should_block_inventory_add(
     if _mechanical_already_settled_item(mechanical_events, item_name):
         return True
 
+    if route and route.combat_action == "end_turn":
+        return True
+
     if inventory_sync:
-        # ItemSync（KP 叙事后）：NPC 交付/领取/植入等以叙事为准，不受 pickup 路由限制
+        if (
+            route
+            and route.item_usage == "pickup"
+            and _mechanical_roll_failed(mechanical_events)
+            and route.referenced_items
+            and any(fuzzy_match_name(item_name, ref) for ref in route.referenced_items)
+        ):
+            return True
+        if (
+            in_combat
+            and route
+            and route.item_usage == "pickup"
+            and route.referenced_items
+            and any(fuzzy_match_name(item_name, ref) for ref in route.referenced_items)
+            and not _mechanical_granted_pickup(mechanical_events, item_name)
+            and not combat_pickup_reserved(mechanical_events, item_name)
+        ):
+            return True
+        # ItemSync（KP 叙事后）：NPC 交付/叙事拾取等以 KP 为准
         return False
 
     if route and route.item_usage == "use" and character.has_inventory_item(item_name):
@@ -471,14 +499,6 @@ def _should_block_inventory_add(
             fuzzy_match_name(item_name, ref) for ref in route.referenced_items
         ):
             return True
-
-    if route and route.item_usage == "pickup" and not _mechanical_granted_pickup(
-        mechanical_events, item_name
-    ):
-        return True
-
-    if in_combat and not _mechanical_granted_pickup(mechanical_events, item_name):
-        return True
 
     return False
 
@@ -529,10 +549,25 @@ def _inventory_add_block_reason(
             return f"跳过重复添加：{inv.item}（装备已有物品，不得重复入库）。"
     if route and route.combat_action == "end_turn":
         return f"跳过重复添加：{inv.item}（结束回合不会获得物品）。"
-    if route and route.item_usage == "pickup":
-        return f"跳过重复添加：{inv.item}（拾取未成功，不得凭空入库）。"
-    if in_combat:
-        return f"跳过重复添加：{inv.item}（战斗中须机械层拾取成功才可入库）。"
+    if (
+        inventory_sync
+        and route
+        and route.item_usage == "pickup"
+        and _mechanical_roll_failed(mechanical_events)
+        and route.referenced_items
+        and any(fuzzy_match_name(item_name, ref) for ref in route.referenced_items)
+    ):
+        return f"跳过重复添加：{inv.item}（拾取检定失败，不得入库）。"
+    if (
+        inventory_sync
+        and in_combat
+        and route
+        and route.item_usage == "pickup"
+        and route.referenced_items
+        and any(fuzzy_match_name(item_name, ref) for ref in route.referenced_items)
+        and not _mechanical_granted_pickup(mechanical_events, item_name)
+    ):
+        return f"跳过重复添加：{inv.item}（战斗中须先消耗拾取动作且 KP 前已记录）。"
     return f"跳过重复添加：{inv.item}（须与机械层结算一致）。"
 
 
@@ -559,9 +594,10 @@ def patch_from_dict(data: dict) -> StatePatch:
     inventory = _coerce_inventory_list(data.get("inventory"))
     equipment = _coerce_equipment_list(data.get("equipment"))
     skills = _coerce_skill_list(data.get("skills"))
-    memory_facts = _coerce_str_list(data.get("memory_facts"))
+    memory_facts = _coerce_memory_facts_list(data.get("memory_facts"))
     background_processes = _coerce_background_process_list(data.get("background_processes"))
     end_combat = bool(data.get("end_combat", False))
+    map_discovery = bool(data.get("map_discovery", False))
     time = _coerce_time_patch(data.get("time"))
     reroll = _coerce_reroll_patch(data.get("reroll"))
 
@@ -577,6 +613,7 @@ def patch_from_dict(data: dict) -> StatePatch:
         time=time,
         end_combat=end_combat,
         reroll=reroll,
+        map_discovery=map_discovery,
     )
 
 
@@ -609,6 +646,37 @@ def sanitize_kp_meta_patch(patch: StatePatch) -> StatePatch:
     patch.time.time_label = ""
     patch.time.deadlines = []
     return patch
+
+
+def _coerce_memory_facts_list(value) -> list:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    if isinstance(value, list):
+        items: list = []
+        for item in value:
+            if isinstance(item, str):
+                cleaned = item.strip()
+                if cleaned:
+                    items.append(cleaned)
+                continue
+            if isinstance(item, dict):
+                text = str(item.get("text") or item.get("fact") or "").strip()
+                if not text:
+                    continue
+                topic = str(item.get("topic") or item.get("category") or "").strip()
+                tags = item.get("tags") or []
+                items.append(
+                    MemoryFactPatch(
+                        text=text,
+                        topic=topic,
+                        tags=tags if isinstance(tags, list) else [],
+                    )
+                )
+        return items
+    return []
 
 
 def _coerce_str_list(value) -> list[str]:
@@ -684,16 +752,24 @@ def _coerce_inventory_list(value) -> list[InventoryPatch]:
             if kind_raw in ("consumable", "durable", "document")
             else None
         )
-        items.append(
-            InventoryPatch(
-                action=action,  # type: ignore[arg-type]
-                item=str(item.get("item", "")).strip(),
-                quantity=quantity,
-                unit=str(item.get("unit", "个")).strip() or "个",
-                description=str(item.get("description", "")).strip(),
-                kind=kind,  # type: ignore[arg-type]
+        try:
+            items.append(
+                InventoryPatch(
+                    action=action,  # type: ignore[arg-type]
+                    item=str(item.get("item", "")).strip(),
+                    quantity=quantity,
+                    unit=str(item.get("unit", "个")).strip() or "个",
+                    description=str(item.get("description", "")).strip(),
+                    kind=kind,  # type: ignore[arg-type]
+                )
             )
-        )
+        except ValidationError as exc:
+            item_label = str(item.get("item", "")).strip() or "（未命名）"
+            logger.warning(
+                "跳过无效 inventory 条目 %s：%s",
+                item_label,
+                exc.errors()[0].get("msg", exc),
+            )
     return [inv for inv in items if inv.item]
 
 

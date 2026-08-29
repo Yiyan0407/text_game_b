@@ -56,6 +56,7 @@ def init_session_state() -> None:
         "profile_manager": ProfileManager(),
         "save_manager": SaveManager(),
         "game_config": None,
+        "memory_journal_open": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -112,17 +113,13 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
 
             append_tool_events(pre_tool_events)
 
-            assistant_avatar = "🎙️" if kp_meta_turn else "🎲"
-            with st.chat_message("assistant", avatar=assistant_avatar):
-                if kp_meta_turn:
-                    st.caption("主持人回复")
-                state_events, full_response = render_phased_turn(
-                    pre_tool_events,
-                    run_state_phase,
-                    text_stream,
-                    loading=progress,
-                    kp_meta=kp_meta_turn,
-                )
+            state_events, full_response = render_phased_turn(
+                pre_tool_events,
+                run_state_phase,
+                text_stream,
+                loading=progress,
+                kp_meta=kp_meta_turn,
+            )
             append_tool_events(state_events)
             turn = finalize_streaming_turn(
                 full_response,
@@ -285,11 +282,10 @@ def render_game() -> None:
         render_character_sheet(character)
         render_combat_panel(game_state)
         st.divider()
-        render_game_state_panel(game_state)
+        render_game_state_panel(game_state, scenario)
         st.divider()
         _render_scene_image(game_state, scenario)
         st.divider()
-        st.caption(f"📍 {game_state.current_scene}")
         if st.session_state.get("current_character_id"):
             st.caption("长期角色：进度会自动同步到角色卡")
         st.caption("每回合结束后自动存档")

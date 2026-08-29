@@ -76,9 +76,9 @@ class Scenario(BaseModel):
             lines.append(f"世界观扩展设定：\n{self.custom_world_overlay}")
         lines.append(f"开场：{self.opening_prompt}")
         if self.key_nodes:
-            lines.append("关键节点（供 KP 参考推进，勿一次性剧透）：")
+            lines.append("关键节点（供 KP 参考推进；地点名即可，scene_id 由状态/地图 Agent 生成，勿一次性剧透）：")
             for node in self.key_nodes:
-                lines.append(f"- [{node.id}] {node.title}：{node.description}")
+                lines.append(f"- {node.title}：{node.description}")
         if self.endings:
             lines.append("可能结局：")
             for ending in self.endings:
@@ -87,6 +87,7 @@ class Scenario(BaseModel):
 
     def apply_to_game_state(self, game_state: GameState) -> None:
         from game.narrative_time import initialize_story_clock_from_scenario
+        from game.scene_map import bootstrap_scene_map
 
         game_state.scenario_id = self.id
         game_state.scene_id = self.opening_scene_id
@@ -94,3 +95,4 @@ class Scenario(BaseModel):
         if self.initial_quests:
             game_state.active_quests = list(self.initial_quests)
         initialize_story_clock_from_scenario(game_state, self)
+        bootstrap_scene_map(game_state, self, reset=True)

@@ -1,4 +1,11 @@
-"""回合流水线：路由 → 机械 → 世界状态 → KP → 物品同步 → 异步收尾。"""
+"""回合流水线：KP 前校验 → KP 叙事 → KP 后结算。
+
+三阶段原则
+----------
+1. **KP 前 · 校验**：Router 批准/驳回 + 买得起/有物品/动作额度；须先出结果的掷骰与战斗机械。
+2. **KP · 叙事**：纯文字；简报含玩家原话与已发生的机械结果。
+3. **KP 后 · 结算**：post_kp_mechanics（代码）→ Settlement Router → 专职 Sync Agent → StatForge。
+"""
 
 from __future__ import annotations
 
@@ -8,13 +15,17 @@ from collections.abc import Callable
 from chain.action_router import ActionRouter
 from chain.agent_context import format_recent_history
 from chain.async_utils import gather_best_effort
-from chain.item_sync_agent import ItemSyncAgent
+from chain.inventory_sync_agent import InventorySyncAgent
 from chain.kp_chain import KPChain
 from chain.memory import ConversationWindowMemory
 from chain.memory_manager import LongTermMemoryManager
+from chain.settlement_router import SettlementRouterAgent
+from chain.skill_sync_agent import SkillSyncAgent
 from chain.stat_forge_agent import StatForgeAgent
+from chain.scene_map_agent import SceneMapAgent
 from chain.suggestions import ActionSuggester
-from chain.world_state_agent import WorldStateAgent
+from chain.time_sync_agent import TimeSyncAgent
+from chain.world_sync_agent import WorldSyncAgent
 from config.settings import get_settings
 from game.game_config import apply_guidance_hint
 from game.models import Character, GameState
@@ -22,52 +33,63 @@ from game.narrative_brief import (
     build_narrative_brief_static,
     merge_narrative_brief_with_state,
 )
-from game.opening_suggestions import default_opening_suggestions
 from game.results import ActionRouteResult, TurnResult
 from game.scenario import Scenario
-from game.kp_scan_parse import merge_implant_fallback_patch
 from game.state_patch import apply_state_patch
 from game.turn_context import TurnContext
-from game.turn_router import should_run_item_sync, should_run_stat_forge
+from game.turn_router import (
+    format_settlement_plan_event,
+    resolve_settlement_plan,
+    run_post_kp_mechanical_if_needed,
+    should_run_stat_forge,
+)
 
 logger = logging.getLogger(__name__)
 
 ResolveMechanics = Callable[
-    [ActionRouteResult, Character, GameState, Scenario], list[str]
+    [ActionRouteResult, Character, GameState, Scenario | None, str], list[str]
 ]
 DeliveredItems = Callable[[ActionRouteResult | None, list[str]], frozenset[str]]
 
 
 class TurnPipeline:
-    """成熟 AI 回合编排：该路由路由，该并发并发，该异步异步。"""
+    """回合编排：校验 → 叙事 → 结算。"""
 
     def __init__(
         self,
         *,
         router: ActionRouter,
-        world_state: WorldStateAgent,
-        item_sync: ItemSyncAgent,
+        settlement_router: SettlementRouterAgent,
+        inventory_sync: InventorySyncAgent,
+        skill_sync: SkillSyncAgent,
+        time_sync: TimeSyncAgent,
+        world_sync: WorldSyncAgent,
         stat_forge: StatForgeAgent,
         kp: KPChain,
         memory: LongTermMemoryManager,
         suggester: ActionSuggester,
         window_memory: ConversationWindowMemory,
+        scene_map: SceneMapAgent | None = None,
         resolve_mechanics: ResolveMechanics,
         delivered_item_names: DeliveredItems,
     ):
         self.router = router
-        self.world_state = world_state
-        self.item_sync = item_sync
+        self.settlement_router = settlement_router
+        self.inventory_sync = inventory_sync
+        self.skill_sync = skill_sync
+        self.time_sync = time_sync
+        self.world_sync = world_sync
         self.stat_forge = stat_forge
         self.kp = kp
         self.memory = memory
         self.suggester = suggester
         self.window_memory = window_memory
+        self.scene_map = scene_map if scene_map is not None else SceneMapAgent()
         self._resolve_mechanics = resolve_mechanics
         self._delivered_item_names = delivered_item_names
 
     async def prepare(self, ctx: TurnContext) -> bool:
-        """阶段 1–2：行动路由（async）+ 机械结算（sync）。"""
+        """KP 前 · 校验：路由 + 须先于叙事的机械结果（检定/战斗/动作额度）。"""
         ctx.enriched_input = apply_guidance_hint(
             ctx.user_input,
             ctx.game_state.turn_count,
@@ -86,7 +108,11 @@ class TurnPipeline:
             return False
         try:
             ctx.mechanical_events = self._resolve_mechanics(
-                ctx.route, ctx.character, ctx.game_state, ctx.scenario
+                ctx.route,
+                ctx.character,
+                ctx.game_state,
+                ctx.scenario,
+                ctx.effective_input,
             )
         except ValueError as exc:
             ctx.rejected = True
@@ -95,34 +121,19 @@ class TurnPipeline:
             return False
         return True
 
-    async def sync_world_state(self, ctx: TurnContext) -> list[str]:
-        """阶段 3：KP 前的世界状态同步（async）。"""
-        ctx.world_patch = await self.world_state.apropose(
-            ctx.effective_input,
-            ctx.character,
-            ctx.game_state,
-            ctx.mechanical_events,
-            ctx.history,
-            route=ctx.route,
-        )
-        delivered = self._delivered_item_names(ctx.route, ctx.mechanical_events)
-        ctx.world_state_events = apply_state_patch(
-            ctx.world_patch,
-            ctx.character,
-            ctx.game_state,
-            route=ctx.route,
-            delivered_items=delivered,
-            mechanical_events=ctx.mechanical_events,
-            user_input=ctx.effective_input,
-            recent_history=format_recent_history(ctx.history),
-        )
+    async def build_narrative_brief(self, ctx: TurnContext) -> str:
+        """KP 前 · 组装叙事简报（无 WorldState LLM）。"""
+        from game.scene_map import sync_map_to_current_scene
+
+        ctx.map_travel_from = ctx.game_state.map_travel_from.strip()
+        sync_map_to_current_scene(ctx.game_state, ctx.scenario)
         ctx.narrative_brief = self._build_narrative_brief(ctx)
         if ctx.increment_turn:
             ctx.game_state.turn_count += 1
-        return ctx.world_state_events
+        return ctx.narrative_brief
 
     async def narrate(self, ctx: TurnContext) -> str:
-        """阶段 4：KP 叙事（async）。"""
+        """KP · 叙事。"""
         turn = await self.kp.anarrate(
             character=ctx.character,
             game_state=ctx.game_state,
@@ -135,43 +146,134 @@ class TurnPipeline:
         ctx.kp_response = turn.response
         return ctx.kp_response
 
-    async def sync_items(self, ctx: TurnContext) -> list[str]:
-        """阶段 5：KP 后的物品/装备同步（async，按路由决定是否调用）。"""
-        if not should_run_item_sync(ctx):
-            logger.debug("ItemSync 路由跳过：本轮无物品/装备相关变更信号")
+    async def settle_after_kp(self, ctx: TurnContext) -> list[str]:
+        """KP 后 · 统一结算编排（v1 串行）。"""
+        if ctx.rejected or not ctx.kp_response.strip():
             return []
 
-        ctx.item_patch = await self.item_sync.apropose(
-            ctx.effective_input,
-            ctx.kp_response,
+        events: list[str] = []
+        delivered = self._delivered_item_names(ctx.route, ctx.settlement_events)
+        record_turn = ctx.game_state.turn_count
+
+        ctx.post_kp_events = run_post_kp_mechanical_if_needed(
+            ctx.route,
             ctx.character,
             ctx.game_state,
             ctx.mechanical_events,
-            ctx.history,
-            route=ctx.route,
         )
-        ctx.item_patch = merge_implant_fallback_patch(
-            ctx.item_patch,
-            ctx.character,
-            ctx.kp_response,
-            ctx.effective_input,
-        )
-        delivered = self._delivered_item_names(ctx.route, ctx.mechanical_events)
-        ctx.item_sync_events = apply_state_patch(
-            ctx.item_patch,
-            ctx.character,
-            ctx.game_state,
+        events.extend(ctx.post_kp_events)
+        delivered = self._delivered_item_names(ctx.route, ctx.settlement_events)
+
+        if ctx.is_opening:
+            ctx.settlement_plan = resolve_settlement_plan(ctx)
+        else:
+            router_plan = await self.settlement_router.aplan(
+                ctx.effective_input,
+                ctx.kp_response,
+                ctx.character,
+                ctx.game_state,
+                ctx.settlement_events,
+                route=ctx.route,
+            )
+            ctx.settlement_plan = resolve_settlement_plan(ctx, router_plan=router_plan)
+
+        plan = ctx.settlement_plan
+        assert plan is not None
+        events.append(format_settlement_plan_event(plan))
+
+        patch_kwargs = dict(
             route=ctx.route,
             delivered_items=delivered,
-            mechanical_events=ctx.mechanical_events,
+            mechanical_events=ctx.settlement_events,
             user_input=ctx.effective_input,
-            apply_time=False,
-            inventory_sync=True,
+            recent_history=format_recent_history(ctx.history),
+            scene_record_turn=record_turn,
         )
-        return ctx.item_sync_events
+
+        if plan.inventory_sync:
+            ctx.inventory_patch = await self.inventory_sync.apropose(
+                ctx.effective_input,
+                ctx.kp_response,
+                ctx.character,
+                ctx.game_state,
+                ctx.settlement_events,
+                ctx.history,
+                route=ctx.route,
+            )
+            ctx.inventory_sync_events = apply_state_patch(
+                ctx.inventory_patch,
+                ctx.character,
+                ctx.game_state,
+                apply_time=False,
+                inventory_sync=True,
+                **patch_kwargs,
+            )
+            events.extend(ctx.inventory_sync_events)
+
+        if plan.skill_sync:
+            ctx.skill_patch = await self.skill_sync.apropose(
+                ctx.effective_input,
+                ctx.kp_response,
+                ctx.character,
+                ctx.game_state,
+                ctx.settlement_events,
+                route=ctx.route,
+            )
+            ctx.skill_sync_events = apply_state_patch(
+                ctx.skill_patch,
+                ctx.character,
+                ctx.game_state,
+                apply_time=False,
+                **patch_kwargs,
+            )
+            events.extend(ctx.skill_sync_events)
+
+        if plan.time_sync:
+            ctx.time_patch = await self.time_sync.apropose(
+                ctx.effective_input,
+                ctx.kp_response,
+                ctx.character,
+                ctx.game_state,
+                ctx.settlement_events,
+                route=ctx.route,
+            )
+            ctx.time_sync_events = apply_state_patch(
+                ctx.time_patch,
+                ctx.character,
+                ctx.game_state,
+                apply_time=True,
+                inventory_sync=False,
+                **patch_kwargs,
+            )
+            events.extend(ctx.time_sync_events)
+
+        if plan.world_sync:
+            ctx.world_patch = await self.world_sync.apropose(
+                ctx.effective_input,
+                ctx.kp_response,
+                ctx.character,
+                ctx.game_state,
+                ctx.settlement_events,
+                ctx.history,
+                route=ctx.route,
+            )
+            ctx.world_sync_events = apply_state_patch(
+                ctx.world_patch,
+                ctx.character,
+                ctx.game_state,
+                apply_time=False,
+                inventory_sync=False,
+                **patch_kwargs,
+            )
+            events.extend(ctx.world_sync_events)
+            ctx.map_needs_update = _should_refresh_scene_map(ctx)
+            if not ctx.map_needs_update:
+                ctx.game_state.map_travel_from = ""
+
+        return events
 
     async def define_entities(self, ctx: TurnContext) -> list[str]:
-        """阶段 5b：为缺少 effects 的物品/技能补全战斗数值。"""
+        """为缺少 effects 的物品/技能补全战斗数值。"""
         if not should_run_stat_forge(ctx):
             return []
 
@@ -189,16 +291,27 @@ class TurnPipeline:
         return ctx.stat_forge_events
 
     async def finalize(self, ctx: TurnContext, response: str) -> TurnResult:
-        """阶段 6：记忆整理与行动建议（async 并发）。"""
+        """记忆整理与行动建议（async 并发）。"""
         turn = TurnResult(response=response.strip(), tool_events=ctx.all_tool_events)
         summary_before = ctx.game_state.story_summary
 
         async def _memory() -> None:
             await self.memory.process_after_turn_async(ctx.game_state, ctx.history)
 
-        suggestions, _ = await gather_best_effort(
+        async def _scene_map() -> None:
+            if ctx.map_needs_update:
+                await self.scene_map.aupdate(
+                    ctx.game_state,
+                    ctx.scenario,
+                    ctx.history,
+                    travel_from=ctx.map_travel_from,
+                )
+                ctx.game_state.map_travel_from = ""
+
+        suggestions, _, _ = await gather_best_effort(
             self.suggest_actions(ctx, turn),
             _memory(),
+            _scene_map(),
         )
         if suggestions:
             turn.action_suggestions = suggestions
@@ -214,14 +327,14 @@ class TurnPipeline:
                 rejected=True,
                 rejection_reason=ctx.rejection_reason,
             )
-        await self.sync_world_state(ctx)
+        await self.build_narrative_brief(ctx)
         await self.narrate(ctx)
-        await self.sync_items(ctx)
+        await self.settle_after_kp(ctx)
         await self.define_entities(ctx)
         return await self.finalize(ctx, ctx.kp_response)
 
     def build_narrative_brief_for_stream(self, ctx: TurnContext) -> str:
-        """流式路径：在 KP 流开始前构建叙事简报（需先 sync_world_state）。"""
+        """流式路径：在 KP 流开始前构建叙事简报。"""
         return ctx.narrative_brief or self._build_narrative_brief(ctx)
 
     def _build_narrative_brief(self, ctx: TurnContext) -> str:
@@ -232,7 +345,7 @@ class TurnPipeline:
             brief_static,
             ctx.character,
             ctx.game_state,
-            ctx.world_state_events,
+            None,
         )
 
     async def suggest_actions(self, ctx: TurnContext, turn: TurnResult) -> list[str]:
@@ -247,6 +360,14 @@ class TurnPipeline:
             in_combat=ctx.game_state.is_in_combat(),
             enemy_names=combat.living_enemy_names() if combat else [],
         )
-        if not suggestions and ctx.game_state.turn_count == 0:
-            return default_opening_suggestions(ctx.scenario, ctx.game_state)
         return suggestions
+
+
+def _should_refresh_scene_map(ctx: TurnContext) -> bool:
+    """换场景或获得地图时调用 Map Agent 增量维护节点与连边。"""
+    if ctx.world_patch.map_discovery:
+        return True
+    if ctx.is_opening:
+        return False
+    scene = ctx.world_patch.scene
+    return scene is not None and bool(scene.scene_id.strip())

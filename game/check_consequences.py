@@ -57,37 +57,39 @@ _STEALTH_MARKERS = (
 )
 
 
-def _action_text(route: ActionRouteResult) -> str:
-    return " ".join(
-        part
-        for part in (route.action_intent, route.scope_stop)
-        if part and part.strip()
-    )
+def _action_text(user_input: str, route: ActionRouteResult) -> str:
+    parts = [user_input.strip()]
+    parts.extend(route.referenced_skills)
+    return " ".join(part for part in parts if part)
 
 
 def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker in text for marker in markers)
 
 
-def is_dangerous_attempt(route: ActionRouteResult) -> bool:
-    text = _action_text(route)
+def is_dangerous_attempt(user_input: str, route: ActionRouteResult) -> bool:
+    text = _action_text(user_input, route)
     if _contains_any(text, _DANGEROUS_MARKERS):
         return True
     return route.trigger_combat or route.mode == "combat"
 
 
-def is_social_attempt(route: ActionRouteResult) -> bool:
-    text = _action_text(route)
+def is_social_attempt(user_input: str, route: ActionRouteResult) -> bool:
+    text = _action_text(user_input, route)
     return _contains_any(text, _SOCIAL_MARKERS)
 
 
-def is_stealth_attempt(route: ActionRouteResult) -> bool:
-    text = _action_text(route)
+def is_stealth_attempt(user_input: str, route: ActionRouteResult) -> bool:
+    text = _action_text(user_input, route)
     return _contains_any(text, _STEALTH_MARKERS)
 
 
-def _find_target_npc(game_state: GameState, route: ActionRouteResult) -> NPCRelation | None:
-    text = _action_text(route)
+def _find_target_npc(
+    game_state: GameState,
+    user_input: str,
+    route: ActionRouteResult,
+) -> NPCRelation | None:
+    text = _action_text(user_input, route)
     for npc in game_state.npcs:
         name = npc.name.strip()
         if not name:
@@ -133,6 +135,8 @@ def apply_check_failure_consequences(
     result: AbilityCheckResult,
     character: Character,
     game_state: GameState,
+    *,
+    user_input: str = "",
 ) -> list[str]:
     if result.success:
         return []
@@ -140,7 +144,7 @@ def apply_check_failure_consequences(
     events: list[str] = []
     settings = get_settings()
     margin = max(0, result.dc - result.check_total)
-    intent = route.action_intent.strip() or "本次行动"
+    intent = user_input.strip() or "本次行动"
     ability_label = ABILITY_LABELS.get(result.ability, result.ability.upper())
 
     fact = (
@@ -149,12 +153,14 @@ def apply_check_failure_consequences(
     game_state.add_memory_facts([fact], settings.max_memory_facts)
     events.append(f"📌 行动失败：{intent}")
 
-    if is_dangerous_attempt(route) or (margin >= 8 and result.ability in ("str", "dex", "con")):
+    if is_dangerous_attempt(user_input, route) or (
+        margin >= 8 and result.ability in ("str", "dex", "con")
+    ):
         raw_damage = min(8, max(1, margin // 2))
         events.extend(_apply_failure_damage(character, raw_damage))
 
-    if result.ability in ("cha", "wis") and is_social_attempt(route):
-        npc = _find_target_npc(game_state, route)
+    if result.ability in ("cha", "wis") and is_social_attempt(user_input, route):
+        npc = _find_target_npc(game_state, user_input, route)
         if npc is not None:
             new_attitude = _worsen_attitude(npc.attitude)
             if new_attitude and new_attitude != npc.attitude:
@@ -166,7 +172,7 @@ def apply_check_failure_consequences(
             game_state.add_memory_facts([alert], settings.max_memory_facts)
             events.append("⚠️ 社交失败：关系可能恶化")
 
-    if is_stealth_attempt(route) or (
+    if is_stealth_attempt(user_input, route) or (
         result.ability == "dex" and route.skill_usage == "use"
     ):
         alert = "潜入/潜行尝试失败，现场警戒可能已提高"
@@ -208,6 +214,4 @@ def format_check_failure_constraints_for_kp(
             "- 可推进剧情，但方向必须是 setback，不是原计划的收益。",
         ]
     )
-    if route and route.scope_stop.strip():
-        lines.append(f"- 叙事仍应收笔于：{route.scope_stop.strip()}")
     return "\n".join(lines)

@@ -104,7 +104,7 @@ def test_unequipped_inventory_hides_equipped_items():
     assert armor is not None
     armor.effects = EntityEffects(ac_bonus=3, max_hp_bonus=10, forged=True)
     character.add_inventory_item("伪造工牌", quantity=1, unit="张", description="进门用。")
-    character.equip_item("皮下装甲")
+    character.equip_item("皮下装甲", slot="body")
 
     assert character.is_item_equipped("皮下装甲")
     assert len(character.unequipped_inventory()) == 1
@@ -152,6 +152,8 @@ def test_normalize_repairs_malformed_wan_unit():
 
 
 def test_purchase_with_credit_card_balance():
+    from game.post_kp_mechanics import execute_purchase
+
     character = Character(name="测试", inventory=["银行卡（19万信用点）"])
     route = ActionRouteResult(
         approved=True,
@@ -162,8 +164,7 @@ def test_purchase_with_credit_card_balance():
     )
     result = ActionRouter.validate(route, character, GameState())
     assert result.approved is True
-
-    events = GameOrchestrator._execute_purchase(route, character)
+    events = execute_purchase(route, character)
     assert not any("支付失败" in event for event in events)
     assert character.inventory[0].quantity == 187_500
 

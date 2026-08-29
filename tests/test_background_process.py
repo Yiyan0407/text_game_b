@@ -1,6 +1,5 @@
 from game.background_process import (
     format_background_processes_for_kp,
-    infer_background_process_from_facts,
     register_background_process,
     resolve_background_processes,
 )
@@ -59,34 +58,6 @@ def test_apply_state_patch_registers_and_completes_on_time_advance():
     assert state.background_processes[0].status == "completed"
     assert any("后台完成" in event for event in events)
     assert state.elapsed_minutes == 17
-
-
-def test_infer_background_process_from_memory_facts():
-    state = GameState(elapsed_minutes=12)
-    state.add_memory_facts(
-        [
-            "黑客模块CyberBreacher v4.7.3正在更新中",
-            "预计用时四分钟，更新期间黑客功能暂时不可用",
-        ],
-        max_facts=50,
-    )
-    events = infer_background_process_from_facts(state)
-    assert events
-    assert state.background_processes[0].duration_minutes == 4
-
-
-def test_infer_skips_duplicate_cyberbreacher_versions():
-    state = GameState(elapsed_minutes=12)
-    state.add_memory_facts(
-        [
-            "黑客模块CyberBreacher v4.7.2正在更新中",
-            "黑客模块CyberBreacher v4.7.3正在更新中",
-        ],
-        max_facts=50,
-    )
-    events = infer_background_process_from_facts(state)
-    assert len(state.background_processes) == 1
-    assert len(events) == 1
 
 
 def test_register_skips_when_memory_fact_says_completed():

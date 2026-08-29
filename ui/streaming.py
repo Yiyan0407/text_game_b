@@ -58,14 +58,14 @@ def render_phased_turn(
     loading: LoadingPlaceholder | None = None,
     kp_meta: bool = False,
 ) -> tuple[list[str], str]:
-    """分阶段展示：机械事件 → 世界状态 → 叙事流。"""
+    """分阶段展示：系统结算 → KP 叙事流（分开展示）。"""
     if pre_tool_events:
         from ui.chat import render_tool_events_live
 
         render_tool_events_live(pre_tool_events)
 
     if loading:
-        loading.show("KP 沟通处理中……" if kp_meta else "同步世界状态中……")
+        loading.show("KP 沟通处理中……" if kp_meta else "准备叙事……")
     state_events = run_state_phase()
     if loading:
         loading.clear()
@@ -75,11 +75,18 @@ def render_phased_turn(
 
         render_tool_events_live(state_events)
 
-    full = render_streaming_markdown(
-        text_stream,
-        loading=loading,
-        loading_message="KP 回复中……" if kp_meta else "KP 撰写叙事中……",
-    )
+    from ui.chat import kp_story_chat_message
+
+    with kp_story_chat_message(kp_meta=kp_meta):
+        if kp_meta:
+            st.caption("主持人回复")
+        else:
+            st.caption("KP · 叙事")
+        full = render_streaming_markdown(
+            text_stream,
+            loading=loading,
+            loading_message="KP 回复中……" if kp_meta else "KP 撰写叙事中……",
+        )
     return state_events, full
 
 

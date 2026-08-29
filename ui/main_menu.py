@@ -483,13 +483,12 @@ def start_new_game(
 
             append_tool_events(pre_tool_events)
 
-            with st.chat_message("assistant"):
-                state_events, full = render_phased_turn(
-                    pre_tool_events,
-                    run_state_phase,
-                    text_stream,
-                    loading=progress,
-                )
+            state_events, full = render_phased_turn(
+                pre_tool_events,
+                run_state_phase,
+                text_stream,
+                loading=progress,
+            )
             append_tool_events(state_events)
             turn = finalize_streaming_turn(
                 full,
@@ -509,11 +508,6 @@ def start_new_game(
             )
             st.session_state.action_suggestions = turn.action_suggestions
             opening_completed = True
-            if turn.opening_used_fallback:
-                st.warning(
-                    "入场逻辑 AI 生成失败，已改用通用模板衔接开场。"
-                    "若身份与背景不符，可在侧边栏查看角色信息并自行修正叙事理解。"
-                )
         except Exception as exc:
             if rollback_turn:
                 rollback_turn()
@@ -533,11 +527,6 @@ def start_new_game(
 
         append_turn_result(turn)
         st.session_state.action_suggestions = turn.action_suggestions
-        if turn.opening_used_fallback:
-            st.warning(
-                "入场逻辑 AI 生成失败，已改用通用模板衔接开场。"
-                "若身份与背景不符，可在侧边栏查看角色信息并自行修正叙事理解。"
-            )
 
     persist_save()
     st.rerun()

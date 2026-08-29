@@ -88,20 +88,18 @@ def test_resolve_mechanics_rejects_trigger_combat_attack_before_player_turn():
     assert raised
 
 
-def test_resolve_mechanics_use_item_in_exploration():
-    from game.orchestrator import GameOrchestrator
+def test_resolve_post_kp_use_item_in_exploration():
+    from game.post_kp_mechanics import resolve_post_kp_mechanics
 
-    orchestrator = GameOrchestrator()
     character = Character(name="测试", hp=5, max_hp=20, inventory=[forged_heal_item()])
     game_state = GameState()
     route = ActionRouteResult(
         approved=True,
         item_usage="use",
         referenced_items=["治疗药水"],
-        action_intent="喝下治疗药水",
     )
 
-    events = orchestrator._resolve_mechanics(route, character, game_state, None)
+    events = resolve_post_kp_mechanics(route, character, game_state)
 
     assert any("使用" in event for event in events)
     assert character.hp > 5

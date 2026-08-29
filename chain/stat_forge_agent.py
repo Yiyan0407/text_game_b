@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class StatForgeAgent:
     def __init__(self):
-        self.llm = create_chat_llm(temperature=0.2)
+        self.llm = create_chat_llm(role="stat_forge", temperature=0.2)
         system_prompt = (PROMPTS_DIR / "stat_forge.txt").read_text(encoding="utf-8")
         self.prompt = ChatPromptTemplate.from_messages(
             [

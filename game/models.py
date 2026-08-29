@@ -6,7 +6,6 @@ from game.active_gear import ActiveGearEntry, normalize_active_gear
 from game.equipment import (
     EquipmentEntry,
     EquipmentSlot,
-    infer_equipment_slot,
     is_valid_equipment_slot,
     normalize_equipment,
 )
@@ -18,7 +17,16 @@ from game.inventory import (
     _merge_description,
 )
 from game.skills import Skill, normalize_skills_list, parse_skill_text, split_skill_description
-from game.effects import EntityEffects
+from game.memory_journal import (
+    MemoryEntry,
+    entry_from_text,
+    facts_for_prompt,
+    format_topics_for_prompt,
+    list_memory_topics,
+    migrate_legacy_facts,
+    normalize_memory_journal,
+)
+from game.scene_map import SceneRecord, WorldMapGraph, normalize_world_map_graph, record_scene_visit
 from game.text_match import fuzzy_match_name
 
 ABILITY_ORDER: tuple[tuple[str, str, str], ...] = (
@@ -205,9 +213,9 @@ class Character(BaseModel):
         if target is None:
             return False, f"背包中没有：{item_ref}"
 
-        resolved = slot or infer_equipment_slot(target.name, target.description)
+        resolved = slot
         if resolved is None:
-            return False, f"无法判断装备槽位：{target.name}"
+            return False, f"缺少装备槽位：{target.name}"
 
         self.prune_equipment()
         if self.is_item_equipped(target.name):
@@ -240,12 +248,7 @@ class Character(BaseModel):
             if not removed:
                 return False, f"未装备槽位：{resolved}"
             self.equipment = kept
-            for name in removed:
-                self._ensure_inventory_on_unequip(name)
-            if len(removed) == 1:
-                return True, f"卸下：{removed[0]}（回背包）"
-            joined = "、".join(removed)
-            return True, f"卸下：{joined}（回背包）"
+            return True, f"卸下：{removed[0]}（回背包）" if len(removed) == 1 else f"卸下：{'、'.join(removed)}（回背包）"
 
         if not item_ref.strip():
             return False, "未指定要卸下的物品。"
@@ -258,13 +261,7 @@ class Character(BaseModel):
                 break
         if not target_name:
             return False, f"未装备：{item_ref}"
-        self._ensure_inventory_on_unequip(target_name)
         return True, f"卸下：{target_name}（回背包）"
-
-    def _ensure_inventory_on_unequip(self, item_name: str) -> None:
-        """卸下后物品应仍在背包；若缺失则补回（防止误删）。"""
-        if not self.has_inventory_item(item_name):
-            self.add_inventory_item(item_name, quantity=1)
 
     def clear_equipment_item(self, item_name: str) -> None:
         cleaned = item_name.strip()
@@ -363,6 +360,9 @@ class Character(BaseModel):
             if existing.name == incoming.name:
                 merge_item_stacks(existing, incoming)
                 return True
+
+        if not incoming.description.strip():
+            return False
 
         self.inventory.append(incoming)
         return True
@@ -678,18 +678,20 @@ class PendingReroll(BaseModel):
 class GameState(BaseModel):
     started: bool = False
     scenario_id: str = ""
-    scene_id: str = "tavern_seagull"
-    current_scene: str = "灰港·海鸥尾酒馆"
+    scene_id: str = ""
+    current_scene: str = ""
     active_quests: list[Quest] = Field(default_factory=_default_quests)
     npcs: list[NPCRelation] = Field(default_factory=list)
     story_summary: str = ""
     chapter_summaries: list[str] = Field(default_factory=list)
-    memory_facts: list[str] = Field(default_factory=list)
+    memory_journal: list[MemoryEntry] = Field(default_factory=list)
     turn_count: int = 0
     last_summarized_turn: int = 0
     last_chapter_turn: int = 0
     combat: CombatState | None = None
     scene_image_url: str = ""
+    visited_scenes: list[SceneRecord] = Field(default_factory=list)
+    world_map_graph: WorldMapGraph | None = None
     elapsed_minutes: int = 0
     story_start_absolute_minutes: int = 8 * 60
     narrative_time_label: str = ""
@@ -697,17 +699,156 @@ class GameState(BaseModel):
     background_processes: list[BackgroundProcess] = Field(default_factory=list)
     last_ability_check: LastAbilityCheckRecord | None = None
     pending_reroll: PendingReroll | None = None
+    map_travel_from: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_memory_facts(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if data.get("memory_journal"):
+            return data
+        legacy = data.get("memory_facts")
+        if isinstance(legacy, list) and legacy:
+            data = dict(data)
+            data["memory_journal"] = migrate_legacy_facts(
+                [str(item) for item in legacy if str(item).strip()]
+            )
+            data.pop("memory_facts", None)
+        return data
+
+    @field_validator("memory_journal", mode="before")
+    @classmethod
+    def _coerce_memory_journal(cls, value):
+        return normalize_memory_journal(value)
+
+    @field_validator("visited_scenes", mode="before")
+    @classmethod
+    def _coerce_visited_scenes(cls, value):
+        if not value:
+            return []
+        if not isinstance(value, list):
+            return []
+        return value
+
+    @field_validator("world_map_graph", mode="before")
+    @classmethod
+    def _coerce_world_map_graph(cls, value):
+        return normalize_world_map_graph(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_legacy_mermaid_map(cls, data):
+        if isinstance(data, dict) and data.get("world_map_mermaid"):
+            data = dict(data)
+            data.pop("world_map_mermaid", None)
+        return data
+
+    @model_validator(mode="after")
+    def _migrate_legacy_scene_map(self) -> Self:
+        if self.visited_scenes:
+            return self
+        if not self.scene_id.strip() or not self.current_scene.strip():
+            return self
+        if self.started or self.turn_count > 0 or self.scenario_id.strip():
+            record_scene_visit(
+                self,
+                self.scene_id,
+                self.current_scene,
+                turn_count=self.turn_count,
+            )
+        return self
+
+    @property
+    def memory_facts(self) -> list[str]:
+        return [entry.text for entry in self.memory_journal]
+
+    def add_memory_entries(
+        self,
+        entries: list[MemoryEntry | str | dict],
+        max_facts: int,
+        *,
+        topic: str | None = None,
+        tags: list[str] | None = None,
+    ) -> list[str]:
+        """写入结构化记忆，返回新入库的文本列表。"""
+        npc_names = [npc.name for npc in self.npcs]
+        quest_titles = [q.title for q in self.active_quests if q.title]
+        existing_topics = list_memory_topics(self.memory_journal)
+        narrative_time = self.narrative_time_label.strip()
+        if not narrative_time and self.elapsed_minutes >= 0:
+            from game.narrative_time import narrative_time_display
+
+            narrative_time = narrative_time_display(self)
+
+        added: list[str] = []
+        for raw in entries:
+            if isinstance(raw, MemoryEntry):
+                incoming = raw.model_copy()
+            else:
+                from game.results import MemoryFactPatch
+
+                if isinstance(raw, MemoryFactPatch):
+                    text = raw.text.strip()
+                    item_topic = raw.topic or None
+                    item_tags = raw.tags
+                elif isinstance(raw, dict):
+                    text = str(raw.get("text") or raw.get("fact") or "").strip()
+                    item_topic = (
+                        str(raw.get("topic") or raw.get("category") or topic or "")
+                        .strip()
+                        or None
+                    )
+                    item_tags = raw.get("tags") or tags
+                else:
+                    text = str(raw).strip()
+                    item_topic = topic
+                    item_tags = tags
+                if not text:
+                    continue
+                incoming = entry_from_text(
+                    text,
+                    topic=item_topic,
+                    tags=item_tags if isinstance(item_tags, list) else None,
+                    turn_count=self.turn_count,
+                    elapsed_minutes=self.elapsed_minutes,
+                    narrative_time=narrative_time,
+                    scene_id=self.scene_id,
+                    scene_name=self.current_scene,
+                    existing_topics=existing_topics,
+                    npc_names=npc_names,
+                    quest_titles=quest_titles,
+                )
+
+            if not incoming.text:
+                continue
+            if any(
+                incoming.text in existing.text or existing.text in incoming.text
+                for existing in self.memory_journal
+            ):
+                continue
+            if not incoming.narrative_time:
+                incoming.narrative_time = narrative_time
+            if not incoming.scene_id:
+                incoming.scene_id = self.scene_id
+            if not incoming.scene_name:
+                incoming.scene_name = self.current_scene
+            if incoming.turn_count <= 0:
+                incoming.turn_count = self.turn_count
+            if incoming.elapsed_minutes <= 0 and self.elapsed_minutes > 0:
+                incoming.elapsed_minutes = self.elapsed_minutes
+            self.memory_journal.append(incoming)
+            added.append(incoming.text)
+
+        if len(self.memory_journal) > max_facts:
+            pinned = [entry for entry in self.memory_journal if entry.pinned]
+            unpinned = [entry for entry in self.memory_journal if not entry.pinned]
+            keep_unpinned = max(0, max_facts - len(pinned))
+            self.memory_journal = pinned + unpinned[-keep_unpinned:]
+        return added
 
     def add_memory_facts(self, new_facts: list[str], max_facts: int) -> None:
-        for fact in new_facts:
-            fact = fact.strip()
-            if not fact:
-                continue
-            if any(fact in existing or existing in fact for existing in self.memory_facts):
-                continue
-            self.memory_facts.append(fact)
-        if len(self.memory_facts) > max_facts:
-            self.memory_facts = self.memory_facts[-max_facts:]
+        self.add_memory_entries(new_facts, max_facts)
 
     def format_for_prompt(self) -> str:
         from game.narrative_time import format_narrative_time_context
@@ -720,9 +861,11 @@ class GameState(BaseModel):
         if self.combat and self.combat.active:
             lines.append(self.combat.format_for_prompt())
 
-        if self.memory_facts:
+        if self.memory_journal:
+            lines.append("【记忆主题 — 写入 memory_facts 时须指定 topic，优先复用已有主题】")
+            lines.append(format_topics_for_prompt(self.memory_journal))
             lines.append("【关键事实 — 不可矛盾】")
-            for fact in self.memory_facts[-20:]:
+            for fact in facts_for_prompt(self.memory_journal, limit=20):
                 lines.append(f"- {fact}")
 
         if self.chapter_summaries:
