@@ -43,8 +43,11 @@ def resolve_use_item(
     if use_events is not None:
         return use_events
 
-    if target.kind == "durable":
-        if character.is_item_in_hand(target.name):
+    has_attack = bool(target.effects and target.effects.attack_damage.strip())
+    if target.kind == "durable" or has_attack:
+        if has_attack and character.is_item_equipped(target.name):
+            return [f"{target.name} 已装备并就绪，可直接攻击。"]
+        if target.kind == "durable" and character.is_item_in_hand(target.name):
             ok, message = character.unequip_item(target.name)
             return [message if ok else f"卸下失败：{message}"]
         ok, message = character.equip_item(target.name, slot="hand")

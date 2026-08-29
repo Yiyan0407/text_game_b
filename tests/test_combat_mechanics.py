@@ -173,6 +173,15 @@ def test_combat_constraints_for_blocked_attack():
     assert "不得写射击命中" in text or "不得" in text
 
 
+def test_combat_constraints_for_out_of_range_attack():
+    text = format_combat_constraints_for_kp(
+        ["无法攻击 未知实体：超出射程（4m > 2m）（当前 4m）。"],
+        None,
+    )
+    assert "超出射程" in text
+    assert "不得" in text
+
+
 def test_state_patch_blocks_combat_pickup_without_mechanical_gain():
     character = Character(name="测试")
     game_state = GameState()
@@ -436,6 +445,47 @@ def test_attack_from_inventory_requires_free_interact():
     result = player_attack(character, game_state, "敌人", route=route)
     assert "免费物件互动已用尽" in result
     assert game_state.combat.has_main_action() is True
+
+
+def test_attack_with_equipped_body_weapon_skips_draw():
+    from game.combat import player_attack
+    from tests.fixtures_effects import forged_weapon
+
+    cutter = forged_weapon("分子切割器", "2d10")
+    character = Character(name="测试", inventory=[cutter])
+    character.equip_item("分子切割器", slot="body")
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=20, max_hp=20, ac=5)],
+        turn_order=["player"],
+        turn_index=0,
+        enemy_distances={"敌人": 2},
+        free_interact_used=True,
+    )
+    route = _approved_route(
+        combat_action="attack",
+        attack_target="敌人",
+        referenced_items=["分子切割器"],
+    )
+    result = player_attack(character, game_state, "敌人", route=route)
+    assert "分子切割器" in result
+    assert "免费物件互动已用尽" not in result
+    assert character.is_item_equipped("分子切割器")
+
+
+def test_use_equipped_attack_weapon_does_not_unequip():
+    from game.item_use import resolve_use_item
+    from tests.fixtures_effects import forged_weapon
+
+    cutter = forged_weapon("分子切割器", "2d10")
+    character = Character(name="测试", inventory=[cutter])
+    character.equip_item("分子切割器", slot="hand")
+    events = resolve_use_item(character, ["分子切割器"])
+    assert any("已装备并就绪" in event for event in events)
+    assert character.is_item_equipped("分子切割器")
+    assert not any("卸下" in event for event in events)
 
 
 def test_validate_forces_combat_use_item_cost():

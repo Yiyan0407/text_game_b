@@ -104,7 +104,14 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 **不必掷骰**：已在公开合法区域的普通移动、明确无需躲藏的对话、信息已确定的纯观察（无风险）、**本职范围内轻而易举的日常动作**（如渔民辨认渔网、黑客看常规报错）
 
 ### 开战识别
-玩家明显攻击/开战 → trigger_combat=true，enemies_spec（名字:HP:AC，兼容旧格式），**enemy_defs**（推荐，含完整战斗数值），combat_action=attack，attack_target，action_cost=main
+玩家**明确发动不可撤销的物理攻击**（拔刀、开枪、扑击等）或局势已不可避免进入敌对 → `trigger_combat=true`，`enemies_spec`（名字:HP:AC，兼容旧格式），**enemy_defs**（推荐，含完整战斗数值）。
+
+**开战当回合（trigger_combat=true）**：
+- 必须 `combat_action=none`，`item_usage=none`（或 none）——**不要**填 attack / move / use_item / pickup
+- 系统会掷先攻并结算先攻更高者的行动；**玩家的攻击/移动留到下一轮输入**
+- 仅**口头威胁、挑衅、辱骂**而未动手 → 若仍触发敌对，同样 `trigger_combat=true` + `combat_action=none`（可 needs_roll + cha 检定，由你裁定是否开战）
+
+**已在战斗中（combat.active=true）** 的攻击 → `trigger_combat=false`，`combat_action=attack`，`attack_target`，`action_cost=main`
 
 **enemy_defs 示例**（按当前世界观给合理 damage 与 SP）：
 ```json
@@ -143,7 +150,7 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 ### 可以批准 — 主要动作（action_cost=main）
 | combat_action | 说明 | needs_roll |
 |--------------|------|------------|
-| attack | 攻击存活敌人，attack_target 必填；超射程须先 move 或同句带 move_meters | false |
+| attack | 攻击存活敌人，attack_target 必填；超射程须先 move 或同句带 move_meters；**已装备在任意槽位（手持/身体/配件）的武器可直接攻击，无需再「拿到手上」** | false |
 | defend | 防御 AC+2 | false |
 | flee | 撤退（消耗主要动作；失败仍可继续本回合） | false（系统掷骰） |
 | interact | 推物体、打翻掩体、拉杠杆等场景互动 | true，ability + **你裁定的 dc** |
@@ -161,7 +168,7 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 
 ### 可以批准 — 免费物件互动（action_cost=free）
 | pickup | 拾取眼前物品（见上） | false |
-| use_item | 快速装备/收起武器、手电、工具（`item_usage=use`，系统自动判定） | false |
+| use_item | 快速装备/收起武器、手电、工具（`item_usage=use`，系统自动判定）；**已装备且可攻击的武器勿当作 use_item，应走 attack** | false |
 
 **勿把 NPC 当面交给你/塞给你的物品标为 pickup**（如「给我手电」「接过装备」）→ `item_usage=none`；pickup 仅用于从地上/容器/战场捡起。
 

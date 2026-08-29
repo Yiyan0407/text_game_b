@@ -31,6 +31,8 @@ def combat_use_item_cost(character: Character, item_ref: str) -> str:
 
 
 def _durable_use_is_free(character: Character, item: InventoryItem) -> bool:
+    if character.is_item_equipped(item.name):
+        return True
     if character.is_item_in_hand(item.name):
         return True
     slot = _resolve_gear_slot(item)

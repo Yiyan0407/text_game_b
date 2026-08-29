@@ -480,11 +480,118 @@ def sync_map_to_current_scene(game_state: GameState, scenario: Scenario | None =
     game_state.world_map_graph = sync_graph_statuses(graph, game_state, scenario)
 
 
+def _map_connected_components(graph: WorldMapGraph) -> list[set[str]]:
+    node_ids = {node.id.strip() for node in graph.nodes if node.id.strip()}
+    adjacency: dict[str, set[str]] = {nid: set() for nid in node_ids}
+    for edge in graph.edges:
+        source = edge.source.strip()
+        target = edge.target.strip()
+        if source in node_ids and target in node_ids:
+            adjacency[source].add(target)
+            adjacency[target].add(source)
+
+    visited: set[str] = set()
+    components: list[set[str]] = []
+    for nid in node_ids:
+        if nid in visited:
+            continue
+        stack = [nid]
+        component: set[str] = set()
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            component.add(current)
+            stack.extend(adjacency[current] - visited)
+        components.append(component)
+    return components
+
+
+def _node_label(graph: WorldMapGraph, node_id: str) -> str:
+    for node in graph.nodes:
+        if node.id.strip() == node_id:
+            return node.label.strip() or node_id
+    return node_id
+
+
+def format_topology_correction_hints(
+    graph: WorldMapGraph,
+    current_id: str,
+) -> list[str]:
+    """列出孤立节点与断裂簇，供手动刷新时 Map Agent 整改。"""
+    if graph.is_empty():
+        return []
+
+    node_ids = {node.id.strip() for node in graph.nodes if node.id.strip()}
+    if len(node_ids) <= 1:
+        return []
+
+    hints: list[str] = []
+    isolated = [
+        node.id.strip()
+        for node in graph.nodes
+        if node.id.strip()
+        and not any(
+            edge.source.strip() == node.id.strip() or edge.target.strip() == node.id.strip()
+            for edge in graph.edges
+        )
+    ]
+    if isolated:
+        labels = "；".join(f"{_node_label(graph, nid)}（{nid}）" for nid in isolated)
+        hints.append(f"- 无任何连边的孤立节点：{labels}")
+
+    components = _map_connected_components(graph)
+    if len(components) > 1:
+        current = current_id.strip()
+        main = next((comp for comp in components if current in comp), None)
+        if main is None:
+            main = max(components, key=len)
+        hints.append(
+            f"- 全图共 {len(components)} 个互不连通的节点簇；"
+            f"当前位置所在簇含 {len(main)} 个节点"
+        )
+        for comp in components:
+            if comp == main:
+                continue
+            labels = "；".join(f"{_node_label(graph, nid)}（{nid}）" for nid in sorted(comp))
+            hints.append(f"- 与当前位置不连通的节点簇：{labels}")
+
+    if hints:
+        hints.append(
+            "- 请结合到达顺序与对话中的交通/穿越方式尽量补连边；"
+            "同 scope 内补 hub 邻接，跨 scope 经 macro；无法推断的可保留孤立"
+        )
+    return hints
+
+
+def format_visit_order_hints(game_state: GameState) -> list[str]:
+    """按首次到达顺序列出相邻访问，供整改时推断连边。"""
+    ordered = sorted(game_state.visited_scenes, key=lambda record: record.first_seen_turn)
+    if len(ordered) < 2:
+        return []
+    lines: list[str] = []
+    for index in range(1, len(ordered)):
+        previous = ordered[index - 1]
+        current = ordered[index]
+        turn = (
+            f"第{current.first_seen_turn}回合"
+            if current.first_seen_turn
+            else "未知回合"
+        )
+        lines.append(
+            f"- {previous.scene_name}（{previous.scene_id}）"
+            f" → {current.scene_name}（{current.scene_id}）· {turn}"
+        )
+    return lines
+
+
 def format_map_context(
     game_state: GameState,
     scenario: Scenario,
     *,
     travel_from: str = "",
+    reconcile: bool = False,
 ) -> str:
     lines = [
         f"当前位置：{game_state.current_scene}（{game_state.scene_id}）",
@@ -514,6 +621,14 @@ def format_map_context(
             extra = f" — {desc}" if desc else ""
             lines.append(f"- {node.title}（{visited}）{extra}")
     graph = effective_map_graph(game_state, scenario)
+    if reconcile:
+        if visit_order := format_visit_order_hints(game_state):
+            lines.append("到达顺序参考（推断连边，非强制链式连接）：")
+            lines.extend(visit_order)
+        if graph and not graph.is_empty():
+            if hints := format_topology_correction_hints(graph, game_state.scene_id):
+                lines.append("【拓扑待整改】（玩家手动刷新，请尽量修正）")
+                lines.extend(hints)
     if graph and not graph.is_empty():
         lines.append("当前 JSON 地图（可在其上增量修订）：")
         lines.append(json.dumps(graph.model_dump(), ensure_ascii=False, indent=2))

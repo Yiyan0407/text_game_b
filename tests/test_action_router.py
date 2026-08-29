@@ -419,6 +419,22 @@ def test_validate_trigger_combat_requires_enemies_spec():
     assert "攻击目标" in result.rejection_reason or "无法确定" in result.rejection_reason
 
 
+def test_validate_trigger_combat_clears_same_turn_combat_action():
+    route = _approved_route(
+        trigger_combat=True,
+        enemies_spec="守卫:12:12",
+        mode="combat",
+        combat_action="attack",
+        attack_target="守卫",
+        item_usage="use",
+        referenced_items=["短剑"],
+    )
+    result = ActionRouter.validate(route, Character(name="测试"), GameState())
+    assert result.approved is True
+    assert result.combat_action == "none"
+    assert result.item_usage == "none"
+
+
 def test_apply_granularity_allows_compound_action():
     route = _approved_route(
         item_usage="purchase",

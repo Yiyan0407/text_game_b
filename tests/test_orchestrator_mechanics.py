@@ -50,7 +50,7 @@ def test_resolve_mechanics_rejects_combat_action_when_not_player_turn():
     assert raised
 
 
-def test_resolve_mechanics_rejects_trigger_combat_attack_before_player_turn():
+def test_resolve_mechanics_trigger_combat_skips_same_turn_attack_when_enemy_first():
     from unittest.mock import patch
 
     orchestrator = GameOrchestrator()
@@ -63,7 +63,6 @@ def test_resolve_mechanics_rejects_trigger_combat_attack_before_player_turn():
         enemies_spec="守卫:12:12",
         combat_action="attack",
         attack_target="守卫",
-        action_intent="拔剑砍向守卫",
     )
 
     def _start_combat(_character, state, _spec, **kwargs):
@@ -77,15 +76,35 @@ def test_resolve_mechanics_rejects_trigger_combat_attack_before_player_turn():
         return "战斗开始"
 
     with patch("game.orchestrator.start_combat", side_effect=_start_combat):
-        with patch("game.orchestrator.resolve_until_player_turn", return_value=[]):
-            try:
-                orchestrator._resolve_mechanics(route, character, game_state, None)
-                raised = False
-            except ValueError as exc:
-                raised = True
-                assert "无法在同一句话里立刻执行" in str(exc)
+        with patch("game.orchestrator.resolve_until_player_turn", return_value=["守卫 攻击你 → 未命中"]):
+            events = orchestrator._resolve_mechanics(route, character, game_state, None)
 
-    assert raised
+    assert any("战斗开始" in event for event in events)
+    assert not any("攻击 守卫" in event for event in events)
+    assert not game_state.combat.is_player_turn()
+
+
+def test_resolve_mechanics_trigger_combat_does_not_attack_on_player_turn():
+    orchestrator = GameOrchestrator()
+    character = Character(name="测试")
+    game_state = GameState()
+    route = ActionRouteResult(
+        approved=True,
+        mode="combat",
+        trigger_combat=True,
+        enemies_spec="守卫:12:12",
+        combat_action="attack",
+        attack_target="守卫",
+    )
+
+    events = orchestrator._resolve_mechanics(route, character, game_state, None)
+
+    assert any("战斗开始" in event for event in events)
+    assert not any("攻击 守卫" in event for event in events)
+    assert not any("无法攻击" in event for event in events)
+    assert any("轮到你行动" in event for event in events)
+    assert game_state.combat is not None
+    assert game_state.combat.is_player_turn()
 
 
 def test_resolve_post_kp_use_item_in_exploration():

@@ -476,6 +476,11 @@ class ActionRouter:
             route.mode = "combat"
             route.needs_roll = False
             route.roll_type = "none"
+            # 开战当回合仅结算先攻与先攻更高者行动；玩家战斗指令留到下一轮输入。
+            if route.combat_action not in ("none", "end_turn"):
+                route.combat_action = "none"
+            if route.item_usage in ("pickup", "use", "purchase"):
+                route.item_usage = "none"
 
         if in_combat or route.trigger_combat:
             if route.combat_action == "attack":

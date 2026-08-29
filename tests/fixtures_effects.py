@@ -9,6 +9,7 @@ def forged_weapon(name: str, damage: str = "1d10", *, use_dex: bool = True) -> I
         name=name,
         quantity=1,
         unit="把",
+        kind="durable",
         effects={
             "attack_damage": damage,
             "use_dex": use_dex,

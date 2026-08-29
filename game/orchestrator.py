@@ -720,8 +720,11 @@ class GameOrchestrator:
                 )
             )
             pre_tool_events.extend(resolve_until_player_turn(character, game_state))
+            combat = game_state.combat
+            if combat and combat.active and combat.is_player_turn():
+                pre_tool_events.append("轮到你行动。请在本轮发送战斗指令（移动、攻击、防御等）。")
 
-        if game_state.is_in_combat() and route.combat_action != "none":
+        if game_state.is_in_combat() and route.combat_action != "none" and not route.trigger_combat:
             combat = game_state.combat
             if not combat or not combat.active:
                 pass
@@ -751,7 +754,7 @@ class GameOrchestrator:
                         advance_after_player_action(character, game_state)
                     )
 
-        elif game_state.is_in_combat() and route.item_usage == "pickup":
+        elif game_state.is_in_combat() and route.item_usage == "pickup" and not route.trigger_combat:
             pre_tool_events.extend(
                 resolve_pickup_in_combat(
                     character, game_state, route.referenced_items
@@ -762,7 +765,7 @@ class GameOrchestrator:
                     advance_after_player_action(character, game_state)
                 )
 
-        elif game_state.is_in_combat() and route.item_usage == "use":
+        elif game_state.is_in_combat() and route.item_usage == "use" and not route.trigger_combat:
             from game.combat_item_use import combat_use_item_cost
 
             if route.combat_action == "use_item" and route.action_cost in (
@@ -1004,5 +1007,5 @@ class GameOrchestrator:
         scenario: Scenario,
         history: list[ChatMessage],
     ) -> bool:
-        """手动刷新地图（侧边栏按钮）。"""
-        return self.scene_map.update(game_state, scenario, history)
+        """手动刷新地图（侧边栏按钮）：触发 Map Agent 拓扑整改。"""
+        return self.scene_map.update(game_state, scenario, history, reconcile=True)

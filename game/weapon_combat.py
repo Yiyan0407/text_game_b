@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from game.equipment import EquipmentSlot
 from game.models import Character
 from game.results import ActionRouteResult
 from game.skills import Skill
 from game.text_match import fuzzy_match_name
+
+_EQUIPMENT_WEAPON_SLOTS: tuple[EquipmentSlot, ...] = ("hand", "body", "accessory")
 
 
 @dataclass(frozen=True)
@@ -86,14 +89,29 @@ def _profile_from_item(character: Character, item_name: str) -> WeaponProfile | 
     return None
 
 
-def _hand_weapon(character: Character) -> WeaponProfile | None:
+def _equipped_weapon(
+    character: Character,
+    route: ActionRouteResult | None = None,
+) -> WeaponProfile | None:
+    """任意装备槽中已穿戴且带 attack_damage 的武器均可直接用于攻击。"""
     character.prune_equipment()
-    for entry in character.equipment:
-        if entry.slot != "hand":
-            continue
-        profile = _profile_from_item(character, entry.item_name)
-        if profile is not None:
-            return profile
+    if route is not None:
+        for ref in route.referenced_items:
+            if not character.is_item_equipped(ref):
+                continue
+            profile = _profile_from_item(character, ref)
+            if profile is not None:
+                return profile
+
+    seen: set[str] = set()
+    for slot in _EQUIPMENT_WEAPON_SLOTS:
+        for entry in character.equipment:
+            if entry.slot != slot or entry.item_name in seen:
+                continue
+            profile = _profile_from_item(character, entry.item_name)
+            if profile is not None:
+                seen.add(entry.item_name)
+                return profile
     return None
 
 
@@ -117,7 +135,7 @@ def resolve_weapon_profile(
 ) -> WeaponProfile:
     for resolver in (
         lambda: _referenced_weapon(character, route),
-        lambda: _hand_weapon(character),
+        lambda: _equipped_weapon(character, route),
         lambda: _inventory_weapon(character),
     ):
         profile = resolver()
@@ -128,6 +146,8 @@ def resolve_weapon_profile(
 
 def _inventory_weapon(character: Character) -> WeaponProfile | None:
     for item in character.inventory:
+        if character.is_item_equipped(item.name):
+            continue
         profile = _profile_from_item(character, item.name)
         if profile is not None:
             return profile
@@ -155,6 +175,8 @@ def ensure_weapon_ready(character: Character, profile: WeaponProfile) -> None:
     item = character.find_inventory_item(profile.label)
     if item is None:
         return
+    if character.is_item_equipped(item.name):
+        return
     if not character.is_item_in_hand(item.name):
         character.equip_item(item.name, slot="hand")
 
@@ -169,7 +191,7 @@ def weapon_is_active(character: Character, profile: WeaponProfile) -> bool:
     item = character.find_inventory_item(profile.label)
     if item is None:
         return False
-    return character.is_item_in_hand(item.name)
+    return character.is_item_equipped(item.name)
 
 
 def weapon_needs_draw(character: Character, profile: WeaponProfile) -> bool:

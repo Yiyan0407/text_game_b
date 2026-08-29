@@ -42,6 +42,13 @@
 - 在当前 scope 内补 unknown + suspected；跨 scope 的 suspected 须经 macro
 - 整改：删冗余 junction、重复边（known 优先）；room 改 hub 直连
 
+## 手动刷新（拓扑整改）
+当输入含「【拓扑待整改】」时，这是玩家主动触发的整图修正轮（非单纯增量）：
+- **优先**消除孤立节点、断裂簇：结合「到达顺序参考」与【最近对话】补合理连边
+- 同 scope：meso↔micro、楼层竖向/邻接；跨 scope：经 macro 枢纽，禁止 room 跨区直连
+- 合并重复 hub、删冗余 junction；known 优先于 suspected
+- 叙事/对话**无法推断**路径的节点可保留孤立，但应修正其余可推断部分
+
 ## 约束
 - 节点 ≤ 15：优先保留**当前 scope** 与 macro 通道；远端已访问 scope 可只保留入口节点
 - 新增须来自叙事/地图明确地名

@@ -11,7 +11,7 @@ _ACTION_BLOCKED_MARKERS = (
     "当前无法结束回合",
     "动作资源不足",
 )
-_ATTACK_FAILED_MARKERS = ("→ 未命中", "找不到存活的敌人")
+_ATTACK_FAILED_MARKERS = ("→ 未命中", "找不到存活的敌人", "无法攻击", "超出射程", "射程不足")
 
 
 def mechanical_events_include_combat_block(events: list[str]) -> bool:
@@ -47,5 +47,5 @@ def format_combat_constraints_for_kp(
             lines.append("- 若系统已记录「免费物件互动：拾取 xxx」，KP 可写拾取过程；物品入库在叙事后由系统结算。")
             lines.append("- 若未出现拾取动作额度记录，不得写已成功捡起该物品。")
     if attack_failed:
-        lines.append("- 攻击未命中或未执行时，不得写目标已被该次攻击击倒/重创。")
+        lines.append("- 攻击未命中、未执行或超出射程时，不得写目标已被该次攻击击倒/重创。")
     return "\n".join(lines)

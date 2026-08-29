@@ -1,3 +1,5 @@
+import re
+
 import streamlit as st
 
 from game.kp_directive import is_kp_directive, is_kp_meta_response
@@ -9,6 +11,7 @@ _KP_USER_AVATAR = "🎙️"
 _KP_META_AVATAR = "🎙️"
 _STORY_KP_AVATAR = "🎲"
 _SYSTEM_AVATAR = "⚙️"
+_TAG_LINE_RE = re.compile(r"^\[([^\]]+)\]\s*(.*)$", re.DOTALL)
 
 
 def queue_auto_send_prompt(text: str) -> None:
@@ -19,22 +22,32 @@ def _system_caption(content: str) -> str:
     return compact_system_events([content]).caption
 
 
+def _format_tagged_markdown(line: str) -> str:
+    match = _TAG_LINE_RE.match(line.strip())
+    if not match:
+        return line
+    tag, body = match.group(1), match.group(2).strip()
+    if not body:
+        return f"**[{tag}]**"
+    return f"**[{tag}]** {body}"
+
+
 def _render_compact_system_view(view: CompactSystemView) -> None:
     if not view.highlights and not view.summary and not view.details:
         return
     with st.chat_message("assistant", avatar=_SYSTEM_AVATAR):
         st.caption(view.caption)
         for line in view.highlights:
-            st.markdown(line)
+            st.markdown(_format_tagged_markdown(line))
         if view.summary:
             st.markdown(f"*{view.summary}*")
         if view.details and not view.show_expander:
             for line in view.details:
-                st.markdown(f"- {line}")
+                st.markdown(f"- {_format_tagged_markdown(line)}")
         if view.show_expander and view.details:
             with st.expander(view.expander_label, expanded=False):
                 for line in view.details:
-                    st.markdown(f"- {line}")
+                    st.markdown(f"- {_format_tagged_markdown(line)}")
 
 
 def render_system_message(content: str) -> None:

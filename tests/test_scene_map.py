@@ -10,6 +10,8 @@ from game.scene_map import (
     build_skeleton_graph,
     ensure_travel_edge,
     format_map_context,
+    format_topology_correction_hints,
+    format_visit_order_hints,
     group_visited_by_scope,
     record_scene_visit,
     scene_scope,
@@ -479,3 +481,55 @@ def test_apply_map_update_replaces_graph():
     assert node_ids == {"tavern", "dock", "lighthouse"}
     assert "obsolete" not in node_ids
     assert not any(edge.target == "obsolete" for edge in state.world_map_graph.edges)
+
+
+def test_format_topology_correction_hints_lists_isolated_nodes():
+    graph = WorldMapGraph(
+        nodes=[
+            MapNode(id="b8-hall", label="B8走廊", status="current"),
+            MapNode(id="b8-room", label="B8设备间", status="visited"),
+            MapNode(id="b2-room", label="B2设备间", status="visited"),
+        ],
+        edges=[MapEdge(source="b8-hall", target="b8-room", kind="known")],
+    )
+    hints = format_topology_correction_hints(graph, "b8-room")
+    joined = "\n".join(hints)
+    assert "孤立节点" in joined
+    assert "b2-room" in joined
+    assert "2 个互不连通" in joined
+
+
+def test_format_map_context_includes_reconcile_section():
+    state = GameState(
+        scene_id="b8-room",
+        current_scene="B8设备间",
+        visited_scenes=[
+            SceneRecord(scene_id="basement", scene_name="地下室", first_seen_turn=1),
+            SceneRecord(scene_id="b8-hall", scene_name="B8走廊", first_seen_turn=3),
+            SceneRecord(scene_id="b8-room", scene_name="B8设备间", first_seen_turn=4),
+        ],
+        world_map_graph=WorldMapGraph(
+            nodes=[
+                MapNode(id="basement", label="地下室", status="visited"),
+                MapNode(id="b8-hall", label="B8走廊", status="visited"),
+                MapNode(id="b8-room", label="B8设备间", status="current"),
+            ],
+            edges=[MapEdge(source="b8-hall", target="b8-room", kind="known")],
+        ),
+    )
+    context = format_map_context(state, _sample_scenario(), reconcile=True)
+    assert "【拓扑待整改】" in context
+    assert "到达顺序参考" in context
+    assert "basement" in context
+
+
+def test_format_visit_order_hints():
+    state = GameState(
+        visited_scenes=[
+            SceneRecord(scene_id="a", scene_name="A", first_seen_turn=1),
+            SceneRecord(scene_id="b", scene_name="B", first_seen_turn=2),
+        ]
+    )
+    lines = format_visit_order_hints(state)
+    assert len(lines) == 1
+    assert "A（a） → B（b）" in lines[0]

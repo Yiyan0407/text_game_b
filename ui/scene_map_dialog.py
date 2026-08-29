@@ -19,7 +19,7 @@ def _refresh_map(game_state: GameState, scenario: Scenario) -> bool:
         st.warning("无法刷新：游戏编排器未就绪。")
         return False
     history = list(st.session_state.get("messages") or [])
-    with st.spinner("AI 正在更新场景地图……"):
+    with st.spinner("AI 正在整理地图拓扑……"):
         updated = orchestrator.refresh_scene_map(game_state, scenario, history)
     if updated:
         from game.session import persist_save
