@@ -958,6 +958,9 @@ class GameOrchestrator:
                     route.dc,
                     proficiency_bonus=route.proficiency_bonus,
                     skill_bonus=skill_bonus_for_route(character, route),
+                    action_cost=route.action_cost
+                    if route.action_cost in ("main", "bonus")
+                    else "main",
                 )
             ],
             "grapple": lambda: [

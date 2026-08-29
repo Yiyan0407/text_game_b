@@ -21,6 +21,30 @@ def _payment_sufficient(character: Character, payment: str, quantity: int) -> bo
     return character.has_sufficient_inventory(payment, quantity)
 
 
+_DEESCALATION_TALK_MARKERS = (
+    "收刀",
+    "不再攻击",
+    "停止攻击",
+    "放下武器",
+    "缴械",
+    "威慑",
+    "投降",
+    "举起",
+    "退后",
+    "住手",
+    "别动",
+)
+
+
+def _is_deescalation_talk(user_input: str, route: ActionRouteResult) -> bool:
+    if route.combat_action != "talk":
+        return False
+    text = " ".join(
+        part for part in (user_input, route.action_intent) if part and part.strip()
+    )
+    return any(marker in text for marker in _DEESCALATION_TALK_MARKERS)
+
+
 def _pickup_covers_attack_weapon(character: Character, route: ActionRouteResult) -> bool:
     if route.item_usage != "pickup" or route.combat_action != "attack":
         return False
@@ -469,6 +493,14 @@ class ActionRouter:
                     route.approved = False
                     route.rejection_reason = "本回合移动力已用尽。"
                     return route
+                if (
+                    route.combat_action == "talk"
+                    and _is_deescalation_talk(user_input, route)
+                    and combat.has_bonus_action()
+                ):
+                    route.action_cost = "bonus"
+                elif route.combat_action == "talk" and route.action_cost not in ("main", "bonus"):
+                    route.action_cost = "main"
                 if route.action_cost == "main" and not combat.has_main_action():
                     route.approved = False
                     route.rejection_reason = (

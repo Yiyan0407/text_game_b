@@ -150,7 +150,7 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 | defend | 防御 AC+2 | false |
 | flee | 撤退（消耗主要动作；失败仍可继续本回合） | false（系统掷骰） |
 | interact | 推物体、打翻掩体、拉杠杆等场景互动 | true，ability + **你裁定的 dc** |
-| talk | 威胁/说服敌人，attack_target 可为 NPC 名 | true，cha + **你裁定的 dc** |
+| talk | 威胁/说服敌人，attack_target 必填；**主动攻击后的收刀/威慑/缴械** → 见下方附加动作 | true，cha + **你裁定的 dc** |
 | grapple | 擒抱敌人，attack_target 必填 | true，str + **你裁定的 dc**（可参考敌人 AC/体型） |
 | shove | 推撞敌人，attack_target 必填 | true，str + **你裁定的 dc** |
 | help | 协助他人，attack_target 可选 | false |
@@ -160,6 +160,7 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 
 ### 可以批准 — 附加动作（action_cost=bonus）
 | use_item | 使用消耗品（药水、手雷、符箓等；`item_usage=use` 会自动映射）；**对敌伤害类须填 attack_target** | false |
+| talk | 收刀、威慑、要求投降（**action_cost=bonus**，可与本回合攻击连用） | true，cha + dc |
 
 ### 可以批准 — 免费物件互动（action_cost=free）
 | pickup | 拾取眼前物品（见上） | false |

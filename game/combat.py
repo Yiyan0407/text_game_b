@@ -643,11 +643,13 @@ def resolve_talk(
     *,
     proficiency_bonus: bool = False,
     skill_bonus: int = 0,
+    action_cost: str = "main",
 ) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
         return "还没轮到你行动。"
-    err = spend_action_or_error(combat, "main")
+    cost = action_cost if action_cost in ("main", "bonus") else "main"
+    err = spend_action_or_error(combat, cost)
     if err:
         return err
     label = f"对 {target} 交涉" if target else "战斗交涉"

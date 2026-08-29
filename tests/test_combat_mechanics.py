@@ -100,6 +100,70 @@ def test_validate_rejects_pickup_and_attack_when_main_exhausted():
     assert "主要动作已用尽" in result.rejection_reason
 
 
+def test_validate_allows_deescalation_talk_as_bonus_after_attack():
+    route = _approved_route(
+        mode="combat",
+        combat_action="talk",
+        attack_target="安保支援人员",
+        action_cost="main",
+        action_intent="收刀威慑，要求放下武器",
+        needs_roll=True,
+        roll_type="ability_check",
+        ability="cha",
+        dc=14,
+    )
+    character = Character(name="测试", cha=14)
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[
+            CombatEnemy(name="安保支援人员", hp=4, max_hp=12, ac=12),
+            CombatEnemy(name="同伴", hp=12, max_hp=12, ac=12),
+        ],
+        turn_order=["player"],
+        turn_index=0,
+        action_used=True,
+    )
+    result = ActionRouter.validate(
+        route,
+        character,
+        game_state,
+        user_input="收刀，不再攻击。我对另一个举切割器：放下武器，否则下一个是你。",
+    )
+    assert result.approved is True
+    assert result.action_cost == "bonus"
+
+
+def test_validate_rejects_talk_when_both_actions_exhausted():
+    route = _approved_route(
+        mode="combat",
+        combat_action="talk",
+        attack_target="安保支援人员",
+        action_cost="main",
+        action_intent="收刀威慑",
+    )
+    character = Character(name="测试")
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="安保支援人员", hp=4, max_hp=12, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+        action_used=True,
+        bonus_action_used=True,
+    )
+    result = ActionRouter.validate(
+        route,
+        character,
+        game_state,
+        user_input="收刀，不再攻击，放下武器。",
+    )
+    assert result.approved is False
+    assert "结束回合" in result.rejection_reason
+
+
 def test_combat_constraints_for_blocked_attack():
     route = _approved_route(action_intent="射击瘦高个", scope_stop="仍与光头对峙")
     text = format_combat_constraints_for_kp(
