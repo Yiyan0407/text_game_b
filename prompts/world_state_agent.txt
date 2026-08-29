@@ -51,7 +51,8 @@
 - 玩家启动**后台下载/更新/安装**且叙事或【玩家行动】给出预计耗时时登记
 - 字段：`label`（如「CyberBreacher v4.7.3 更新」）、`duration_minutes`（预计分钟数）、`result_fact`（完成时写入 memory_facts）、`blocks_actions`（完成前受限能力，如「入侵」）
 - 故事时钟到达 `started_at + duration` 后系统自动标记完成；**KP 勿再写进度条或「尚不可用」**
-- 若 memory_facts 已写「更新已完成」，**禁止**再登记 running 进程
+  - 若 memory_facts 已写「更新已完成」，**禁止**再登记 running 进程
+  - 同一模块仅登记一次（如 CyberBreacher v4.7.2 与 v4.7.3 视为同一黑客模块，勿重复 add）
 
 ### scene
 - 玩家明确进入新地点时；**战斗中禁止** scene 变更

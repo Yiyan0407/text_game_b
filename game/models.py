@@ -477,6 +477,7 @@ class CombatEnemy(BaseModel):
     sp: int = Field(default=0, ge=0)
     sp_max: int = Field(default=0, ge=0)
     start_distance_m: int = 10
+    surrendered: bool = False
 
     @model_validator(mode="after")
     def _sync_attack_damage(self) -> Self:
@@ -488,6 +489,13 @@ class CombatEnemy(BaseModel):
 
     def effective_attack_damage(self) -> str:
         return (self.attack_damage or self.damage_notation or "1d6").strip()
+
+    def can_act(self) -> bool:
+        if self.hp <= 0 or self.surrendered:
+            return False
+        if self.hp <= max(1, self.max_hp // 3):
+            return False
+        return True
 
 
 class CombatState(BaseModel):
@@ -613,6 +621,10 @@ class CombatState(BaseModel):
         for enemy in self.enemies:
             if enemy.hp <= 0:
                 status = "已倒"
+            elif enemy.surrendered:
+                status = "已投降"
+            elif not enemy.can_act():
+                status = f"失能（HP {enemy.hp}/{enemy.max_hp}）"
             else:
                 dist = self.enemy_distances.get(enemy.name)
                 dist_text = f" · {dist}m" if dist is not None else ""
@@ -622,6 +634,9 @@ class CombatState(BaseModel):
 
     def living_enemies(self) -> list[CombatEnemy]:
         return [e for e in self.enemies if e.hp > 0]
+
+    def fighting_enemies(self) -> list[CombatEnemy]:
+        return [e for e in self.enemies if e.can_act()]
 
     def get_enemy(self, name: str) -> CombatEnemy | None:
         for enemy in self.enemies:

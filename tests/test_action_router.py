@@ -374,7 +374,7 @@ def test_orchestrator_combat_attack_does_not_advance_until_actions_spent(mock_se
     game_state.combat = CombatState(
         active=True,
         round=1,
-        enemies=[CombatEnemy(name="哥布林", hp=10, max_hp=10, ac=5, attack_bonus=-5, start_distance_m=2)],
+        enemies=[CombatEnemy(name="哥布林", hp=50, max_hp=50, ac=15, attack_bonus=-5, start_distance_m=2)],
         turn_order=["player", "哥布林"],
         turn_index=0,
         enemy_distances={"哥布林": 2},

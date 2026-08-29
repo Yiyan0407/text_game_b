@@ -279,6 +279,10 @@ def _resolve_enemy_turn(
     enemy = combat.get_enemy(actor)
     if not enemy or enemy.hp <= 0:
         return f"{actor} 已倒下，跳过回合。"
+    if enemy.surrendered:
+        return f"{enemy.name} 已投降，跳过回合。"
+    if not enemy.can_act():
+        return f"{enemy.name} 已失能，跳过回合。"
     approach = _enemy_approach(combat, enemy)
     attack = enemy_attack(
         enemy, character, defending=combat.defending, game_state=game_state
@@ -308,7 +312,7 @@ def resolve_until_player_turn(character: Character, game_state: GameState) -> li
         combat.advance_turn()
         if combat.turn_index == start_index:
             break
-        if not combat.living_enemies():
+        if not combat.fighting_enemies():
             break
         if character.hp <= 0:
             break
@@ -328,7 +332,7 @@ def advance_after_player_action(character: Character, game_state: GameState) -> 
     for _ in range(len(combat.turn_order)):
         if combat.is_player_turn():
             break
-        if not combat.living_enemies():
+        if not combat.fighting_enemies():
             break
         if character.hp <= 0:
             break
@@ -527,7 +531,7 @@ def maybe_end_combat(game_state: GameState, character: Character) -> tuple[str |
         end_combat(game_state)
         return "你已倒下，战斗结束。", True
 
-    if not combat.living_enemies():
+    if not combat.fighting_enemies():
         msg = end_combat(game_state)
         return msg, False
 
@@ -566,6 +570,28 @@ def end_player_turn(character: Character, game_state: GameState) -> list[str]:
     if not combat or not combat.active or not combat.is_player_turn():
         return ["当前无法结束回合。"]
     return advance_after_player_action(character, game_state)
+
+
+_DEESCALATION_TALK_MARKERS = (
+    "收刀",
+    "不再攻击",
+    "停止攻击",
+    "放下武器",
+    "缴械",
+    "威慑",
+    "投降",
+    "举起",
+    "退后",
+    "住手",
+    "别动",
+)
+
+
+def _is_deescalation_intent(text: str) -> bool:
+    cleaned = text.strip()
+    if not cleaned:
+        return False
+    return any(marker in cleaned for marker in _DEESCALATION_TALK_MARKERS)
 
 
 def resolve_combat_ability_check(
@@ -644,6 +670,7 @@ def resolve_talk(
     proficiency_bonus: bool = False,
     skill_bonus: int = 0,
     action_cost: str = "main",
+    action_intent: str = "",
 ) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
@@ -653,6 +680,7 @@ def resolve_talk(
     if err:
         return err
     label = f"对 {target} 交涉" if target else "战斗交涉"
+    from game.combat_modifiers import player_check_bonus
     from game.difficulty import ensure_ability_check_dc
     from game.results import ActionRouteResult
 
@@ -667,15 +695,29 @@ def resolve_talk(
         proficiency_bonus=proficiency_bonus,
     )
     ensure_ability_check_dc(route, user_input=label)
-    return resolve_combat_ability_check(
+    situational = player_check_bonus(combat, "cha")
+    result = ability_check(
         character,
         "cha",
         route.dc,
-        label,
-        game_state=game_state,
         proficiency_bonus=proficiency_bonus,
         skill_bonus=skill_bonus,
+        situational_bonus=situational,
     )
+    outcome = "成功" if result.success else "失败"
+    lines = [f"{label}：{format_check_for_kp(result, character)} → {outcome}"]
+
+    deescalation = _is_deescalation_intent(action_intent)
+    if result.success and deescalation and target.strip():
+        enemy = combat.get_enemy(target)
+        if enemy and enemy.hp > 0:
+            enemy.surrendered = True
+            lines.append(f"🏳️ {enemy.name} 已投降，停止交战。")
+
+    if not combat.fighting_enemies():
+        lines.append(end_combat(game_state))
+
+    return "\n".join(lines)
 
 
 def resolve_grapple(

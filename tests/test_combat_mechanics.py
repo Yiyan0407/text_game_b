@@ -1,4 +1,4 @@
-from game.combat import player_attack, resolve_pickup_in_combat, start_combat
+from game.combat import end_combat, maybe_end_combat, player_attack, resolve_pickup_in_combat, resolve_talk, start_combat
 from game.combat_constraints import format_combat_constraints_for_kp
 from game.models import Character, CombatEnemy, CombatState, GameState
 from game.results import ActionRouteResult
@@ -606,3 +606,68 @@ def test_combat_use_item_cost_free_from_effects_gear_slot():
         ],
     )
     assert combat_use_item_cost(character, "多功能装置") == "free"
+
+
+def test_successful_deescalation_talk_ends_combat_without_enemy_attack(monkeypatch):
+    from game.models import DiceRoll
+    from game.results import AbilityCheckResult
+
+    def _success_check(*args, **kwargs):
+        return AbilityCheckResult(
+            ability="cha",
+            dc=14,
+            roll=DiceRoll(notation="1d20", rolls=[17], modifier=3, total=20),
+            check_total=20,
+            success=True,
+        )
+
+    monkeypatch.setattr("game.combat.ability_check", _success_check)
+
+    character = Character(name="测试", cha=16)
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=2,
+        enemies=[
+            CombatEnemy(name="领头安保", hp=4, max_hp=12, ac=12, attack_bonus=3),
+            CombatEnemy(name="同伴", hp=12, max_hp=12, ac=12, attack_bonus=3),
+        ],
+        turn_order=["player", "同伴", "领头安保"],
+        turn_index=0,
+        action_used=True,
+    )
+    result = resolve_talk(
+        character,
+        state,
+        "同伴",
+        dc=14,
+        action_cost="bonus",
+        action_intent="收刀，不再攻击，放下武器否则下一个是你",
+    )
+    assert "成功" in result
+    assert "已投降" in result
+    assert "战斗结束" in result
+    assert not state.is_in_combat()
+
+
+def test_incapacitated_enemy_cannot_act():
+    enemy = CombatEnemy(name="领头", hp=4, max_hp=12, ac=12)
+    assert enemy.can_act() is False
+
+
+def test_maybe_end_combat_when_only_incapacitated_or_surrendered_remain():
+    character = Character(name="测试")
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[
+            CombatEnemy(name="领头", hp=4, max_hp=12, ac=12, surrendered=False),
+            CombatEnemy(name="同伴", hp=12, max_hp=12, ac=12, surrendered=True),
+        ],
+        turn_order=["player"],
+        turn_index=0,
+    )
+    msg, defeated = maybe_end_combat(state, character)
+    assert msg is not None
+    assert not state.is_in_combat()

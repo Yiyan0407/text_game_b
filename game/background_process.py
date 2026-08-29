@@ -15,6 +15,26 @@ _DURATION_RE = re.compile(
     r"预计(?:用时|还需)?\s*(?P<count>\d+)\s*(?P<unit>分钟|分|min|小时|h)",
     re.IGNORECASE,
 )
+_VERSION_RE = re.compile(r"\s*v?\d+(?:\.\d+)*", re.IGNORECASE)
+
+
+def _normalize_process_key(label: str) -> str:
+    return _VERSION_RE.sub("", label.strip()).casefold()
+
+
+def _process_already_completed(game_state: GameState, label: str) -> bool:
+    key = _normalize_process_key(label).replace(" ", "")
+    if not key:
+        return False
+    for process in game_state.background_processes:
+        if process.status == "completed" and _normalize_process_key(process.label).replace(" ", "") == key:
+            return True
+    for fact in game_state.memory_facts:
+        if "已完成" not in fact:
+            continue
+        if key in _normalize_process_key(fact).replace(" ", ""):
+            return True
+    return False
 
 
 def _ensure_process_id(label: str, proposed: str, existing_ids: set[str]) -> str:
@@ -44,12 +64,15 @@ def register_background_process(
     label = patch.label.strip()
     if not label:
         return []
+    if _process_already_completed(game_state, label):
+        return []
 
-    existing_ids = {item.id for item in game_state.background_processes}
+    process_key = _normalize_process_key(label)
     for process in game_state.background_processes:
-        if process.status == "running" and process.label == label:
+        if process.status == "running" and _normalize_process_key(process.label) == process_key:
             return []
 
+    existing_ids = {item.id for item in game_state.background_processes}
     process_id = _ensure_process_id(label, patch.id, existing_ids)
     duration = max(1, int(patch.duration_minutes or 1))
     started_at = game_state.elapsed_minutes
@@ -65,7 +88,7 @@ def register_background_process(
         )
     )
     return [
-        f"⏳ 后台启动：{label}（预计 {duration} 分，约第{format_clock_day(started_at + duration, game_state)}完成）"
+        f"⏳ 后台启动：{label}（预计 {duration} 分，约 {format_clock_day(started_at + duration, game_state)} 完成）"
     ]
 
 
@@ -89,6 +112,11 @@ def infer_background_process_from_facts(game_state: GameState) -> list[str]:
     """从「正在更新 + 预计 N 分钟」类 memory_facts 补登记（兜底）。"""
     events: list[str] = []
     corpus = "\n".join(game_state.memory_facts)
+    seen_keys: set[str] = {
+        _normalize_process_key(process.label)
+        for process in game_state.background_processes
+        if process.status == "running"
+    }
     for fact in game_state.memory_facts:
         if any(token in fact for token in ("已完成", "更新已完成", "下载已完成")):
             continue
@@ -96,13 +124,12 @@ def infer_background_process_from_facts(game_state: GameState) -> list[str]:
         if not match:
             continue
         label = match.group("label").strip()
-        if not label:
+        if not label or _process_already_completed(game_state, label):
             continue
-        if any(
-            process.status == "running" and process.label == label
-            for process in game_state.background_processes
-        ):
+        process_key = _normalize_process_key(label)
+        if process_key in seen_keys:
             continue
+        seen_keys.add(process_key)
         duration_match = _DURATION_RE.search(corpus) or _DURATION_RE.search(fact)
         duration = 4
         if duration_match:

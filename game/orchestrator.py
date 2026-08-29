@@ -961,6 +961,7 @@ class GameOrchestrator:
                     action_cost=route.action_cost
                     if route.action_cost in ("main", "bonus")
                     else "main",
+                    action_intent=route.action_intent,
                 )
             ],
             "grapple": lambda: [

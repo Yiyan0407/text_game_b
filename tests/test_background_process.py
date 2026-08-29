@@ -73,3 +73,31 @@ def test_infer_background_process_from_memory_facts():
     events = infer_background_process_from_facts(state)
     assert events
     assert state.background_processes[0].duration_minutes == 4
+
+
+def test_infer_skips_duplicate_cyberbreacher_versions():
+    state = GameState(elapsed_minutes=12)
+    state.add_memory_facts(
+        [
+            "黑客模块CyberBreacher v4.7.2正在更新中",
+            "黑客模块CyberBreacher v4.7.3正在更新中",
+        ],
+        max_facts=50,
+    )
+    events = infer_background_process_from_facts(state)
+    assert len(state.background_processes) == 1
+    assert len(events) == 1
+
+
+def test_register_skips_when_memory_fact_says_completed():
+    state = GameState()
+    state.add_memory_facts(
+        ["黑客模块CyberBreacher v4.7.3更新已完成，可随时入侵门禁系统"],
+        max_facts=50,
+    )
+    events = register_background_process(
+        state,
+        BackgroundProcessPatch(label="CyberBreacher v4.7.3 更新", duration_minutes=4),
+    )
+    assert events == []
+    assert not state.background_processes
