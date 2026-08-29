@@ -54,8 +54,9 @@ def _pickup_covers_attack_weapon(character: Character, route: ActionRouteResult)
     weapon = resolve_weapon_profile(character, route)
     if weapon.label == "徒手" or weapon.label.startswith("徒手（"):
         return True
+    weapon_ref = weapon.item_name or weapon.label.split("（", 1)[0].strip()
     for ref in refs:
-        if ref == weapon.label or ref in weapon.label or weapon.label in ref:
+        if ref == weapon_ref or ref == weapon.label or ref in weapon.label or weapon.label in ref:
             return True
     return False
 

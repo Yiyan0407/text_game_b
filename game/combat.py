@@ -469,11 +469,16 @@ def player_attack(
     raw_damage = max(0, raw_damage)
     dmg_result = apply_damage_to_enemy(enemy, raw_damage)
     sp_note = ""
-    if dmg_result.effective_sp > 0:
+    if dmg_result.effective_sp > 0 or dmg_result.sp_before > 0:
         if dmg_result.fully_blocked:
             sp_note = f" · 敌人 SP{dmg_result.effective_sp} 完全阻挡"
         elif dmg_result.hp_loss < raw_damage:
-            sp_note = f" · 敌人 SP{dmg_result.effective_sp} 阻挡 {raw_damage - dmg_result.hp_loss} 点"
+            sp_note = (
+                f" · 敌人 SP{dmg_result.effective_sp} 阻挡 "
+                f"{raw_damage - dmg_result.hp_loss} 点"
+            )
+        if dmg_result.sp_after < dmg_result.sp_before:
+            sp_note += f" · SP {dmg_result.sp_before}→{dmg_result.sp_after}"
     result = (
         f"{prefix}攻击 {enemy.name}（{weapon.label}，{distance}m{range_suffix}）：命中！"
         f"伤害 {damage_roll.describe()}{mod:+d} = {raw_damage}。"

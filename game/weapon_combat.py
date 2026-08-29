@@ -19,6 +19,12 @@ class WeaponProfile:
     use_dex: bool
     damage_notation: str
     attack_bonus: int = 0
+    item_name: str = ""
+
+
+def _combine_damage_notation(base: str, extra: str) -> str:
+    parts = [part.strip() for part in (base, extra) if part.strip()]
+    return "+".join(parts)
 
 
 def _resolve_active_skill(
@@ -59,6 +65,7 @@ def _profile_from_skill(skill: Skill) -> WeaponProfile:
         use_dex=effects.use_dex,
         damage_notation=effects.attack_damage.strip(),
         attack_bonus=bonus,
+        item_name="",
     )
 
 
@@ -85,6 +92,7 @@ def _profile_from_item(character: Character, item_name: str) -> WeaponProfile | 
             use_dex=effects.use_dex,
             damage_notation=effects.attack_damage.strip(),
             attack_bonus=effects.attack_bonus,
+            item_name=item.name,
         )
     return None
 
@@ -115,6 +123,38 @@ def _equipped_weapon(
     return None
 
 
+def _stack_active_martial_skill(
+    character: Character,
+    route: ActionRouteResult | None,
+    profile: WeaponProfile,
+    *,
+    user_input: str = "",
+) -> WeaponProfile:
+    """攻击时主动施展武学/神通：武器伤害与技能伤害骰叠加。"""
+    if route is None or route.skill_usage != "use":
+        return profile
+    if _is_unarmed_profile(profile):
+        return profile
+
+    skill = _resolve_active_skill(character, route, user_input=user_input)
+    if skill is None or not skill.effects or not skill.effects.attack_damage.strip():
+        return profile
+
+    effects = skill.effects
+    skill_bonus = effects.attack_bonus if effects.attack_bonus else 2
+    weapon_label = profile.item_name or profile.label.split("（", 1)[0].strip()
+    return WeaponProfile(
+        label=f"{weapon_label}（{skill.name}）",
+        use_dex=profile.use_dex or effects.use_dex,
+        damage_notation=_combine_damage_notation(
+            profile.damage_notation,
+            effects.attack_damage.strip(),
+        ),
+        attack_bonus=profile.attack_bonus + skill_bonus,
+        item_name=profile.item_name or weapon_label,
+    )
+
+
 def _referenced_weapon(character: Character, route: ActionRouteResult | None) -> WeaponProfile | None:
     if route is None:
         return None
@@ -140,7 +180,10 @@ def resolve_weapon_profile(
     ):
         profile = resolver()
         if profile is not None:
-            return _apply_skill_bonus(character, profile)
+            profile = _apply_skill_bonus(character, profile)
+            return _stack_active_martial_skill(
+                character, route, profile, user_input=user_input
+            )
     return _unarmed_profile(character, route, user_input=user_input)
 
 
@@ -154,25 +197,38 @@ def _inventory_weapon(character: Character) -> WeaponProfile | None:
     return None
 
 
+def _weapon_item_name(profile: WeaponProfile) -> str:
+    if profile.item_name:
+        return profile.item_name
+    if _is_unarmed_profile(profile):
+        return ""
+    return profile.label.split("（", 1)[0].strip()
+
+
 def _apply_skill_bonus(character: Character, profile: WeaponProfile) -> WeaponProfile:
     if profile.attack_bonus > 0:
         return profile
+    weapon_name = _weapon_item_name(profile)
     for skill in character.skills:
         skill_name = skill.name
-        if fuzzy_match_name(profile.label, skill_name) or fuzzy_match_name(skill_name, profile.label):
+        if fuzzy_match_name(weapon_name, skill_name) or fuzzy_match_name(skill_name, weapon_name):
             return WeaponProfile(
                 label=profile.label,
                 use_dex=profile.use_dex,
                 damage_notation=profile.damage_notation,
                 attack_bonus=2,
+                item_name=profile.item_name,
             )
     return profile
 
 
 def ensure_weapon_ready(character: Character, profile: WeaponProfile) -> None:
-    if profile.label == "徒手" or profile.label.startswith("徒手（"):
+    if _is_unarmed_profile(profile):
         return
-    item = character.find_inventory_item(profile.label)
+    item_name = _weapon_item_name(profile)
+    if not item_name:
+        return
+    item = character.find_inventory_item(item_name)
     if item is None:
         return
     if character.is_item_equipped(item.name):
@@ -188,7 +244,10 @@ def _is_unarmed_profile(profile: WeaponProfile) -> bool:
 def weapon_is_active(character: Character, profile: WeaponProfile) -> bool:
     if _is_unarmed_profile(profile):
         return True
-    item = character.find_inventory_item(profile.label)
+    item_name = _weapon_item_name(profile)
+    if not item_name:
+        return False
+    item = character.find_inventory_item(item_name)
     if item is None:
         return False
     return character.is_item_equipped(item.name)
@@ -199,7 +258,8 @@ def weapon_needs_draw(character: Character, profile: WeaponProfile) -> bool:
         return False
     if weapon_is_active(character, profile):
         return False
-    return character.has_inventory_item(profile.label)
+    item_name = _weapon_item_name(profile)
+    return bool(item_name) and character.has_inventory_item(item_name)
 
 
 def draw_weapon_for_attack(
@@ -212,13 +272,14 @@ def draw_weapon_for_attack(
         ensure_weapon_ready(character, profile)
         return True, ""
 
-    item = character.find_inventory_item(profile.label)
+    item_name = _weapon_item_name(profile)
+    item = character.find_inventory_item(item_name) if item_name else None
     if item is None:
-        return False, f"你没有携带 {profile.label}，无法用于攻击。"
+        return False, f"你没有携带 {item_name or profile.label}，无法用于攻击。"
 
     if combat is None or not combat.has_free_interact():
         return False, (
-            f"本回合免费物件互动已用尽，无法将 {profile.label} 拿到手上。"
+            f"本回合免费物件互动已用尽，无法将 {item.name} 拿到手上。"
             "可先拾取并装备到手持，或下回合再行动。"
         )
 

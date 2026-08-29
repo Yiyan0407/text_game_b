@@ -1,6 +1,8 @@
+from unittest.mock import patch
+
 from game.combat import end_combat, maybe_end_combat, player_attack, resolve_pickup_in_combat, resolve_talk, start_combat
 from game.combat_constraints import format_combat_constraints_for_kp
-from game.models import Character, CombatEnemy, CombatState, GameState
+from game.models import Character, CombatEnemy, CombatState, DiceRoll, GameState
 from game.results import ActionRouteResult
 from game.state_patch import apply_state_patch, patch_from_dict
 from game.weapon_combat import resolve_weapon_profile
@@ -28,6 +30,56 @@ def test_resolve_weapon_profile_firearm_vs_unarmed():
     assert fist.label == "徒手"
     assert fist.damage_notation == "1d4"
     assert fist.attack_bonus == 0
+
+
+def test_resolve_weapon_profile_stacks_skill_with_equipped_weapon():
+    martial = Character(
+        name="测试",
+        inventory=[forged_weapon("凡剑", "1d6")],
+        skills=[forged_martial_skill("裂气斩", "2d10")],
+    )
+    martial.equip_item("凡剑", slot="hand")
+    route = _approved_route(
+        skill_usage="use",
+        referenced_skills=["裂气斩"],
+        action_intent="凡剑引气，裂气斩",
+    )
+    profile = resolve_weapon_profile(martial, route)
+    assert profile.label == "凡剑（裂气斩）"
+    assert profile.damage_notation == "1d6+2d10"
+    assert profile.attack_bonus == 2
+    assert profile.item_name == "凡剑"
+
+
+def test_player_attack_stacks_weapon_and_skill_damage():
+    character = Character(
+        name="测试",
+        strength=16,
+        inventory=[forged_weapon("凡剑", "1d6")],
+        skills=[forged_martial_skill("裂气斩", "2d10")],
+    )
+    character.equip_item("凡剑", slot="hand")
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="靶子", hp=200, max_hp=200, ac=5, attack_bonus=0, sp=0)],
+        turn_order=["player", "靶子"],
+        turn_index=0,
+        enemy_distances={"靶子": 2},
+    )
+    route = _approved_route(
+        combat_action="attack",
+        attack_target="靶子",
+        skill_usage="use",
+        referenced_skills=["裂气斩"],
+        action_intent="凡剑裂气斩",
+    )
+    with patch("game.combat.roll", return_value=DiceRoll(notation="1d20+3", rolls=[15], modifier=3, total=18)):
+        with patch("game.combat.roll_damage", return_value=DiceRoll(notation="1d6+2d10", rolls=[3, 8, 9], modifier=0, total=20)):
+            result = player_attack(character, state, "靶子", route=route)
+    assert "凡剑（裂气斩）" in result
+    assert state.combat.enemies[0].hp == 200 - (20 + 3)
 
 
 def test_resolve_weapon_profile_martial_unarmed():
@@ -180,6 +232,18 @@ def test_combat_constraints_for_out_of_range_attack():
     )
     assert "超出射程" in text
     assert "不得" in text
+
+
+def test_damage_constraints_for_successful_attack():
+    text = format_combat_constraints_for_kp(
+        [
+            "攻击 路人（凡剑（裂气斩），2m）：命中！伤害 2d8+1d6 = 18。路人 剩余 HP 0/6 路人 被击倒！"
+        ],
+        None,
+    )
+    assert "伤害约束" in text
+    assert "禁止编造" in text
+    assert "凡剑（裂气斩）" in text
 
 
 def test_state_patch_blocks_combat_pickup_without_mechanical_gain():

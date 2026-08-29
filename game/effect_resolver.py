@@ -133,18 +133,31 @@ def apply_incoming_damage(character: Character, raw_damage: int) -> DamageResult
     )
 
 
-def apply_damage_to_enemy(enemy: CombatEnemy, raw_damage: int) -> DamageResult:
-    """敌人 SP 仅减伤，不磨损（MVP）。"""
-    effective_sp = max(0, enemy.sp)
+def apply_damage_to_enemy(
+    enemy: CombatEnemy,
+    raw_damage: int,
+) -> DamageResult:
+    """敌人 SP 减伤；受击后 SP 可磨损。"""
+    sp_before = max(0, enemy.sp)
+    effective_sp = sp_before
     hp_loss = max(0, raw_damage - effective_sp)
     if hp_loss > 0:
         enemy.hp = max(0, enemy.hp - hp_loss)
+
+    sp_after = sp_before
+    if raw_damage > 0 and sp_before > 0:
+        if hp_loss > 0:
+            enemy.sp = max(0, sp_before - 1)
+        else:
+            chip = max(1, min(sp_before, raw_damage // 2))
+            enemy.sp = max(0, sp_before - chip)
+        sp_after = enemy.sp
 
     return DamageResult(
         raw_damage=raw_damage,
         effective_sp=effective_sp,
         hp_loss=hp_loss,
-        sp_before=effective_sp,
-        sp_after=effective_sp,
+        sp_before=sp_before,
+        sp_after=sp_after,
         fully_blocked=raw_damage > 0 and hp_loss == 0 and effective_sp > 0,
     )

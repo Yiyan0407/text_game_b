@@ -31,7 +31,8 @@ class StatForgeAgent:
                 ("system", system_prompt),
                 (
                     "human",
-                    "【世界观】\nworld_id={world_id}\n\n"
+                    "【世界观】\nworld_id={world_id}\n"
+                    "【模组】\n{scenario_context}\n\n"
                     "【角色背景】\n{background}\n\n"
                     "【待裁定实体】\n{targets_json}\n\n"
                     "请输出 JSON：",
@@ -62,6 +63,7 @@ class StatForgeAgent:
         response = await chain.ainvoke(
             {
                 "world_id": scenario.world_id or "modern",
+                "scenario_context": scenario.format_for_prompt(),
                 "background": character.background.strip() or "（无）",
                 "targets_json": json.dumps(targets_payload, ensure_ascii=False, indent=2),
             }

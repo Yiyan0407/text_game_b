@@ -115,20 +115,34 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 
 **已在战斗中（combat.active=true）** 的攻击 → `trigger_combat=false`，`combat_action=attack`，`attack_target`，`action_cost=main`
 
-**enemy_defs 示例**（按当前世界观给合理 damage 与 SP）：
+**enemy_defs（必填，按个体自由裁定）**：每个敌人须单独填写 `name, hp, ac, attack_damage, attack_bonus, sp, sp_max, start_distance_m`。
+
+**没有固定档位表。** 读玩家输入、KP 叙事、敌人名称与 implied 装备/护甲，像 DM 一样判断「这人/这东西有多硬、多能打」。同一 world_id 里，路边老农 ≠ 安保队长 ≠ 主战坦克 ≠ 高达。
+
+### 裁定思路（示例，可大幅超出）
+| 敌人（语义） | 参考 HP | AC | attack | SP | 要点 |
+|-------------|---------|-----|--------|-----|------|
+| 路边老农、平民 | 4–8 | 10–11 | 1d4 或徒手 | **0–1** | 无甲、几乎不挡伤害 |
+| 普通丧尸/保安 | 8–18 | 11–13 | 1d6–1d8 | 0–4 | 轻防护 |
+| 带甲壳变异体 | 24–40 | 13–16 | 2d6–2d8 | 8–18 | 生物硬壳 |
+| 安保队长/小 Boss | 45–70 | 15–17 | 2d8–2d10 | 20–40 | 重甲或义体 |
+| **主战坦克** | 80–120+ | 17–19 | 2d10–3d8 | **35–55** | 复合装甲；步兵武器难啃 |
+| **机动战士/高达** | 150–300+ | 18–20 | 3d8–4d10 | **50–90+** | 超合金/能量盾；须火箭筒级重火力 |
+| 实验体首领 | 80–150+ | 16–19 | 2d10–3d8 | 40–80+ | 按叙事定 |
+
+**SP 含义**：结构防护/装甲，减少每次命中的 HP 损失。无甲平民 0–1；载具/机甲必须高 SP。**匕首/警棍打不动高 SP 目标是正常结果**——玩家应逃跑或换更高 `use_damage` / `attack_damage` 的武器。
+
+**跨时代**：2070 特工打 2020 老农 → 老农 SP 0–1；若敌人是坦克/机甲，勿给杂兵数值。
+
 ```json
 "enemy_defs": [
-  {{"name": "保安", "hp": 12, "ac": 12, "attack_damage": "1d6", "sp": 0}},
-  {{"name": "战术组", "hp": 24, "ac": 14, "attack_damage": "2d8", "sp": 12}}
+  {{"name": "路边老农", "hp": 6, "ac": 10, "attack_damage": "1d4", "sp": 0, "start_distance_m": 3}},
+  {{"name": "T-90 主战坦克", "hp": 100, "ac": 18, "attack_damage": "3d8", "sp": 45, "start_distance_m": 40}},
+  {{"name": "RX-78 高达", "hp": 200, "ac": 19, "attack_damage": "4d10", "sp": 70, "start_distance_m": 30}}
 ]
 ```
-| world_id | 典型 attack_damage | 典型 sp |
-|----------|-------------------|---------|
-| modern | 1d6–1d10 | 0–6 |
-| cyberpunk | 2d8–2d10 | 8–15 |
-| xianxia | 1d8–2d8 | 4–10 |
 
-同世界观内敌人 damage/SP 应与玩家装备量级匹配；跨时代可自然碾压。
+world_id 仅作风格参考；**数值必须匹配当前这一战的敌人，而非世界观默认值**。
 
 ---
 
@@ -152,7 +166,7 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 ### 可以批准 — 主要动作（action_cost=main）
 | combat_action | 说明 | needs_roll |
 |--------------|------|------------|
-| attack | 攻击存活敌人，attack_target 必填；超射程须先 move 或同句带 move_meters；**已装备在任意槽位（手持/身体/配件）的武器可直接攻击，无需再「拿到手上」** | false |
+| attack | 攻击存活敌人，attack_target 必填；超射程须先 move 或同句带 move_meters；**已装备在任意槽位（手持/身体/配件）的武器可直接攻击，无需再「拿到手上」**；**同时施展攻击型技能**（`skill_usage=use` + `referenced_skills`）→ 武器伤害与技能伤害**叠加** | false |
 | defend | 防御 AC+2 | false |
 | flee | 撤退（消耗主要动作；失败仍可继续本回合） | false（系统掷骰） |
 | interact | 推物体、打翻掩体、拉杠杆等场景互动 | true，ability + **你裁定的 dc** |

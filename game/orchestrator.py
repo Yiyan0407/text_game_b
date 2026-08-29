@@ -39,6 +39,7 @@ from game.combat import (
 from game.dice import roll
 from game.post_kp_mechanics import delivered_item_names
 from game.game_config import GameConfig, apply_guidance_hint, default_game_config
+from game.kp_sanitize import sanitize_kp_narrative
 from game.models import Character, ChatMessage, GameState
 from game.opening_brief import OpeningBrief
 from game.results import ActionRouteResult, TurnResult
@@ -615,7 +616,7 @@ class GameOrchestrator:
             )
 
         def run_item_sync_phase(kp_response: str) -> list[str]:
-            ctx.kp_response = kp_response.strip()
+            ctx.kp_response = sanitize_kp_narrative(kp_response.strip())
             settle_events = run_async(self.pipeline.settle_after_kp(ctx))
             tool_events.extend(settle_events)
             forge_events = run_async(self.pipeline.define_entities(ctx))
@@ -633,7 +634,7 @@ class GameOrchestrator:
             return ctx.game_state.story_summary != summary_before
 
         def finish(response: str) -> TurnResult:
-            ctx.kp_response = response.strip()
+            ctx.kp_response = sanitize_kp_narrative(response.strip())
             turn = TurnResult(response=ctx.kp_response, tool_events=tool_events)
             suggestions = run_async(self.pipeline.suggest_actions(ctx, turn))
             if suggestions:

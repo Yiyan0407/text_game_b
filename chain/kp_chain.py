@@ -5,6 +5,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from chain.llm import create_chat_llm
 from game.game_config import KpGuidance
 from game.models import Character, ChatMessage, GameState
+from game.kp_sanitize import sanitize_kp_narrative
 from game.results import TurnResult
 from prompts.templates import build_narrative_prompt
 
@@ -34,7 +35,7 @@ class KPChain:
             kp_guidance=kp_guidance,
         )
         response = self.llm.invoke(messages)
-        content = (response.content or "").strip()
+        content = sanitize_kp_narrative((response.content or "").strip())
         return TurnResult(response=content, tool_events=[])
 
     async def anarrate(
@@ -58,7 +59,7 @@ class KPChain:
             kp_guidance=kp_guidance,
         )
         response = await self.llm.ainvoke(messages)
-        content = (response.content or "").strip()
+        content = sanitize_kp_narrative((response.content or "").strip())
         return TurnResult(response=content, tool_events=[])
 
     def narrate_stream(

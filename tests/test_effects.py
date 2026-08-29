@@ -80,24 +80,34 @@ def test_high_damage_vs_low_sp_enemy():
     result = apply_damage_to_enemy(enemy, 25)
     assert result.hp_loss == 23
     assert enemy.hp == 0
-    assert enemy.sp == 2
+    assert enemy.sp == 1
 
 
-def test_enemy_sp_blocks_without_wear():
+def test_enemy_sp_chips_on_blocked_hit():
     enemy = CombatEnemy(name="盾兵", hp=20, max_hp=20, ac=14, sp=8)
     result = apply_damage_to_enemy(enemy, 5)
     assert result.fully_blocked is True
     assert enemy.hp == 20
-    assert enemy.sp == 8
+    assert enemy.sp == 6
+    assert result.sp_after == 6
 
 
-def test_validate_effects_clamps_sp():
+def test_low_damage_fails_against_heavy_armor():
+    """匕首级伤害打不动高 SP 目标——应换武器或逃跑。"""
+    enemy = CombatEnemy(name="T-90", hp=100, max_hp=100, ac=18, sp=45)
+    result = apply_damage_to_enemy(enemy, 4)
+    assert result.fully_blocked is True
+    assert result.hp_loss == 0
+    assert enemy.hp == 100
+
+
+def test_validate_effects_preserves_high_sp():
     effects = validate_effects(
         EntityEffects(sp_max=999, sp=999),
         world_id="modern",
     )
-    assert effects.sp_max == 12
-    assert effects.sp == 12
+    assert effects.sp_max == 999
+    assert effects.sp == 999
 
 
 def test_validate_effects_heal_dice():

@@ -4,14 +4,6 @@ from __future__ import annotations
 
 from game.effects import EntityEffects
 
-WORLD_SP_CAP: dict[str, int] = {
-    "fantasy": 15,
-    "modern": 12,
-    "cyberpunk": 30,
-    "xianxia": 25,
-    "": 30,
-}
-
 
 def _validate_dice_field(value: str) -> str:
     if not value:
@@ -27,11 +19,8 @@ def _validate_dice_field(value: str) -> str:
 
 def validate_effects(effects: EntityEffects, *, world_id: str = "") -> EntityEffects:
     data = effects.model_copy(deep=True)
-    cap = WORLD_SP_CAP.get(world_id, 30)
 
-    if data.sp_max > cap:
-        data.sp_max = cap
-    if data.sp > data.sp_max:
+    if data.sp_max > 0 and data.sp > data.sp_max:
         data.sp = data.sp_max
 
     data.ac_bonus = max(-2, min(5, data.ac_bonus))

@@ -628,7 +628,10 @@ class CombatState(BaseModel):
             else:
                 dist = self.enemy_distances.get(enemy.name)
                 dist_text = f" · {dist}m" if dist is not None else ""
-                status = f"HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}{dist_text}"
+                sp_text = f" SP {enemy.sp}/{enemy.sp_max}" if enemy.sp_max > 0 else (
+                    f" SP {enemy.sp}" if enemy.sp > 0 else ""
+                )
+                status = f"HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}{sp_text}{dist_text}"
             lines.append(f"- {enemy.name}：{status}")
         return "\n".join(lines)
 

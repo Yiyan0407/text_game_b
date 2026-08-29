@@ -2,6 +2,31 @@ import streamlit as st
 
 from game.models import GameState
 
+_ACTION_GUIDE = """
+**每回合资源（用完输入「结束回合」）**
+
+| 资源 | 消耗 | 典型用途 |
+|------|------|----------|
+| **移动力** | 免费 | 靠近/远离敌人（`move`） |
+| **免费物件互动** | 免费 · 每回合 1 次 | 拾取眼前物品、快速拔/收武器 |
+| **主要动作** | 1 次 | 攻击、防御、擒抱、推撞、撤退、疾跑 |
+| **附加动作** | 1 次 | 用手雷/药水、收刀威慑（`talk`） |
+
+- 攻击已装备武器可直接打；**武器 + 武学/技能**伤害叠加。
+- 敌人 **SP** = 装甲，减少每次命中扣血；打不动就换武器或跑。
+"""
+
+
+def _enemy_status(enemy, combat) -> str:
+    dist = combat.enemy_distances.get(enemy.name)
+    dist_label = f" · {dist}m" if dist is not None else ""
+    sp_label = ""
+    if enemy.sp_max > 0:
+        sp_label = f" · SP {enemy.sp}/{enemy.sp_max}"
+    elif enemy.sp > 0:
+        sp_label = f" · SP {enemy.sp}"
+    return f"{enemy.name} HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}{sp_label}{dist_label}"
+
 
 def render_combat_panel(game_state: GameState) -> None:
     combat = game_state.combat
@@ -14,6 +39,9 @@ def render_combat_panel(game_state: GameState) -> None:
     actor_label = "你" if actor == "player" else actor
     st.caption(f"第 {combat.round} 回合 · 先攻：{' → '.join(combat.turn_order)}")
     st.markdown(f"**当前行动者：{actor_label}**")
+
+    with st.expander("动作说明", expanded=False):
+        st.markdown(_ACTION_GUIDE)
 
     if combat.is_player_turn():
         st.info(
@@ -33,11 +61,9 @@ def render_combat_panel(game_state: GameState) -> None:
 
     for enemy in combat.enemies:
         if enemy.hp > 0:
-            dist = combat.enemy_distances.get(enemy.name)
-            dist_label = f" · {dist}m" if dist is not None else ""
             st.progress(
                 enemy.hp / enemy.max_hp,
-                text=f"{enemy.name} HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}{dist_label}",
+                text=_enemy_status(enemy, combat),
             )
         else:
             st.markdown(f"~~{enemy.name}~~ 已倒")
