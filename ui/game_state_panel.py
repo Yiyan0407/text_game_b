@@ -1,32 +1,11 @@
 import streamlit as st
 
-from game.game_config import GameConfig, KpGuidance, default_game_config
+from game.game_config import GameConfig
 from game.models import GameState
 from game.narrative_time import format_duration, narrative_time_display
 from game.scenario import Scenario
-from game.scenario_progress import ensure_scenario_progress, format_progress_for_ui
 from ui.memory_journal_dialog import render_memory_journal_entry
 from ui.scene_map_dialog import render_scene_map_entry
-
-
-def _render_scenario_progress(
-    game_state: GameState,
-    scenario: Scenario,
-    kp_guidance: KpGuidance,
-) -> None:
-    if not scenario.key_nodes or kp_guidance == "freeform":
-        return
-    progress = ensure_scenario_progress(game_state)
-    label, pending, _, _ = format_progress_for_ui(scenario, progress)
-    if not label:
-        return
-    st.markdown("**剧本进度**")
-    st.caption(label)
-    if pending:
-        for beat in pending[:2]:
-            st.markdown(f"- {beat}")
-        if len(pending) > 2:
-            st.caption(f"… 另有 {len(pending) - 2} 条待完成要素")
 
 
 def render_game_state_panel(
@@ -35,7 +14,6 @@ def render_game_state_panel(
     *,
     game_config: GameConfig | None = None,
 ) -> None:
-    config = game_config or default_game_config()
     st.subheader("冒险进度")
     st.caption(
         f"🕐 {narrative_time_display(game_state)} · "
@@ -71,8 +49,6 @@ def render_game_state_panel(
             st.markdown(f"- **{quest.title}**")
             if quest.description:
                 st.caption(quest.description)
-
-    _render_scenario_progress(game_state, scenario, config.kp_guidance)
 
     if game_state.npcs:
         with st.expander(f"已知 NPC（{len(game_state.npcs)}）", expanded=False):

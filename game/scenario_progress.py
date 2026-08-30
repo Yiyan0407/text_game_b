@@ -299,17 +299,9 @@ def format_progress_for_kp(
     return "\n".join(lines)
 
 
-def format_progress_for_ui(
-    scenario: Scenario,
-    progress: ScenarioProgress,
-) -> tuple[str, list[str], int, int]:
-    node = get_active_node(scenario, progress)
-    if node is None:
-        return "", [], 0, 0
-    total = len(scenario.key_nodes)
-    index = min(progress.active_node_index + 1, total)
-    label = f"{index}/{total} · {node.title}"
-    return label, pending_beats(scenario, progress), index, total
+def is_internal_scenario_progress_event(event: str) -> bool:
+    """剧本进度追踪事件仅供内部使用，不向玩家展示（会剧透 beats/节点）。"""
+    return str(event).strip().startswith("剧本进度：")
 
 
 def update_scenario_progress_after_turn(
@@ -323,19 +315,11 @@ def update_scenario_progress_after_turn(
         return []
     progress = ensure_scenario_progress(game_state)
     newly = detect_completed_beats(kp_text, state_events, game_state, scenario, progress)
-    events: list[str] = []
     beat_completed = mark_beats_complete(
         progress,
         newly,
         turn_count=game_state.turn_count,
     )
-    for key in newly:
-        events.append(f"剧本进度：已完成要素 {key}")
-    if advance_if_node_complete(scenario, progress):
-        node = get_active_node(scenario, progress)
-        if node is not None:
-            events.append(f"剧本进度：进入节点 {node.title}")
-        else:
-            events.append("剧本进度：全部关键节点已完成")
+    advance_if_node_complete(scenario, progress)
     tick_progress(progress, beat_completed=beat_completed)
-    return events
+    return []

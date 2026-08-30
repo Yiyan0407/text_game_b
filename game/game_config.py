@@ -13,7 +13,7 @@ KpGuidance = Literal["freeform", "balanced", "script_guided"]
 
 KP_GUIDANCE_LABELS: dict[KpGuidance, str] = {
     "freeform": "自由即兴 — 玩家主导，模组节点仅作背景",
-    "balanced": "平衡引导 — 每回合可见剧本进度，周期轻推（默认）",
+    "balanced": "平衡引导 — KP 侧追踪进度，周期轻推（默认）",
     "script_guided": "按剧本推进 — 追踪 beats，逾期须引入节点要素",
 }
 

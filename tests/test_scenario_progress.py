@@ -8,6 +8,7 @@ from game.scenario_progress import (
     detect_completed_beats,
     ensure_scenario_progress,
     format_progress_for_kp,
+    is_internal_scenario_progress_event,
     is_node_overdue,
     node_beats,
     pending_beats,
@@ -68,7 +69,7 @@ def test_detect_and_advance_node():
         state_events=["已记录 NPC：德国特工（unknown）"],
     )
     assert beat_key("node-arrival", 0) in progress.completed_beat_keys
-    assert events
+    assert events == []
 
     update_scenario_progress_after_turn(
         state,
@@ -139,6 +140,12 @@ def test_apply_guidance_hint_script_guided_with_pending_beats():
         progress=progress,
     )
     assert "待完成要素" in result or "key_nodes" in result
+
+
+def test_internal_scenario_progress_events_are_filtered():
+    assert is_internal_scenario_progress_event("剧本进度：已完成要素 x")
+    assert is_internal_scenario_progress_event("  剧本进度：进入节点 实验室")
+    assert not is_internal_scenario_progress_event("任务已更新：[active] 主线")
 
 
 def test_apply_guidance_hint_balanced_periodic_nudge():

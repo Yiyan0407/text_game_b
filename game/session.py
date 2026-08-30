@@ -122,9 +122,11 @@ def sync_character_card_to_library(*, finalize: bool = False) -> None:
 
 
 def append_tool_events(tool_events: list[str]) -> None:
+    from game.scenario_progress import is_internal_scenario_progress_event
+
     for event in tool_events:
         text = str(event).strip()
-        if not text:
+        if not text or is_internal_scenario_progress_event(text):
             continue
         st.session_state.messages.append(
             ChatMessage(role="system", content=text)
