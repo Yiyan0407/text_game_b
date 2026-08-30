@@ -32,6 +32,7 @@
 | 火箭筒（单次） | use_damage 4d10–6d10，`use_aoe: true` | 反载具/范围 |
 | 微型核弹发射器 | use_damage 8d10+，`use_aoe: true`，`consumes_on_use: true` | 毁灭级；勿与匕首同伤 |
 | 2070 分子切割器 | 2d10–3d8 或更高 | 未来近战；靠伤害骰体现 |
+| 记忆消除器 | `use_tag: utility`，`consumes_on_use: false` | 可重复使用的战术装置；冷却由 time_sync 登记 |
 | 仙侠飞剑 | 2d8+1d8 或 2d12 | 按模组语境 |
 
 **跨时代**：2070 角色在 2020 场景中的义体/分子武器 → 必须明显高于现场 improvised；勿一律 2d10。

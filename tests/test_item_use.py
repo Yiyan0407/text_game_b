@@ -265,3 +265,61 @@ def test_resolve_throw_hammer_in_combat():
     assert any("投掷" in event for event in events)
     assert not character.has_inventory_item("锤子")
     assert state.combat.enemies[0].hp < 30
+
+
+def test_resolve_use_item_memory_eraser_not_consumed():
+    from game.models import GameState
+
+    character = Character(
+        name="测试",
+        inventory=[
+            InventoryItem(
+                name="记忆消除器",
+                quantity=1,
+                unit="把",
+                kind="consumable",
+                description="可清除短期记忆，使用后需冷却",
+            )
+        ],
+    )
+    events = resolve_use_item(
+        character,
+        ["记忆消除器"],
+        game_state=GameState(),
+    )
+    assert any("仍保留在背包" in event for event in events)
+    assert character.has_inventory_item("记忆消除器")
+
+
+def test_resolve_use_item_blocked_while_on_cooldown():
+    from game.models import BackgroundProcess, GameState
+
+    character = Character(
+        name="测试",
+        inventory=[
+            InventoryItem(
+                name="记忆消除器",
+                quantity=1,
+                unit="把",
+                kind="durable",
+                description="战术装置",
+            )
+        ],
+    )
+    state = GameState(elapsed_minutes=10)
+    state.background_processes.append(
+        BackgroundProcess(
+            id="mem_wipe",
+            label="记忆消除器冷却",
+            started_at_minutes=10,
+            duration_minutes=15,
+            status="running",
+        )
+    )
+    events = resolve_use_item(
+        character,
+        ["记忆消除器"],
+        game_state=state,
+    )
+    assert any("冷却中" in event for event in events)
+    assert character.has_inventory_item("记忆消除器")

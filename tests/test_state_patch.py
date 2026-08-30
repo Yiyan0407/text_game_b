@@ -300,6 +300,29 @@ def test_item_sync_blocks_duplicate_add_when_already_in_inventory():
     assert any("背包已有" in event for event in events)
 
 
+def test_item_sync_blocks_remove_for_reusable_gadget():
+    character = Character(name="测试")
+    character.add_inventory_item(
+        "记忆消除器",
+        quantity=1,
+        unit="把",
+        kind="consumable",
+        description="战术装置",
+    )
+    game_state = GameState()
+    patch = StatePatch(
+        inventory=[InventoryPatch(action="remove", item="记忆消除器", quantity=1)],
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        inventory_sync=True,
+    )
+    assert character.has_inventory_item("记忆消除器")
+    assert any("可重复使用" in event for event in events)
+
+
 def test_item_sync_blocks_pickup_after_roll_failure():
     character = Character(name="测试")
     game_state = GameState()

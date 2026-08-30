@@ -163,5 +163,9 @@ def resolve_post_kp_mechanics(
     if route.item_usage == "purchase":
         return execute_purchase(route, character)
     if route.item_usage == "use":
-        return resolve_use_item(character, route.referenced_items)
+        return resolve_use_item(
+            character,
+            route.referenced_items,
+            game_state=game_state,
+        )
     return []

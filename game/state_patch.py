@@ -196,9 +196,13 @@ def apply_state_patch(
     for inv in patch.inventory:
         if inv.action != "remove":
             continue
-        if _should_block_inventory_remove(route, mechanical, inv):
+        if _should_block_inventory_remove(
+            route, mechanical, inv, character, inventory_sync=inventory_sync
+        ):
             events.append(
-                f"跳过重复移除：{inv.item}（机械层已消耗或扣款）。"
+                _inventory_remove_sync_block_reason(
+                    route, mechanical, inv, character, inventory_sync=inventory_sync
+                )
             )
             continue
         if _should_block_inventory_remove_on_unequip(character, inv, unequipped_items):
@@ -528,12 +532,21 @@ def _should_block_inventory_remove(
     route: ActionRouteResult | None,
     mechanical_events: list[str],
     inv: InventoryPatch,
+    character: Character | None = None,
+    *,
+    inventory_sync: bool = False,
 ) -> bool:
     if inv.action != "remove":
         return False
     item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
     if not item_name:
         return False
+    if inventory_sync and character is not None:
+        from game.item_cooldown import retains_inventory_on_use
+
+        existing = character.find_inventory_item(item_name)
+        if existing is not None and retains_inventory_on_use(existing):
+            return True
     for event in mechanical_events:
         if not fuzzy_match_name(item_name, event):
             continue
@@ -549,6 +562,31 @@ def _should_block_inventory_remove(
             ):
                 return True
     return False
+
+
+def _inventory_remove_sync_block_reason(
+    route: ActionRouteResult | None,
+    mechanical_events: list[str],
+    inv: InventoryPatch,
+    character: Character,
+    *,
+    inventory_sync: bool = False,
+) -> str:
+    item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
+    if (
+        inventory_sync
+        and character.find_inventory_item(item_name) is not None
+    ):
+        from game.item_cooldown import retains_inventory_on_use
+
+        existing = character.find_inventory_item(item_name)
+        if existing is not None and retains_inventory_on_use(existing):
+            return f"跳过移除：{inv.item}（可重复使用的装置，使用后保留并进入冷却）。"
+    if _should_block_inventory_remove(
+        route, mechanical_events, inv, character, inventory_sync=False
+    ):
+        return f"跳过重复移除：{inv.item}（机械层已消耗或扣款）。"
+    return f"跳过移除：{inv.item}。"
 
 
 def _inventory_add_block_reason(

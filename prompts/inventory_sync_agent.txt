@@ -36,6 +36,7 @@
 - **战斗拾取**：机械层已入库，ItemSync 补描述/找零，勿重复 add 主物品
 - **检定失败**（机械结算含「检定…失败」且 route 标 pickup）：**禁止** add 该物
 - remove：丢弃、交出（机械层未扣时）
+- **可重复使用装置**（记忆消除器、分析仪、通讯器等，带冷却而非一次性）：使用后**禁止** remove；冷却由 `background_processes` 登记
 
 ## equipment
 - 叙事上已穿戴/手持 → inventory add（如需）+ equip
