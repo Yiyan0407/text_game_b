@@ -184,8 +184,10 @@ def test_resolve_use_item_grenade_in_combat():
         attack_target="敌人",
     )
     assert any("附加动作：使用" in event for event in events)
+    assert any("💥" in event for event in events)
     assert state.combat.bonus_action_used is True
-    assert character.has_inventory_item("破片手雷")
+    assert state.combat.enemies[0].hp < 30
+    assert not character.has_inventory_item("破片手雷")
 
     from game.post_kp_mechanics import resolve_post_kp_mechanics
     from game.results import ActionRouteResult
@@ -197,9 +199,7 @@ def test_resolve_use_item_grenade_in_combat():
         attack_target="敌人",
     )
     effect_events = resolve_post_kp_mechanics(route, character, state, events)
-    assert any("💥" in event for event in effect_events)
-    assert state.combat.enemies[0].hp < 30
-    assert not character.has_inventory_item("破片手雷")
+    assert effect_events == []
 
 
 def test_resolve_use_item_smoke_tag_consumes():
@@ -237,3 +237,89 @@ def test_resolve_use_item_heal_via_effects_on_durable_kind():
     assert any("治疗" in event for event in events)
     assert character.hp > 8
     assert not character.has_inventory_item("强心针")
+
+
+def test_resolve_throw_hammer_in_combat():
+    from game.models import CombatEnemy, CombatState, GameState
+    from tests.fixtures_effects import forged_weapon
+
+    character = Character(
+        name="测试",
+        inventory=[forged_weapon("锤子", "2d10")],
+    )
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="变异体", hp=30, max_hp=30, ac=5)],
+        turn_order=["player"],
+        turn_index=0,
+        enemy_distances={"变异体": 5},
+    )
+    events = resolve_use_item(
+        character,
+        ["锤子"],
+        game_state=state,
+        attack_target="变异体",
+    )
+    assert any("投掷" in event for event in events)
+    assert not character.has_inventory_item("锤子")
+    assert state.combat.enemies[0].hp < 30
+
+
+def test_resolve_use_item_memory_eraser_not_consumed():
+    from game.models import GameState
+
+    character = Character(
+        name="测试",
+        inventory=[
+            InventoryItem(
+                name="记忆消除器",
+                quantity=1,
+                unit="把",
+                kind="consumable",
+                description="可清除短期记忆，使用后需冷却",
+            )
+        ],
+    )
+    events = resolve_use_item(
+        character,
+        ["记忆消除器"],
+        game_state=GameState(),
+    )
+    assert any("仍保留在背包" in event for event in events)
+    assert character.has_inventory_item("记忆消除器")
+
+
+def test_resolve_use_item_blocked_while_on_cooldown():
+    from game.models import BackgroundProcess, GameState
+
+    character = Character(
+        name="测试",
+        inventory=[
+            InventoryItem(
+                name="记忆消除器",
+                quantity=1,
+                unit="把",
+                kind="durable",
+                description="战术装置",
+            )
+        ],
+    )
+    state = GameState(elapsed_minutes=10)
+    state.background_processes.append(
+        BackgroundProcess(
+            id="mem_wipe",
+            label="记忆消除器冷却",
+            started_at_minutes=10,
+            duration_minutes=15,
+            status="running",
+        )
+    )
+    events = resolve_use_item(
+        character,
+        ["记忆消除器"],
+        game_state=state,
+    )
+    assert any("冷却中" in event for event in events)
+    assert character.has_inventory_item("记忆消除器")

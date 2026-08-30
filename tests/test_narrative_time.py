@@ -4,12 +4,14 @@ from game.narrative_time import (
     apply_story_clock_label,
     apply_time_patch,
     apply_turn_time_from_patch,
+    extract_explicit_current_clock,
     format_clock,
     format_duration,
     initialize_story_clock_from_scenario,
     parse_explicit_wait_minutes,
     parse_stated_action_minutes,
     parse_time_label,
+    reconcile_clock_from_kp_narrative,
     resolve_turn_advance_minutes,
 )
 from game.results import ActionRouteResult, DeadlinePatch, TimePatch
@@ -45,6 +47,30 @@ def test_apply_story_clock_label_reanchors_opening():
     apply_story_clock_label(state, "第1天 22:15")
     assert state.story_start_absolute_minutes == 22 * 60 + 15
     assert state.narrative_time_label == "第1天 22:15"
+
+
+def test_extract_explicit_current_clock_from_kp_narrative():
+    text = "你看了看义体内置的时间显示：凌晨2:17。换班窗口。"
+    assert extract_explicit_current_clock(text) == (1, 2, 17)
+
+
+def test_reconcile_clock_from_kp_narrative_fixes_default_morning():
+    state = GameState(story_start_absolute_minutes=8 * 60, elapsed_minutes=15)
+    assert state.narrative_time_label == "" or "08:15" in format_clock(
+        state.elapsed_minutes, state.story_start_absolute_minutes
+    )
+    kp = "义体内置的时间显示：凌晨2:17。你把图纸的内容记在脑子里。"
+    events = reconcile_clock_from_kp_narrative(state, kp, extra_elapsed=3)
+    assert events
+    assert state.narrative_time_label == "第1天 02:20"
+    assert "02:20" in events[0]
+
+
+def test_apply_story_clock_label_midgame_reanchor_to_earlier():
+    state = GameState(story_start_absolute_minutes=8 * 60, elapsed_minutes=15, turn_count=5)
+    apply_story_clock_label(state, "第1天 02:20")
+    assert state.narrative_time_label == "第1天 02:20"
+    assert state.story_start_absolute_minutes == 2 * 60 + 20
 
 
 def test_advance_narrative_clock_keeps_night_progression():

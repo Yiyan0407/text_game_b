@@ -15,14 +15,14 @@ def test_parse_fact_lines():
 
 def test_add_memory_facts_dedupe():
     state = GameState()
-    state.add_memory_facts(["获得了芯片", "获得了芯片"], max_facts=10)
+    state.add_memory_facts(["获得了加密芯片", "获得了加密芯片"], max_facts=10)
     assert len(state.memory_facts) == 1
 
 
 def test_memory_manager_periodic_summary():
     summarizer = MagicMock()
     summarizer.merge_summary.return_value = "合并摘要"
-    summarizer.extract_facts.return_value = ["新事实"]
+    summarizer.extract_facts.return_value = ["老K答应帮忙潜入实验室"]
     manager = LongTermMemoryManager(summarizer)
     manager.summary_interval = 6
 
@@ -33,7 +33,7 @@ def test_memory_manager_periodic_summary():
     summarizer.merge_summary.assert_called_once()
     summarizer.extract_facts.assert_called_once()
     assert state.story_summary == "合并摘要"
-    assert "新事实" in state.memory_facts
+    assert any("老K" in fact for fact in state.memory_facts)
     assert state.last_summarized_turn == 6
 
 
@@ -98,6 +98,10 @@ def test_compress_journal_keeps_pinned_and_reduces_unpinned():
     assert state.memory_journal[0].text == "置顶线索"
     assert len(state.memory_journal) == 3
     assert all(not entry.pinned for entry in state.memory_journal[1:])
+    assert len(state.memory_journal_archive) == 8
+    player_entries = state.player_memory_entries()
+    assert len(player_entries) == 11
+    assert any(entry.text == "置顶线索" for entry in player_entries)
 
 
 def test_compress_journal_falls_back_to_trim_when_llm_empty():
@@ -115,6 +119,17 @@ def test_compress_journal_falls_back_to_trim_when_llm_empty():
 
     assert len(state.memory_journal) == 2
     assert state.memory_journal[-1].text == "事实3"
+    assert len(state.memory_journal_archive) == 2
+    archived_texts = {entry.text for entry in state.memory_journal_archive}
+    assert archived_texts == {"事实0", "事实1"}
+
+
+def test_add_memory_entries_archives_trimmed_facts():
+    state = GameState()
+    state.add_memory_facts([f"关键事实条目{i}" for i in range(5)], max_facts=3)
+    assert len(state.memory_journal) == 3
+    assert len(state.memory_journal_archive) == 2
+    assert len(state.player_memory_entries()) == 5
 
 
 def test_journal_total_chars_and_trim():

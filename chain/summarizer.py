@@ -61,9 +61,10 @@ class StorySummarizer:
             [
                 (
                     "system",
-                    "从对话中提取 3-6 条「必须记住的事实」，每条一行，格式：- 事实内容。"
-                    "优先：NPC 姓名与关系、获得/失去的物品、重要承诺、未解线索、玩家声明的长期目标。"
-                    "不要重复已有事实列表中的内容。",
+                    "从对话中提取 0-2 条「必须长期记住的关键事实」，每条一行，格式：- 事实内容。"
+                    "仅写：重大真相、关键承诺、NPC 核心秘密、未解悬念、区域/安保规则。"
+                    "不要写：日常观察、检定成败、临时状态、已在 NPC/任务/背包中登记的信息。"
+                    "若近期对话无新的关键情报，输出「（无）」；不要重复已有事实列表中的内容。",
                 ),
                 (
                     "human",
@@ -134,7 +135,10 @@ class StorySummarizer:
                 "recent": recent_dialogue,
             }
         )
-        return _parse_fact_lines(response.content or "")
+        from game.memory_journal import is_trivial_memory
+
+        facts = _parse_fact_lines(response.content or "")
+        return [fact for fact in facts if fact != "（无）" and not is_trivial_memory(f)][:2]
 
     def compress_memory_entries(
         self,
@@ -214,7 +218,10 @@ class StorySummarizer:
                 "recent": recent_dialogue,
             }
         )
-        return _parse_fact_lines(response.content or "")
+        from game.memory_journal import is_trivial_memory
+
+        facts = _parse_fact_lines(response.content or "")
+        return [fact for fact in facts if fact != "（无）" and not is_trivial_memory(fact)][:2]
 
 
 def _parse_fact_lines(text: str) -> list[str]:

@@ -75,6 +75,11 @@ def _rows_to_nodes(rows: list[dict], existing: list[ScenarioNode]) -> list[Scena
                     "id": node_id,
                     "title": title,
                     "description": cleaned.get("description", ""),
+                    "beats": [
+                        part.strip()
+                        for part in str(cleaned.get("beats", "")).splitlines()
+                        if part.strip()
+                    ],
                 }
             )
         )
@@ -115,7 +120,17 @@ def _editor_rows(items, *, fields: list[str]) -> list[dict]:
             data = item
         else:
             continue
-        rows.append({field: data.get(field, "") for field in fields})
+        row: dict[str, str] = {}
+        for field in fields:
+            if field == "beats":
+                beats = data.get("beats") or []
+                if isinstance(beats, list):
+                    row[field] = "\n".join(str(part) for part in beats if str(part).strip())
+                else:
+                    row[field] = str(beats or "")
+            else:
+                row[field] = str(data.get(field, "") or "")
+        rows.append(row)
     return rows or [{field: "" for field in fields}]
 
 
@@ -254,13 +269,19 @@ def render_scenario_editor(scenario: Scenario, *, creating: bool = False) -> Sce
     )
 
     st.markdown("**关键节点**")
+    st.caption("「待完成要素」每行一条，供按剧本/平衡模式追踪进度。")
     node_rows = st.data_editor(
-        _editor_rows(scenario.key_nodes, fields=["title", "description"]),
+        _editor_rows(scenario.key_nodes, fields=["title", "description", "beats"]),
         num_rows="dynamic",
         use_container_width=True,
         column_config={
             "title": st.column_config.TextColumn("地点/剧情点", required=True),
             "description": st.column_config.TextColumn("描述", width="large"),
+            "beats": st.column_config.TextColumn(
+                "待完成要素（每行一条）",
+                width="large",
+                help="例如：德国特工通讯响起；江一燕在实验室出场",
+            ),
         },
         key=f"scenario_edit_nodes_{scenario.id}_{creating}",
     )

@@ -58,7 +58,13 @@ def render_system_message(content: str) -> None:
 
 
 def render_tool_events_live(tool_events: list[str]) -> None:
-    cleaned = [event for event in tool_events if str(event).strip()]
+    from game.scenario_progress import is_internal_scenario_progress_event
+
+    cleaned = [
+        event
+        for event in tool_events
+        if str(event).strip() and not is_internal_scenario_progress_event(event)
+    ]
     if not cleaned:
         return
     _render_compact_system_view(compact_system_events(cleaned))
@@ -102,15 +108,20 @@ def _render_kp_meta_assistant_message(content: str) -> None:
 
 
 def render_chat_history(history: list[ChatMessage]) -> None:
+    from game.scenario_progress import is_internal_scenario_progress_event
+
     index = 0
     while index < len(history):
         msg = history[index]
         if msg.role == "system":
             batch: list[str] = []
             while index < len(history) and history[index].role == "system":
-                batch.append(history[index].content)
+                content = history[index].content
+                if not is_internal_scenario_progress_event(content):
+                    batch.append(content)
                 index += 1
-            _render_compact_system_view(compact_system_events(batch))
+            if batch:
+                _render_compact_system_view(compact_system_events(batch))
             continue
         if msg.role == "user" and is_kp_directive(msg.content):
             _render_kp_meta_user_message(msg.content)

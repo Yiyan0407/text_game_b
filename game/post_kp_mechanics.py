@@ -111,6 +111,20 @@ def _settle_combat_pickup(
     return events
 
 
+def _combat_use_effect_pre_settled(pre_kp_events: list[str], item_ref: str) -> bool:
+    """KP 前已结算伤害/投掷/治疗时，跳过后置重复结算。"""
+    for event in pre_kp_events:
+        if not fuzzy_match_name(item_ref, event):
+            continue
+        if event.startswith("投掷：") or "💥" in event or event.startswith("🎲 治疗"):
+            return True
+        if event.startswith("使用：") and not any(
+            marker in event for marker in ("附加动作", "主要动作", "免费物件互动")
+        ):
+            return True
+    return False
+
+
 def _settle_combat_use(
     route: ActionRouteResult,
     character: Character,
@@ -121,6 +135,8 @@ def _settle_combat_use(
         return []
     item_ref = route.referenced_items[0]
     if not _combat_use_reserved(pre_kp_events, item_ref):
+        return []
+    if _combat_use_effect_pre_settled(pre_kp_events, item_ref):
         return []
     return resolve_use_item(
         character,
@@ -147,5 +163,9 @@ def resolve_post_kp_mechanics(
     if route.item_usage == "purchase":
         return execute_purchase(route, character)
     if route.item_usage == "use":
-        return resolve_use_item(character, route.referenced_items)
+        return resolve_use_item(
+            character,
+            route.referenced_items,
+            game_state=game_state,
+        )
     return []

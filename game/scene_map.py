@@ -222,11 +222,15 @@ def _graph_scene_ids(game_state: GameState) -> set[str]:
     return {node.id.strip() for node in graph.nodes if node.id.strip()}
 
 
+def _memory_entries_for_scene(game_state: GameState) -> list:
+    return game_state.player_memory_entries()
+
+
 def _first_seen_turn_for_scene(game_state: GameState, scene_id: str) -> int:
     sid = scene_id.strip()
     turns = [
         entry.turn_count
-        for entry in game_state.memory_journal
+        for entry in _memory_entries_for_scene(game_state)
         if str(getattr(entry, "scene_id", "") or "").strip() == sid
     ]
     if turns:
@@ -251,7 +255,7 @@ def reconcile_visited_scenes(game_state: GameState) -> None:
                 turn_count=_first_seen_turn_for_scene(game_state, sid),
             )
 
-    for entry in game_state.memory_journal:
+    for entry in _memory_entries_for_scene(game_state):
         sid = str(getattr(entry, "scene_id", "") or "").strip()
         name = str(getattr(entry, "scene_name", "") or "").strip()
         if not sid or not name or find_scene_record(game_state, sid):
@@ -276,7 +280,7 @@ def reconcile_visited_scenes(game_state: GameState) -> None:
 
 def _memory_scene_ids(game_state: GameState) -> set[str]:
     ids: set[str] = set()
-    for entry in game_state.memory_journal:
+    for entry in _memory_entries_for_scene(game_state):
         sid = str(getattr(entry, "scene_id", "") or "").strip()
         if sid:
             ids.add(sid)
@@ -327,6 +331,56 @@ def prune_foreign_visited_scenes(game_state: GameState, scenario: Scenario) -> N
     game_state.visited_scenes = _relevant_visited_records(game_state, scenario)
 
 
+def merge_map_graphs(existing: WorldMapGraph, incoming: WorldMapGraph) -> WorldMapGraph:
+    """手动整改时合并：incoming 覆盖同 id 节点/边，保留 AI 未列出的已有探索节点。"""
+    node_by_id: dict[str, MapNode] = {}
+    for node in existing.nodes:
+        nid = node.id.strip()
+        if nid:
+            node_by_id[nid] = node
+    for node in incoming.nodes:
+        nid = node.id.strip()
+        if nid:
+            node_by_id[nid] = node
+
+    edge_keys: set[tuple[str, str, str]] = set()
+    edges: list[MapEdge] = []
+    for edge in (*existing.edges, *incoming.edges):
+        source = edge.source.strip()
+        target = edge.target.strip()
+        if not source or not target:
+            continue
+        key = (source, target, edge.kind)
+        if key in edge_keys:
+            continue
+        edge_keys.add(key)
+        edges.append(
+            MapEdge(source=source, target=target, label=edge.label, kind=edge.kind)
+        )
+
+    return WorldMapGraph(nodes=list(node_by_id.values()), edges=edges)
+
+
+def _sort_nodes_for_cap(
+    nodes: list[MapNode],
+    game_state: GameState,
+    scenario: Scenario | None,
+) -> list[MapNode]:
+    """截断前优先保留当前位置与已访问节点。"""
+    current_id = game_state.scene_id.strip()
+    visited = _visited_ids(game_state, scenario)
+
+    def rank(node: MapNode) -> tuple[int, str]:
+        nid = node.id.strip()
+        if nid == current_id:
+            return (0, nid)
+        if nid in visited:
+            return (1, nid)
+        return (2, nid)
+
+    return sorted(nodes, key=rank)
+
+
 def sync_graph_statuses(
     graph: WorldMapGraph,
     game_state: GameState,
@@ -371,7 +425,8 @@ def sync_graph_statuses(
             MapEdge(source=source, target=target, label=edge.label, kind=edge.kind)
         )
 
-    return WorldMapGraph(nodes=nodes[:15], edges=edges[:30])
+    ordered_nodes = _sort_nodes_for_cap(nodes, game_state, scenario)
+    return WorldMapGraph(nodes=ordered_nodes[:15], edges=edges[:30])
 
 
 def build_skeleton_graph(scenario: Scenario | None, game_state: GameState) -> WorldMapGraph:
@@ -635,8 +690,14 @@ def format_map_context(
     return "\n".join(lines)
 
 
-def apply_map_update(game_state: GameState, data: dict, scenario: Scenario | None = None) -> bool:
-    """写入 AI 生成的 JSON 地图；incoming 为完整修订结果（非增量合并）。"""
+def apply_map_update(
+    game_state: GameState,
+    data: dict,
+    scenario: Scenario | None = None,
+    *,
+    reconcile: bool = False,
+) -> bool:
+    """写入 AI 生成的 JSON 地图；reconcile 时与现有图合并，避免手动刷新误删节点。"""
     raw_nodes = data.get("nodes")
     if not isinstance(raw_nodes, list) or not raw_nodes:
         return False
@@ -649,7 +710,14 @@ def apply_map_update(game_state: GameState, data: dict, scenario: Scenario | Non
         )
     except Exception:
         return False
-    synced = sync_graph_statuses(incoming, game_state, scenario)
+
+    existing = normalize_world_map_graph(game_state.world_map_graph)
+    if reconcile and existing and not existing.is_empty():
+        merged = merge_map_graphs(existing, incoming)
+    else:
+        merged = incoming
+
+    synced = sync_graph_statuses(merged, game_state, scenario)
     if synced.is_empty():
         return False
     game_state.world_map_graph = synced

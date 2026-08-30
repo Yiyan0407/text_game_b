@@ -478,6 +478,9 @@ class CombatEnemy(BaseModel):
     sp_max: int = Field(default=0, ge=0)
     start_distance_m: int = 10
     surrendered: bool = False
+    use_dex: bool = False
+    attack_range_normal_m: int = 0
+    attack_range_max_m: int = 0
 
     @model_validator(mode="after")
     def _sync_attack_damage(self) -> Self:
@@ -642,11 +645,14 @@ class CombatState(BaseModel):
         return [e for e in self.enemies if e.can_act()]
 
     def get_enemy(self, name: str) -> CombatEnemy | None:
+        from game.combat_targets import resolve_living_enemy_ref
+
+        resolved = resolve_living_enemy_ref(self, name) or name.strip()
         for enemy in self.enemies:
-            if enemy.name == name:
+            if enemy.name == resolved:
                 return enemy
         for enemy in self.enemies:
-            if fuzzy_match_name(name, enemy.name):
+            if fuzzy_match_name(name, enemy.name) or fuzzy_match_name(resolved, enemy.name):
                 return enemy
         return None
 
@@ -678,6 +684,14 @@ class PendingReroll(BaseModel):
     reason: str = ""
 
 
+class ScenarioProgress(BaseModel):
+    active_node_index: int = 0
+    completed_node_ids: list[str] = Field(default_factory=list)
+    completed_beat_keys: list[str] = Field(default_factory=list)
+    turns_on_active_node: int = 0
+    last_beat_completed_turn: int = 0
+
+
 class GameState(BaseModel):
     started: bool = False
     scenario_id: str = ""
@@ -688,6 +702,7 @@ class GameState(BaseModel):
     story_summary: str = ""
     chapter_summaries: list[str] = Field(default_factory=list)
     memory_journal: list[MemoryEntry] = Field(default_factory=list)
+    memory_journal_archive: list[MemoryEntry] = Field(default_factory=list)
     turn_count: int = 0
     last_summarized_turn: int = 0
     last_chapter_turn: int = 0
@@ -703,6 +718,7 @@ class GameState(BaseModel):
     last_ability_check: LastAbilityCheckRecord | None = None
     pending_reroll: PendingReroll | None = None
     map_travel_from: str = ""
+    scenario_progress: ScenarioProgress | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -723,6 +739,11 @@ class GameState(BaseModel):
     @field_validator("memory_journal", mode="before")
     @classmethod
     def _coerce_memory_journal(cls, value):
+        return normalize_memory_journal(value)
+
+    @field_validator("memory_journal_archive", mode="before")
+    @classmethod
+    def _coerce_memory_journal_archive(cls, value):
         return normalize_memory_journal(value)
 
     @field_validator("visited_scenes", mode="before")
@@ -765,6 +786,11 @@ class GameState(BaseModel):
     @property
     def memory_facts(self) -> list[str]:
         return [entry.text for entry in self.memory_journal]
+
+    def player_memory_entries(self) -> list[MemoryEntry]:
+        from game.memory_journal import player_memory_entries
+
+        return player_memory_entries(self.memory_journal, self.memory_journal_archive)
 
     def add_memory_entries(
         self,
@@ -825,9 +851,14 @@ class GameState(BaseModel):
 
             if not incoming.text:
                 continue
+            from game.memory_journal import is_trivial_memory
+
+            if is_trivial_memory(incoming.text):
+                continue
+            existing_pool = self.memory_journal + self.memory_journal_archive
             if any(
                 incoming.text in existing.text or existing.text in incoming.text
-                for existing in self.memory_journal
+                for existing in existing_pool
             ):
                 continue
             if not incoming.narrative_time:
@@ -844,10 +875,14 @@ class GameState(BaseModel):
             added.append(incoming.text)
 
         if len(self.memory_journal) > max_facts:
-            pinned = [entry for entry in self.memory_journal if entry.pinned]
-            unpinned = [entry for entry in self.memory_journal if not entry.pinned]
-            keep_unpinned = max(0, max_facts - len(pinned))
-            self.memory_journal = pinned + unpinned[-keep_unpinned:]
+            from game.memory_journal import trim_memory_journal_with_archive
+
+            kept, dropped = trim_memory_journal_with_archive(
+                self.memory_journal,
+                max_facts,
+            )
+            self.memory_journal_archive.extend(dropped)
+            self.memory_journal = kept
         return added
 
     def add_memory_facts(self, new_facts: list[str], max_facts: int) -> None:

@@ -7,10 +7,21 @@ from game.item_kinds import GearSlot
 from game.models import Character
 
 
-def combat_use_item_cost(character: Character, item_ref: str) -> str:
+def combat_use_item_cost(
+    character: Character,
+    item_ref: str,
+    *,
+    attack_target: str = "",
+    is_throw: bool = False,
+) -> str:
     """返回战斗中使用物品的动作成本：bonus / main / free。"""
     target = character.find_inventory_item(item_ref)
     if target is None:
+        return "bonus"
+
+    if attack_target.strip() or is_throw:
+        if target.kind == "document":
+            return "main"
         return "bonus"
 
     if target.kind == "document":
@@ -46,3 +57,27 @@ def _resolve_gear_slot(item: InventoryItem) -> GearSlot | None:
     if slot in ("weapon", "light", "tool"):
         return slot  # type: ignore[return-value]
     return None
+
+
+def combat_use_resolves_pre_kp(
+    character: Character,
+    item_ref: str,
+    *,
+    attack_target: str = "",
+) -> bool:
+    """伤害/治疗/投掷等须在 KP 前结算，叙事才能对齐命中与伤害。"""
+    target = character.find_inventory_item(item_ref)
+    if target is None:
+        return False
+    effects = target.effects
+    if not effects or not effects.forged:
+        if attack_target.strip() and effects and effects.attack_damage.strip():
+            return True
+        return False
+    if effects.use_damage or effects.heal_dice:
+        return True
+    if effects.use_tag and effects.consumes_when_used():
+        return True
+    if attack_target.strip() and effects.attack_damage.strip():
+        return True
+    return False

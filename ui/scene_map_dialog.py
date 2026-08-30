@@ -27,7 +27,7 @@ def _refresh_map(game_state: GameState, scenario: Scenario) -> bool:
         persist_save()
         st.toast("场景地图已更新")
         return True
-    st.warning("地图更新失败或未返回有效 JSON，请稍后再试。")
+    st.warning("地图更新失败或未返回有效数据，已保留原有地图。")
     return False
 
 
@@ -67,9 +67,9 @@ def _render_map_content(game_state: GameState, scenario: Scenario) -> None:
     col_refresh, col_close = st.columns(2)
     with col_refresh:
         if st.button("🔄 刷新地图", key="scene_map_refresh", use_container_width=True):
-            if _refresh_map(game_state, scenario):
-                st.session_state.scene_map_open = True
-                st.rerun()
+            _refresh_map(game_state, scenario)
+            st.session_state.scene_map_open = True
+            st.rerun()
     with col_close:
         if st.button("关闭", key="scene_map_close", use_container_width=True):
             st.session_state.scene_map_open = False

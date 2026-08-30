@@ -106,7 +106,8 @@ def _build_start_instruction(
     if config.kp_guidance == "script_guided":
         lines.append(
             "【按剧本推进】本局为剧本引导模式：开场须自然引出 initial_quests，"
-            "并在叙事中铺设第一个 key_node 的入口线索；仍禁止抢戏。"
+            "并在叙事中铺设第一个 key_node 的入口线索；"
+            "开场或紧随其后的 1–2 回合内须完成当前节点第 1 条 beat（若适用）；仍禁止抢戏。"
         )
     elif config.kp_guidance == "freeform":
         lines.append(
@@ -363,6 +364,14 @@ class GameOrchestrator:
             user_input="",
         )
         time_patch = result.patch.time
+        if time_patch is not None and time_patch.time_label.strip():
+            events.extend(
+                apply_time_patch(
+                    game_state,
+                    TimePatch(time_label=time_patch.time_label.strip()),
+                    character,
+                )
+            )
         if time_patch is not None and (
             time_patch.cancel_deadline_ids or time_patch.enforce_deadline_ids
         ):
@@ -524,6 +533,116 @@ class GameOrchestrator:
             restore_adventure(character, game_state, char_snap, state_snap)
 
         return rejection, pre_events, run_state, stream, item_sync, mem, finish, rollback_turn
+
+    def auto_combat_turn_stream(
+        self,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        history: list[ChatMessage],
+        *,
+        game_config: GameConfig | None = None,
+    ):
+        from game.auto_combat import format_auto_combat_user_input, run_auto_combat
+
+        char_snap, state_snap = snapshot_adventure(character, game_state)
+        if not game_state.is_in_combat():
+            rejected = TurnResult(
+                response="",
+                rejected=True,
+                rejection_reason="当前不在战斗中，无法自动战斗。",
+            )
+
+            def finish_rejected(_response: str) -> TurnResult:
+                return rejected
+
+            return (
+                rejected,
+                [],
+                lambda: [],
+                iter([]),
+                lambda _kp: [],
+                lambda: False,
+                finish_rejected,
+                lambda: None,
+            )
+
+        auto_result = run_auto_combat(character, game_state)
+        config = game_config or default_game_config()
+        user_input = format_auto_combat_user_input(auto_result)
+        windowed = self.window_memory.get_history(history)
+        ctx = TurnContext(
+            user_input=user_input,
+            character=character,
+            game_state=game_state,
+            scenario=scenario,
+            history=history,
+            windowed_history=windowed,
+            increment_turn=True,
+            game_config=config,
+        )
+        ctx.route = ActionRouteResult(approved=True, mode="exploration", combat_action="none")
+        ctx.enriched_input = user_input
+        ctx.mechanical_events = list(auto_result.events)
+
+        rejection, pre_events, run_state, stream, item_sync, mem, finish = (
+            self._stream_turn_phased(ctx)
+        )
+
+        def rollback_turn() -> None:
+            restore_adventure(character, game_state, char_snap, state_snap)
+
+        return rejection, pre_events, run_state, stream, item_sync, mem, finish, rollback_turn
+
+    def auto_combat_turn(
+        self,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        history: list[ChatMessage],
+        *,
+        game_config: GameConfig | None = None,
+    ) -> TurnResult:
+        return run_async(
+            self.aauto_combat_turn(
+                character,
+                game_state,
+                scenario,
+                history,
+                game_config=game_config,
+            )
+        )
+
+    async def aauto_combat_turn(
+        self,
+        character: Character,
+        game_state: GameState,
+        scenario: Scenario,
+        history: list[ChatMessage],
+        *,
+        game_config: GameConfig | None = None,
+    ) -> TurnResult:
+        config = game_config or default_game_config()
+        windowed = self.window_memory.get_history(history)
+        (
+            rejection,
+            pre_events,
+            run_state,
+            stream,
+            item_sync,
+            mem,
+            finish,
+            rollback,
+        ) = self.auto_combat_turn_stream(
+            character, game_state, scenario, history, game_config=config
+        )
+        if rejection is not None and rejection.rejected:
+            return rejection
+        run_state()
+        response = "".join(stream)
+        item_sync(response)
+        mem()
+        return finish(response)
 
     def _stream_kp_meta_turn(
         self,
@@ -745,6 +864,11 @@ class GameOrchestrator:
             elif route.combat_action == "attack" and not route.attack_target.strip():
                 raise ValueError("请明确要攻击的敌人。")
             else:
+                combat = game_state.combat
+                if combat:
+                    from game.combat_targets import normalize_combat_enemy_refs
+
+                    normalize_combat_enemy_refs(route, combat)
                 pre_tool_events.extend(
                     self._execute_combat_action(
                         route, character, game_state, user_input=user_input
@@ -796,7 +920,11 @@ class GameOrchestrator:
         if not game_state.is_in_combat() and route.needs_roll:
             from game.check_reroll import apply_pending_reroll_to_route
 
-            pre_tool_events.extend(apply_pending_reroll_to_route(route, game_state))
+            pre_tool_events.extend(
+                apply_pending_reroll_to_route(
+                    route, game_state, user_input=user_input
+                )
+            )
             roll_events, roll_success = self._execute_pre_roll(
                 route, character, game_state, user_input=user_input
             )

@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import re
 
-from config.settings import get_settings
 from game.effect_resolver import apply_incoming_damage
-from game.models import ABILITY_LABELS, Character, GameState, NPCRelation
+from game.models import Character, GameState, NPCRelation
 from game.results import AbilityCheckResult, ActionRouteResult
 
 _DANGEROUS_MARKERS = (
@@ -142,15 +141,9 @@ def apply_check_failure_consequences(
         return []
 
     events: list[str] = []
-    settings = get_settings()
     margin = max(0, result.dc - result.check_total)
     intent = user_input.strip() or "本次行动"
-    ability_label = ABILITY_LABELS.get(result.ability, result.ability.upper())
 
-    fact = (
-        f"尝试「{intent}」失败（{ability_label}检定 {result.check_total} vs DC {result.dc}）"
-    )
-    game_state.add_memory_facts([fact], settings.max_memory_facts)
     events.append(f"📌 行动失败：{intent}")
 
     if is_dangerous_attempt(user_input, route) or (
@@ -168,20 +161,14 @@ def apply_check_failure_consequences(
                 npc.attitude = new_attitude
                 events.append(f"😠 {npc.name} 态度恶化：{old} → {new_attitude}")
         else:
-            alert = f"社交尝试「{intent}」失败，对方态度可能转差"
-            game_state.add_memory_facts([alert], settings.max_memory_facts)
             events.append("⚠️ 社交失败：关系可能恶化")
 
     if is_stealth_attempt(user_input, route) or (
         result.ability == "dex" and route.skill_usage == "use"
     ):
-        alert = "潜入/潜行尝试失败，现场警戒可能已提高"
-        game_state.add_memory_facts([alert], settings.max_memory_facts)
         events.append("⚠️ 潜行失败：对方可能已察觉")
 
     if route.skill_usage == "learn":
-        learn_fact = f"向他人学习「{', '.join(route.referenced_skills) or '新技能'}」失败"
-        game_state.add_memory_facts([learn_fact], settings.max_memory_facts)
         events.append("📚 学习失败：未掌握新技能")
 
     return events
@@ -212,6 +199,8 @@ def format_check_failure_constraints_for_kp(
             "- 本轮不得写行动成功、不得获得本应失败才能到手的物品/情报/技能。",
             "- 须写明确失败后果：失手、暴露、受伤、关系恶化、时间耽搁等，至少体现一项。",
             "- 可推进剧情，但方向必须是 setback，不是原计划的收益。",
+            "- 禁止复述【历史对话】中 KP 已写过的段落；须写本回合新场面。",
+            "- 查阅已有资料/本地信息时：失败=干扰、时间不足、信息不完整等，而非重写已展示全文。",
         ]
     )
     return "\n".join(lines)

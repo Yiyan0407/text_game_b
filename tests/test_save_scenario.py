@@ -42,6 +42,8 @@ def test_scenario_apply_to_game_state():
     assert state.scenario_id == "missing_fishermen"
     assert state.scene_id == "tavern_seagull"
     assert len(state.active_quests) == 1
+    assert state.scenario_progress is not None
+    assert state.scenario_progress.active_node_index == 0
 
 
 def test_save_roundtrip(tmp_path):

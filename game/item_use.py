@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from game.effect_use import item_has_resolved_use, resolve_item_use
+from game.effect_use import item_has_resolved_use, resolve_item_use, resolve_throw_attack_item
+from game.item_cooldown import item_cooldown_remaining_minutes, retains_inventory_on_use
 from game.models import Character, GameState
 
 
@@ -33,6 +34,13 @@ def resolve_use_item(
             "具体内容由 KP 叙事描述；物品仍保留在背包。",
         ]
 
+    if game_state is not None:
+        remaining = item_cooldown_remaining_minutes(game_state, target.name)
+        if remaining is not None:
+            return [
+                f"使用失败：{target.name} 冷却中，约还剩 {remaining} 分后可再次使用。"
+            ]
+
     use_events = resolve_item_use(
         character,
         target,
@@ -44,6 +52,20 @@ def resolve_use_item(
         return use_events
 
     has_attack = bool(target.effects and target.effects.attack_damage.strip())
+    if (
+        game_state
+        and game_state.is_in_combat()
+        and attack_target.strip()
+        and has_attack
+    ):
+        return resolve_throw_attack_item(
+            character,
+            target,
+            item_ref,
+            game_state=game_state,
+            attack_target=attack_target,
+        )
+
     if target.kind == "durable" or has_attack:
         if has_attack and character.is_item_equipped(target.name):
             return [f"{target.name} 已装备并就绪，可直接攻击。"]
@@ -54,6 +76,11 @@ def resolve_use_item(
         if not ok:
             return [message]
         return [message, "具体效果由 KP 叙事描述。"]
+
+    if retains_inventory_on_use(target):
+        return [
+            f"使用：{target.name}（已激活；物品仍保留在背包，冷却结束后可再次使用）"
+        ]
 
     ok, consume_msg = character.consume_inventory_quantity(item_ref, 1)
     if not ok:

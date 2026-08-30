@@ -17,7 +17,7 @@ from ui.chat import (
     render_live_user_message,
 )
 from ui.game_state_panel import render_game_state_panel
-from ui.combat_panel import render_combat_panel
+from ui.combat_panel import AUTO_COMBAT_PENDING_KEY, render_combat_panel
 from ui.action_suggestions import render_action_suggestions
 from ui.loading import LoadingPlaceholder, run_with_spinner
 from ui.streaming import finalize_streaming_turn, render_phased_turn
@@ -61,6 +61,122 @@ def init_session_state() -> None:
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def handle_auto_combat(*, history: list[ChatMessage]) -> None:
+    character: Character = st.session_state.character
+    game_state: GameState = st.session_state.game_state
+    scenario: Scenario = st.session_state.scenario
+    orchestrator: GameOrchestrator = st.session_state.orchestrator
+    settings = get_settings()
+    game_config = st.session_state.get("game_config") or default_game_config()
+    summary_before = game_state.story_summary
+    user_label = "⚡ 自动战斗"
+    user_msg_index = len(st.session_state.messages)
+    turn_completed = False
+    rollback_turn = None
+
+    st.session_state.messages.append(ChatMessage(role="user", content=user_label))
+
+    turn = None
+    try:
+        if settings.enable_streaming:
+            progress = LoadingPlaceholder()
+            progress.show("自动战斗中……")
+            (
+                rejection_turn,
+                pre_tool_events,
+                run_state_phase,
+                text_stream,
+                run_item_sync_phase,
+                run_memory_finalize,
+                finish_turn,
+                rollback_turn,
+            ) = orchestrator.auto_combat_turn_stream(
+                character=character,
+                game_state=game_state,
+                scenario=scenario,
+                history=history,
+                game_config=game_config,
+            )
+            if rejection_turn is not None and rejection_turn.rejected:
+                progress.clear()
+                st.session_state.messages.append(
+                    ChatMessage(
+                        role="system",
+                        content=f"⚠️ 自动战斗无法开始：{rejection_turn.rejection_reason}",
+                    )
+                )
+                return
+
+            append_tool_events(pre_tool_events)
+            state_events, full_response = render_phased_turn(
+                pre_tool_events,
+                run_state_phase,
+                text_stream,
+                loading=progress,
+                kp_meta=False,
+            )
+            append_tool_events(state_events)
+            turn = finalize_streaming_turn(
+                full_response,
+                run_item_sync_phase=run_item_sync_phase,
+                run_memory_finalize=run_memory_finalize,
+                finish_turn=finish_turn,
+                kp_meta=False,
+            )
+            append_tool_events(
+                [
+                    event
+                    for event in turn.tool_events
+                    if event not in pre_tool_events and event not in state_events
+                ]
+            )
+            progress.clear()
+            st.session_state.messages.append(
+                ChatMessage(role="assistant", content=full_response or turn.response)
+            )
+        else:
+            with st.spinner("自动战斗中……"):
+                turn = orchestrator.auto_combat_turn(
+                    character=character,
+                    game_state=game_state,
+                    scenario=scenario,
+                    history=history,
+                    game_config=game_config,
+                )
+            if turn.rejected:
+                st.session_state.messages.append(
+                    ChatMessage(
+                        role="system",
+                        content=f"⚠️ 自动战斗无法开始：{turn.rejection_reason}",
+                    )
+                )
+                return
+            append_tool_events(turn.tool_events)
+            st.session_state.messages.append(
+                ChatMessage(role="assistant", content=turn.response)
+            )
+
+        if game_state.story_summary != summary_before:
+            pass
+        if turn is not None:
+            st.session_state.action_suggestions = turn.action_suggestions
+        turn_completed = True
+    except Exception as exc:
+        if rollback_turn:
+            rollback_turn()
+        st.session_state.messages = st.session_state.messages[:user_msg_index]
+        st.session_state.messages.append(
+            ChatMessage(
+                role="system",
+                content=f"⚠️ 自动战斗处理出错：{exc}。状态已回滚，请稍后重试。",
+            )
+        )
+        st.error(f"自动战斗失败：{exc}")
+    finally:
+        if turn_completed and st.session_state.get("game_started") and st.session_state.get("character"):
+            persist_save()
 
 
 def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> None:
@@ -282,7 +398,11 @@ def render_game() -> None:
         render_character_sheet(character)
         render_combat_panel(game_state)
         st.divider()
-        render_game_state_panel(game_state, scenario)
+        render_game_state_panel(
+            game_state,
+            scenario,
+            game_config=st.session_state.get("game_config"),
+        )
         st.divider()
         _render_scene_image(game_state, scenario)
         st.divider()
@@ -337,6 +457,11 @@ def render_game() -> None:
     render_gameplay_hint(game_state)
     render_chat_history(st.session_state.messages)
     render_action_suggestions(st.session_state.get("action_suggestions", []))
+
+    if st.session_state.pop(AUTO_COMBAT_PENDING_KEY, False):
+        history = list(st.session_state.messages)
+        handle_auto_combat(history=history)
+        st.rerun()
 
     # chat_input 须为页面最后一个组件，提交后在下方即时渲染本轮对话。
     user_input = render_chat_input(

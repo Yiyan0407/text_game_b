@@ -33,6 +33,26 @@ def test_apply_guidance_hint_script_guided_longer_window():
     assert "key_nodes" in result
 
 
+def test_apply_guidance_hint_script_guided_pending_beats_every_turn():
+    from game.models import ScenarioProgress
+    from game.scenario import Scenario, ScenarioNode
+
+    scenario = Scenario(
+        id="s",
+        title="t",
+        key_nodes=[ScenarioNode(id="n", title="节点", beats=["某要素"])],
+    )
+    config = GameConfig(kp_guidance="script_guided")
+    result = apply_guidance_hint(
+        "沿楼梯向下",
+        20,
+        config,
+        scenario=scenario,
+        progress=ScenarioProgress(),
+    )
+    assert "待完成要素" in result
+
+
 def test_save_roundtrip_game_config(tmp_path):
     manager = SaveManager(saves_dir=tmp_path)
     config = GameConfig(kp_guidance="script_guided", enable_background_validation=False)

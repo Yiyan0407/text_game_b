@@ -196,9 +196,13 @@ def apply_state_patch(
     for inv in patch.inventory:
         if inv.action != "remove":
             continue
-        if _should_block_inventory_remove(route, mechanical, inv):
+        if _should_block_inventory_remove(
+            route, mechanical, inv, character, inventory_sync=inventory_sync
+        ):
             events.append(
-                f"跳过重复移除：{inv.item}（机械层已消耗或扣款）。"
+                _inventory_remove_sync_block_reason(
+                    route, mechanical, inv, character, inventory_sync=inventory_sync
+                )
             )
             continue
         if _should_block_inventory_remove_on_unequip(character, inv, unequipped_items):
@@ -231,7 +235,10 @@ def apply_state_patch(
         if result:
             events.append(result)
 
+    memory_facts_added = 0
     for fact in patch.memory_facts:
+        if memory_facts_added >= 2:
+            break
         if isinstance(fact, MemoryFactPatch):
             payload: str | dict = fact.model_dump(exclude_none=True)
             text = fact.text.strip()
@@ -246,6 +253,7 @@ def apply_state_patch(
             added = game_state.add_memory_entries([payload], settings.max_memory_facts)
             for item in added:
                 events.append(f"已记录关键事实：{item}")
+                memory_facts_added += 1
 
     from game.background_process import register_background_process, resolve_background_processes
 
@@ -506,6 +514,8 @@ def _should_block_inventory_add(
             and not combat_pickup_reserved(mechanical_events, item_name)
         ):
             return True
+        if character.has_inventory_item(item_name):
+            return True
         # ItemSync（KP 叙事后）：NPC 交付/叙事拾取等以 KP 为准
         return False
 
@@ -522,12 +532,21 @@ def _should_block_inventory_remove(
     route: ActionRouteResult | None,
     mechanical_events: list[str],
     inv: InventoryPatch,
+    character: Character | None = None,
+    *,
+    inventory_sync: bool = False,
 ) -> bool:
     if inv.action != "remove":
         return False
     item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
     if not item_name:
         return False
+    if inventory_sync and character is not None:
+        from game.item_cooldown import retains_inventory_on_use
+
+        existing = character.find_inventory_item(item_name)
+        if existing is not None and retains_inventory_on_use(existing):
+            return True
     for event in mechanical_events:
         if not fuzzy_match_name(item_name, event):
             continue
@@ -543,6 +562,31 @@ def _should_block_inventory_remove(
             ):
                 return True
     return False
+
+
+def _inventory_remove_sync_block_reason(
+    route: ActionRouteResult | None,
+    mechanical_events: list[str],
+    inv: InventoryPatch,
+    character: Character,
+    *,
+    inventory_sync: bool = False,
+) -> str:
+    item_name = item_name_from_ref(inv.item.strip()) or inv.item.strip()
+    if (
+        inventory_sync
+        and character.find_inventory_item(item_name) is not None
+    ):
+        from game.item_cooldown import retains_inventory_on_use
+
+        existing = character.find_inventory_item(item_name)
+        if existing is not None and retains_inventory_on_use(existing):
+            return f"跳过移除：{inv.item}（可重复使用的装置，使用后保留并进入冷却）。"
+    if _should_block_inventory_remove(
+        route, mechanical_events, inv, character, inventory_sync=False
+    ):
+        return f"跳过重复移除：{inv.item}（机械层已消耗或扣款）。"
+    return f"跳过移除：{inv.item}。"
 
 
 def _inventory_add_block_reason(
@@ -583,6 +627,8 @@ def _inventory_add_block_reason(
         and not _mechanical_granted_pickup(mechanical_events, item_name)
     ):
         return f"跳过重复添加：{inv.item}（战斗中须先消耗拾取动作且 KP 前已记录）。"
+    if inventory_sync and character.has_inventory_item(item_name):
+        return f"跳过重复添加：{inv.item}（背包已有，本回合仅需 equip/unequip）。"
     return f"跳过重复添加：{inv.item}（须与机械层结算一致）。"
 
 
@@ -653,12 +699,11 @@ def _coerce_reroll_patch(value) -> RerollPatch | None:
 
 
 def sanitize_kp_meta_patch(patch: StatePatch) -> StatePatch:
-    """KP 出戏沟通：允许 inventory/equipment 修正（由 KP meta AI 裁定）；禁止推进时间或登记新时限。"""
+    """KP 出戏沟通：允许 inventory/equipment/时钟标签修正；禁止推进时间或登记新时限。"""
     if patch.time is None:
         return patch
     patch.time.advance_minutes = 0
     patch.time.advance_reason = ""
-    patch.time.time_label = ""
     patch.time.deadlines = []
     return patch
 

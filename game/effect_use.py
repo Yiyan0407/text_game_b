@@ -134,6 +134,42 @@ def _apply_use_damage_lines(
     return lines
 
 
+def resolve_throw_attack_item(
+    character: Character,
+    item: InventoryItem,
+    item_ref: str,
+    *,
+    game_state: GameState,
+    attack_target: str,
+) -> list[str]:
+    """将带 attack_damage 的物品作为投掷物使用（无 use_damage 时）。"""
+    effects = item.effects
+    if not effects or not effects.attack_damage.strip():
+        return [f"{item.name} 无法作为投掷物使用。"]
+
+    if character.is_item_equipped(item.name):
+        character.unequip_item(item.name)
+
+    damage_notation = effects.attack_damage.strip()
+    events = [f"投掷：{item.name}"]
+    events.extend(
+        _apply_use_damage_lines(
+            character,
+            item,
+            damage_notation,
+            game_state=game_state,
+            attack_target=attack_target,
+            auto_hit=False,
+            aoe=False,
+        )
+    )
+
+    ok, consume_msg = character.consume_inventory_quantity(item_ref, 1)
+    if ok:
+        events.append(consume_msg)
+    return events
+
+
 def _resolve_damage_targets(
     combat,
     attack_target: str,

@@ -5,13 +5,50 @@ from game.combat_constraints import format_combat_constraints_for_kp
 from game.models import Character, CombatEnemy, CombatState, DiceRoll, GameState
 from game.results import ActionRouteResult
 from game.state_patch import apply_state_patch, patch_from_dict
-from game.weapon_combat import resolve_weapon_profile
+from game.weapon_combat import resolve_best_weapon_profile, resolve_weapon_profile
 from chain.action_router import ActionRouter
 from tests.fixtures_effects import forged_heal_item, forged_martial_skill, forged_weapon
 
 
 def _approved_route(**kwargs) -> ActionRouteResult:
     return ActionRouteResult(approved=True, **kwargs)
+
+
+def test_resolve_best_weapon_profile_picks_highest_damage_at_melee():
+    baton = forged_weapon("电击棍", "1d6+1", use_dex=False)
+    dagger = forged_weapon("相位匕首", "2d8", use_dex=False)
+    character = Character(name="测试", inventory=[baton, dagger])
+    character.equip_item("电击棍", slot="hand")
+    character.equip_item("相位匕首", slot="body")
+
+    default = resolve_weapon_profile(character)
+    assert default.label == "电击棍"
+
+    best = resolve_best_weapon_profile(character, distance_m=0)
+    assert best.label == "相位匕首"
+    assert best.damage_notation == "2d8"
+
+
+def test_player_attack_uses_gun_butt_at_melee_range():
+    character = Character(
+        name="测试",
+        strength=16,
+        inventory=[forged_weapon("格洛克手枪")],
+        skills=["射击"],
+    )
+    character.equip_item("格洛克手枪", slot="hand")
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=20, max_hp=20, ac=5, attack_bonus=0, sp=0)],
+        turn_order=["player", "敌人"],
+        turn_index=0,
+        enemy_distances={"敌人": 0},
+    )
+    result = player_attack(character, state, "敌人")
+    assert "枪托" in result
+    assert state.combat.has_main_action() is False
 
 
 def test_resolve_weapon_profile_firearm_vs_unarmed():
@@ -808,6 +845,53 @@ def test_successful_deescalation_talk_ends_combat_without_enemy_attack(monkeypat
     assert "已投降" in result
     assert "战斗结束" in result
     assert not state.is_in_combat()
+
+
+def test_combat_use_item_cost_bonus_when_attack_target_set():
+    from game.combat_item_use import combat_use_item_cost
+
+    character = Character(
+        name="测试",
+        inventory=[forged_weapon("锤子", "2d10")],
+    )
+    assert combat_use_item_cost(character, "锤子") == "free"
+    assert combat_use_item_cost(character, "锤子", attack_target="变异体") == "bonus"
+    assert combat_use_item_cost(character, "锤子", is_throw=True) == "bonus"
+
+
+def test_validate_throw_hammer_after_free_interact_used():
+    character = Character(
+        name="测试",
+        inventory=[forged_weapon("锤子", "2d10")],
+    )
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="变异体", hp=30, max_hp=30, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+        enemy_distances={"变异体": 5},
+        free_interact_used=True,
+    )
+    route = _approved_route(
+        mode="combat",
+        item_usage="use",
+        combat_action="use_item",
+        referenced_items=["锤子"],
+        attack_target="变异体",
+        action_intent="将锤子朝着怪物丢过去",
+    )
+    result = ActionRouter.validate(
+        route,
+        character,
+        game_state,
+        user_input="将锤子朝着怪物丢过去",
+    )
+    assert result.approved is True
+    assert result.action_cost == "bonus"
+    assert "免费物件互动" not in (result.rejection_reason or "")
+    assert "快速装备" not in (result.rejection_reason or "")
 
 
 def test_incapacitated_enemy_cannot_act():

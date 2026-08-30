@@ -80,6 +80,9 @@ class EnemyDefPatch(BaseModel):
     sp: int = 0
     sp_max: int = 0
     start_distance_m: int = 10
+    use_dex: bool = False
+    attack_range_normal_m: int = 0
+    attack_range_max_m: int = 0
 
     def to_combat_enemy(self) -> "CombatEnemy":
         from game.models import CombatEnemy
@@ -99,6 +102,9 @@ class EnemyDefPatch(BaseModel):
             sp=sp,
             sp_max=sp_max,
             start_distance_m=max(0, self.start_distance_m or 10),
+            use_dex=self.use_dex,
+            attack_range_normal_m=max(0, self.attack_range_normal_m),
+            attack_range_max_m=max(0, self.attack_range_max_m),
         )
 
 

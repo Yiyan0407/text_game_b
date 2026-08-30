@@ -4,7 +4,7 @@ from config.settings import get_settings
 from game.memory_journal import (
     journal_total_chars,
     merge_compressed_entries,
-    trim_memory_journal,
+    trim_memory_journal_with_archive,
 )
 from game.models import ChatMessage, GameState
 
@@ -92,16 +92,21 @@ class LongTermMemoryManager:
             target_count=min(target_count, max(1, len(unpinned) // 2)),
         )
         if not compressed:
-            game_state.memory_journal = trim_memory_journal(
+            kept, dropped = trim_memory_journal_with_archive(
                 game_state.memory_journal,
                 self.max_memory_facts,
             )
+            game_state.memory_journal_archive.extend(dropped)
+            game_state.memory_journal = kept
             return
+        game_state.memory_journal_archive.extend(unpinned)
         merged = merge_compressed_entries(unpinned, compressed)
-        game_state.memory_journal = trim_memory_journal(
+        kept, dropped = trim_memory_journal_with_archive(
             pinned + merged,
             self.max_memory_facts,
         )
+        game_state.memory_journal_archive.extend(dropped)
+        game_state.memory_journal = kept
 
     async def _compress_journal_async(self, game_state: GameState) -> None:
         pinned = [entry for entry in game_state.memory_journal if entry.pinned]
@@ -112,16 +117,21 @@ class LongTermMemoryManager:
             target_count=min(target_count, max(1, len(unpinned) // 2)),
         )
         if not compressed:
-            game_state.memory_journal = trim_memory_journal(
+            kept, dropped = trim_memory_journal_with_archive(
                 game_state.memory_journal,
                 self.max_memory_facts,
             )
+            game_state.memory_journal_archive.extend(dropped)
+            game_state.memory_journal = kept
             return
+        game_state.memory_journal_archive.extend(unpinned)
         merged = merge_compressed_entries(unpinned, compressed)
-        game_state.memory_journal = trim_memory_journal(
+        kept, dropped = trim_memory_journal_with_archive(
             pinned + merged,
             self.max_memory_facts,
         )
+        game_state.memory_journal_archive.extend(dropped)
+        game_state.memory_journal = kept
 
     def _run_periodic_summary(
         self,

@@ -8,9 +8,14 @@ from game.effect_resolver import apply_damage_to_enemy, apply_incoming_damage
 from game.combat_range import (
     DEFAULT_START_DISTANCE_M,
     MELEE_REACH_M,
+    apply_ranged_melee_fallback,
     attack_range_status,
+    enemy_approach_meters,
+    enemy_attack_range_status,
+    enemy_retreat_meters,
     movement_speed_for,
 )
+from game.combat_targets import effective_enemy_distance
 from game.models import Character, CombatEnemy, CombatState, GameState
 from game.rules import ability_check, format_check_for_kp
 
@@ -47,6 +52,11 @@ def _parse_enemy_record(data: dict) -> CombatEnemy | None:
     attack_damage = str(data.get("attack_damage") or data.get("damage") or "").strip()
     sp = _extract_int(data.get("sp") or data.get("SP"))
     sp_max = _extract_int(data.get("sp_max") or data.get("SP_max"))
+    use_dex = bool(data.get("use_dex"))
+    attack_range_normal_m = _extract_int(
+        data.get("attack_range_normal_m") or data.get("attack_range_m")
+    )
+    attack_range_max_m = _extract_int(data.get("attack_range_max_m"))
     if not name or hp is None:
         return None
     enemy = CombatEnemy(
@@ -65,6 +75,12 @@ def _parse_enemy_record(data: dict) -> CombatEnemy | None:
         enemy.sp = max(0, sp)
     if sp_max is not None:
         enemy.sp_max = max(0, sp_max)
+    if use_dex:
+        enemy.use_dex = True
+    if attack_range_normal_m is not None:
+        enemy.attack_range_normal_m = max(0, attack_range_normal_m)
+    if attack_range_max_m is not None:
+        enemy.attack_range_max_m = max(0, attack_range_max_m)
     return enemy
 
 
@@ -227,28 +243,42 @@ def enemy_attack(
     defending: bool = False,
     *,
     game_state: GameState | None = None,
+    range_penalty: int = 0,
+    distance_m: int | None = None,
+    range_note: str = "",
+    damage_override: str | None = None,
+    attack_style: str = "",
 ) -> str:
     from game.combat_modifiers import enemy_attack_roll_modifier
 
     ac = player_ac(character, defending=defending, game_state=game_state)
-    roll_mod = enemy.attack_bonus + enemy_attack_roll_modifier(
-        game_state.combat if game_state else None
+    roll_mod = (
+        enemy.attack_bonus
+        + enemy_attack_roll_modifier(game_state.combat if game_state else None)
+        - range_penalty
     )
     attack = roll(f"1d20{roll_mod:+d}")
     hit = attack.total >= ac
 
+    range_suffix = ""
+    if distance_m is not None and (range_penalty or distance_m > MELEE_REACH_M):
+        range_suffix = f"，{distance_m}m"
+        if range_note:
+            range_suffix += f" · {range_note}"
+
     if not hit:
         return (
-            f"{enemy.name} 攻击你：1d20[{attack.rolls[0]}]{roll_mod:+d}="
+            f"{enemy.name} 攻击你{range_suffix}：1d20[{attack.rolls[0]}]{roll_mod:+d}="
             f"{attack.total} vs AC {ac} → 未命中"
         )
 
-    damage_roll = roll_damage(enemy.effective_attack_damage())
+    damage_notation = damage_override or enemy.effective_attack_damage()
+    damage_roll = roll_damage(damage_notation)
     raw_damage = damage_roll.total
     result = apply_incoming_damage(character, raw_damage)
     events = result.format_events()
     detail = (
-        f"{enemy.name} 攻击你：1d20[{attack.rolls[0]}]{roll_mod:+d}="
+        f"{enemy.name} 攻击你{range_suffix}：1d20[{attack.rolls[0]}]{roll_mod:+d}="
         f"{attack.total} vs AC {ac} → 命中！伤害 {damage_roll.describe()}。"
     )
     if events:
@@ -257,12 +287,17 @@ def enemy_attack(
     return detail
 
 
-def _enemy_approach(combat: CombatState, enemy: CombatEnemy) -> str | None:
-    """近战敌人回合开始时尝试靠近玩家。"""
-    dist = combat.enemy_distances.get(enemy.name, DEFAULT_START_DISTANCE_M)
-    if dist <= MELEE_REACH_M:
+def _enemy_reposition(combat: CombatState, enemy: CombatEnemy) -> str | None:
+    """敌人回合开始时后撤或靠近，以进入有效攻击距离。"""
+    dist = effective_enemy_distance(combat, enemy.name)
+    retreat = enemy_retreat_meters(enemy, dist)
+    if retreat > 0:
+        new_dist = dist + retreat
+        combat.set_distance_to(enemy.name, new_dist)
+        return f"{enemy.name} 后撤 {retreat}m（距离 {new_dist}m）。"
+    move = enemy_approach_meters(enemy, dist)
+    if move <= 0:
         return None
-    move = min(6, dist - MELEE_REACH_M)
     new_dist = dist - move
     combat.set_distance_to(enemy.name, new_dist)
     return f"{enemy.name} 靠近 {move}m（距离 {new_dist}m）。"
@@ -283,12 +318,44 @@ def _resolve_enemy_turn(
         return f"{enemy.name} 已投降，跳过回合。"
     if not enemy.can_act():
         return f"{enemy.name} 已失能，跳过回合。"
-    approach = _enemy_approach(combat, enemy)
+    reposition = _enemy_reposition(combat, enemy)
+    dist = effective_enemy_distance(combat, enemy.name)
+    in_range, range_penalty, range_note = enemy_attack_range_status(dist, enemy)
+    damage_override: str | None = None
+    attack_style = ""
+    if not in_range and "距离过近" in range_note:
+        from game.combat_range import enemy_attack_profile, enemy_weapon_range_m
+
+        profile, applied = apply_ranged_melee_fallback(
+            dist,
+            enemy_attack_profile(enemy),
+            range_m=enemy_weapon_range_m(enemy),
+        )
+        if applied:
+            in_range = True
+            range_penalty = 0
+            range_note = profile.label.split("（", 1)[-1].rstrip("）")
+            damage_override = profile.damage_notation
+            attack_style = profile.label
+    if not in_range:
+        out_of_range = f"{enemy.name} 够不着你（{range_note}，当前 {dist}m）。"
+        if reposition:
+            return f"{reposition} {out_of_range}"
+        return out_of_range
+    style_note = range_note if range_penalty else (attack_style or "")
     attack = enemy_attack(
-        enemy, character, defending=combat.defending, game_state=game_state
+        enemy,
+        character,
+        defending=combat.defending,
+        game_state=game_state,
+        range_penalty=range_penalty,
+        distance_m=dist,
+        range_note=style_note,
+        damage_override=damage_override,
+        attack_style=attack_style,
     )
-    if approach:
-        return f"{approach} {attack}"
+    if reposition:
+        return f"{reposition} {attack}"
     return attack
 
 
@@ -369,7 +436,7 @@ def player_move(
     if not enemy or enemy.hp <= 0:
         return f"找不到存活的敌人：{target_name}"
 
-    current = combat.distance_to(enemy.name) or DEFAULT_START_DISTANCE_M
+    current = effective_enemy_distance(combat, enemy.name)
     actual = combat.spend_movement(meters)
     if actual <= 0:
         return "移动力不足，无法移动。"
@@ -443,8 +510,13 @@ def player_attack(
         return draw_msg
     ensure_weapon_ready(character, weapon)
 
-    distance = combat.distance_to(enemy.name) or DEFAULT_START_DISTANCE_M
+    distance = effective_enemy_distance(combat, enemy.name)
     in_range, range_penalty, range_note = attack_range_status(distance, weapon)
+    if not in_range:
+        fallback, applied = apply_ranged_melee_fallback(distance, weapon)
+        if applied:
+            weapon = fallback
+            in_range, range_penalty, range_note = attack_range_status(distance, weapon)
     if not in_range:
         combat.action_used = False
         return f"无法攻击 {enemy.name}：{range_note}（当前 {distance}m）。"
@@ -868,10 +940,10 @@ def resolve_use_item_in_combat(
     *,
     attack_target: str = "",
 ) -> list[str]:
-    """消耗对应动作额度；用物效果在 KP 叙事后结算。"""
-    from game.combat_item_use import combat_use_item_cost
-
-    _ = attack_target  # 效果结算阶段使用
+    """消耗对应动作额度；伤害/投掷类效果在 KP 前结算，装备类仍于叙事后结算。"""
+    from game.combat_item_use import combat_use_item_cost, combat_use_resolves_pre_kp
+    from game.combat_targets import normalize_enemy_ref
+    from game.item_use import resolve_use_item
 
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
@@ -884,7 +956,11 @@ def resolve_use_item_in_combat(
         return [f"背包中没有：{refs[0]}"]
 
     if cost not in ("main", "bonus", "free"):
-        cost = combat_use_item_cost(character, refs[0])
+        cost = combat_use_item_cost(
+            character,
+            refs[0],
+            attack_target=attack_target,
+        )
 
     if cost == "free":
         err = spend_free_interact_or_error(combat)
@@ -900,4 +976,19 @@ def resolve_use_item_in_combat(
         "bonus": "附加动作",
         "main": "主要动作",
     }.get(cost, "动作")
-    return [f"{cost_label}：使用 {label}"]
+    events = [f"{cost_label}：使用 {label}"]
+
+    if combat_use_resolves_pre_kp(character, refs[0], attack_target=attack_target):
+        resolved_target = (
+            normalize_enemy_ref(combat, attack_target) if attack_target.strip() else ""
+        )
+        events.extend(
+            resolve_use_item(
+                character,
+                refs,
+                game_state=game_state,
+                attack_target=resolved_target,
+            )
+        )
+
+    return events

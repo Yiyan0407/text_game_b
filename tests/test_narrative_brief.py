@@ -1,0 +1,102 @@
+from game.game_config import GameConfig
+from game.models import Character, ChatMessage, GameState, ScenarioProgress
+from game.narrative_brief import (
+    build_narrative_brief,
+    build_narrative_brief_static,
+    merge_narrative_brief_with_state,
+)
+from game.results import ActionRouteResult
+from game.scenario import Scenario, ScenarioNode
+
+
+def _sample_scenario() -> Scenario:
+    return Scenario(
+        id="test",
+        title="测试",
+        key_nodes=[
+            ScenarioNode(
+                id="node-1",
+                title="开场节点",
+                beats=["易玖下达任务"],
+            ),
+        ],
+    )
+
+
+def test_narrative_brief_script_guided_includes_progress():
+    config = GameConfig(kp_guidance="script_guided")
+    text = build_narrative_brief_static(
+        "观察四周",
+        ActionRouteResult(approved=True),
+        [],
+        game_config=config,
+        scenario=_sample_scenario(),
+        progress=ScenarioProgress(),
+        turn_count=2,
+    )
+    assert "【剧本进度】" in text
+    assert "易玖下达任务" in text
+    assert "超出待完成 beats" in text
+
+
+def test_narrative_brief_freeform_skips_progress_after_opening():
+    config = GameConfig(kp_guidance="freeform")
+    text = build_narrative_brief_static(
+        "继续前进",
+        ActionRouteResult(approved=True),
+        [],
+        game_config=config,
+        scenario=_sample_scenario(),
+        progress=ScenarioProgress(),
+        turn_count=5,
+    )
+    assert "【剧本进度】" not in text
+    assert "勿擅自推进未提及的后续主线情节" in text
+
+
+def test_narrative_brief_balanced_allows_light_nudge():
+    config = GameConfig(kp_guidance="balanced")
+    text = build_narrative_brief_static(
+        "搜索房间",
+        ActionRouteResult(approved=True),
+        [],
+        game_config=config,
+        scenario=_sample_scenario(),
+        progress=ScenarioProgress(),
+        turn_count=4,
+    )
+    assert "【剧本进度】" in text
+    assert "环境细节呼应【剧本进度】" in text
+
+
+def test_merge_brief_includes_continuity_hint():
+    history = [
+        ChatMessage(role="user", content="查看文件"),
+        ChatMessage(
+            role="assistant",
+            content="你打开文件。\n\n脚步声在门外停了下来。",
+        ),
+    ]
+    text = merge_narrative_brief_with_state(
+        "【叙事简报】\n【玩家输入】\n等待并查看",
+        Character(name="测试"),
+        GameState(),
+        history=history,
+    )
+    assert "【叙事接续 — 禁止复述】" in text
+    assert "脚步声在门外停了下来" in text
+
+
+def test_build_narrative_brief_passes_history():
+    history = [
+        ChatMessage(role="assistant", content="上一轮结尾。"),
+    ]
+    text = build_narrative_brief(
+        "继续",
+        ActionRouteResult(approved=True),
+        [],
+        Character(name="测试"),
+        GameState(),
+        history=history,
+    )
+    assert "【叙事接续" in text
