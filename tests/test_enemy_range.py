@@ -3,6 +3,69 @@ from game.combat_range import enemy_attack_range_status, enemy_weapon_range_m
 from game.models import Character, CombatEnemy, CombatState, GameState
 
 
+def test_ranged_enemy_retreats_when_too_close():
+    character = Character(name="测试", hp=20, max_hp=20)
+    enemy = CombatEnemy(
+        name="枪手",
+        hp=12,
+        max_hp=12,
+        ac=12,
+        attack_damage="1d10",
+        use_dex=True,
+        attack_bonus=20,
+        start_distance_m=10,
+    )
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[enemy],
+        turn_order=["枪手"],
+        turn_index=0,
+        enemy_distances={"枪手": 0},
+    )
+    event = _resolve_enemy_turn(state.combat, character, state)
+    assert event is not None
+    assert "后撤" in event
+    assert state.combat.enemy_distances["枪手"] == 2
+    assert "攻击你" in event
+    assert "够不着" not in event
+
+
+def test_ranged_enemy_uses_gun_butt_when_pinned_at_melee():
+    character = Character(name="测试", hp=20, max_hp=20, ac=10)
+    enemy = CombatEnemy(
+        name="枪手",
+        hp=12,
+        max_hp=12,
+        ac=12,
+        attack_damage="1d10",
+        use_dex=True,
+        attack_bonus=10,
+        start_distance_m=0,
+    )
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[enemy],
+        turn_order=["枪手"],
+        turn_index=0,
+        enemy_distances={"枪手": 0},
+    )
+    # 模拟无法后撤：先把距离钉在 0，并跳过 reposition 效果——直接测 fallback
+    from game.combat_range import apply_ranged_melee_fallback, enemy_attack_profile, enemy_weapon_range_m
+
+    profile, applied = apply_ranged_melee_fallback(
+        0,
+        enemy_attack_profile(enemy),
+        range_m=enemy_weapon_range_m(enemy),
+    )
+    assert applied
+    assert profile.damage_notation == "1d4"
+    assert "枪托" in profile.label
+
+
 def test_melee_enemy_weapon_range():
     enemy = CombatEnemy(name="变异体", hp=20, max_hp=20, ac=12, attack_damage="2d10")
     assert enemy_weapon_range_m(enemy) == (0, 2, 2)

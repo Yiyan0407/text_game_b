@@ -5,13 +5,50 @@ from game.combat_constraints import format_combat_constraints_for_kp
 from game.models import Character, CombatEnemy, CombatState, DiceRoll, GameState
 from game.results import ActionRouteResult
 from game.state_patch import apply_state_patch, patch_from_dict
-from game.weapon_combat import resolve_weapon_profile
+from game.weapon_combat import resolve_best_weapon_profile, resolve_weapon_profile
 from chain.action_router import ActionRouter
 from tests.fixtures_effects import forged_heal_item, forged_martial_skill, forged_weapon
 
 
 def _approved_route(**kwargs) -> ActionRouteResult:
     return ActionRouteResult(approved=True, **kwargs)
+
+
+def test_resolve_best_weapon_profile_picks_highest_damage_at_melee():
+    baton = forged_weapon("电击棍", "1d6+1", use_dex=False)
+    dagger = forged_weapon("相位匕首", "2d8", use_dex=False)
+    character = Character(name="测试", inventory=[baton, dagger])
+    character.equip_item("电击棍", slot="hand")
+    character.equip_item("相位匕首", slot="body")
+
+    default = resolve_weapon_profile(character)
+    assert default.label == "电击棍"
+
+    best = resolve_best_weapon_profile(character, distance_m=0)
+    assert best.label == "相位匕首"
+    assert best.damage_notation == "2d8"
+
+
+def test_player_attack_uses_gun_butt_at_melee_range():
+    character = Character(
+        name="测试",
+        strength=16,
+        inventory=[forged_weapon("格洛克手枪")],
+        skills=["射击"],
+    )
+    character.equip_item("格洛克手枪", slot="hand")
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="敌人", hp=20, max_hp=20, ac=5, attack_bonus=0, sp=0)],
+        turn_order=["player", "敌人"],
+        turn_index=0,
+        enemy_distances={"敌人": 0},
+    )
+    result = player_attack(character, state, "敌人")
+    assert "枪托" in result
+    assert state.combat.has_main_action() is False
 
 
 def test_resolve_weapon_profile_firearm_vs_unarmed():

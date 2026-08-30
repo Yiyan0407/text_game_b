@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from game.dice import parse_dice
 from game.equipment import EquipmentSlot
 from game.models import Character
 from game.results import ActionRouteResult
@@ -167,6 +168,68 @@ def _referenced_weapon(character: Character, route: ActionRouteResult | None) ->
     return None
 
 
+def _expected_damage_average(notation: str) -> float:
+    total = 0.0
+    for part in notation.strip().lower().replace(" ", "").split("+"):
+        if not part:
+            continue
+        if part.isdigit() or (part.startswith("-") and part[1:].isdigit()):
+            total += int(part)
+            continue
+        try:
+            count, sides, modifier = parse_dice(part)
+        except ValueError:
+            continue
+        total += count * (sides + 1) / 2 + modifier
+    return total
+
+
+def _finalize_weapon_profile(
+    character: Character,
+    route: ActionRouteResult | None,
+    profile: WeaponProfile,
+    *,
+    user_input: str = "",
+) -> WeaponProfile:
+    profile = _apply_skill_bonus(character, profile)
+    return _stack_active_martial_skill(
+        character, route, profile, user_input=user_input
+    )
+
+
+def _collect_weapon_profiles(
+    character: Character,
+    route: ActionRouteResult | None = None,
+) -> list[WeaponProfile]:
+    profiles: list[WeaponProfile] = []
+    seen: set[str] = set()
+
+    def add_profile(profile: WeaponProfile | None) -> None:
+        if profile is None:
+            return
+        key = profile.item_name or profile.label
+        if key in seen:
+            return
+        seen.add(key)
+        profiles.append(_finalize_weapon_profile(character, route, profile))
+
+    if route is not None:
+        for ref in route.referenced_items:
+            add_profile(_profile_from_item(character, ref))
+
+    character.prune_equipment()
+    for slot in _EQUIPMENT_WEAPON_SLOTS:
+        for entry in character.equipment:
+            if entry.slot != slot:
+                continue
+            add_profile(_profile_from_item(character, entry.item_name))
+
+    for item in character.inventory:
+        add_profile(_profile_from_item(character, item.name))
+
+    return profiles
+
+
 def resolve_weapon_profile(
     character: Character,
     route: ActionRouteResult | None = None,
@@ -180,11 +243,34 @@ def resolve_weapon_profile(
     ):
         profile = resolver()
         if profile is not None:
-            profile = _apply_skill_bonus(character, profile)
-            return _stack_active_martial_skill(
+            return _finalize_weapon_profile(
                 character, route, profile, user_input=user_input
             )
     return _unarmed_profile(character, route, user_input=user_input)
+
+
+def resolve_best_weapon_profile(
+    character: Character,
+    route: ActionRouteResult | None = None,
+    *,
+    distance_m: int | None = None,
+    user_input: str = "",
+) -> WeaponProfile:
+    """自动战斗等场景：在可用武器中选期望伤害最高、且当前距离可攻击的一件。"""
+    from game.combat_range import attack_range_status
+
+    profiles = _collect_weapon_profiles(character, route)
+    if not profiles:
+        return _unarmed_profile(character, route, user_input=user_input)
+
+    def score(profile: WeaponProfile) -> float:
+        avg = _expected_damage_average(profile.damage_notation) + profile.attack_bonus
+        if distance_m is None:
+            return avg
+        in_range, _, _ = attack_range_status(distance_m, profile)
+        return avg if in_range else avg - 1000
+
+    return max(profiles, key=score)
 
 
 def _inventory_weapon(character: Character) -> WeaponProfile | None:

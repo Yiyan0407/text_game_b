@@ -14,6 +14,7 @@ RIFLE_NORMAL_M = 80
 RIFLE_MAX_M = 150
 DEFAULT_START_DISTANCE_M = 10
 LONG_RANGE_PENALTY = 2
+MELEE_GUN_DAMAGE = "1d4"
 _ENEMY_MOVE_M = 6
 
 
@@ -107,6 +108,40 @@ def enemy_approach_meters(enemy: CombatEnemy, distance_m: int) -> int:
     if distance_m <= hard_max:
         return 0
     return min(_ENEMY_MOVE_M, distance_m - hard_max)
+
+
+def enemy_retreat_meters(enemy: CombatEnemy, distance_m: int) -> int:
+    """远程敌人因过近需后撤的米数（0 表示无需后撤）。"""
+    min_r, _normal_max, _hard_max = enemy_weapon_range_m(enemy)
+    if min_r <= 0 or distance_m >= min_r:
+        return 0
+    return min(_ENEMY_MOVE_M, min_r - distance_m)
+
+
+def apply_ranged_melee_fallback(
+    distance_m: int,
+    profile: WeaponProfile,
+    *,
+    range_m: tuple[int, int, int] | None = None,
+) -> tuple[WeaponProfile, bool]:
+    """远程武器在近战距离内改用枪托/柄击（伤害降低，仍可攻击）。"""
+    min_r, _normal_max, _hard_max = range_m or weapon_range_m(profile)
+    if not profile.use_dex or distance_m >= min_r:
+        return profile, False
+    if distance_m > MELEE_REACH_M:
+        return profile, False
+    base_label = profile.item_name or profile.label.split("（", 1)[0].strip()
+    suffix = "枪托" if profile.use_dex else "柄击"
+    return (
+        WeaponProfile(
+            label=f"{base_label}（{suffix}）",
+            use_dex=False,
+            damage_notation=MELEE_GUN_DAMAGE,
+            attack_bonus=profile.attack_bonus,
+            item_name=profile.item_name,
+        ),
+        True,
+    )
 
 
 def format_distance_line(enemy_name: str, distance_m: int) -> str:

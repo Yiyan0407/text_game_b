@@ -15,7 +15,8 @@ from game.combat import (
 from game.combat_range import attack_range_status, weapon_range_m
 from game.combat_targets import effective_enemy_distance
 from game.models import Character, CombatEnemy, CombatState, GameState
-from game.weapon_combat import resolve_weapon_profile
+from game.results import ActionRouteResult
+from game.weapon_combat import resolve_best_weapon_profile
 
 MAX_AUTO_COMBAT_ROUNDS = 100
 
@@ -58,8 +59,8 @@ def _player_auto_step(character: Character, game_state: GameState) -> str | None
     if enemy is None:
         return None
 
-    weapon = resolve_weapon_profile(character, None)
     dist = effective_enemy_distance(combat, enemy.name)
+    weapon = resolve_best_weapon_profile(character, None, distance_m=dist)
     in_range, _, _ = attack_range_status(dist, weapon)
 
     if not in_range and combat.has_movement():
@@ -76,16 +77,19 @@ def _player_auto_step(character: Character, game_state: GameState) -> str | None
                 )
 
     dist = effective_enemy_distance(combat, enemy.name)
+    weapon = resolve_best_weapon_profile(character, None, distance_m=dist)
     in_range, _, _ = attack_range_status(dist, weapon)
     if in_range and combat.has_main_action():
-        return player_attack(character, game_state, enemy.name, route=None)
+        weapon_ref = weapon.item_name or weapon.label.split("（", 1)[0].strip()
+        route = ActionRouteResult(approved=True, referenced_items=[weapon_ref])
+        return player_attack(character, game_state, enemy.name, route=route)
 
-    if combat.has_movement() and combat.movement_remaining_m > 0:
+    if combat.has_movement() and combat.movement_remaining_m > 0 and dist > 0:
         return player_move(
             character,
             game_state,
             enemy.name,
-            combat.movement_remaining_m,
+            min(combat.movement_remaining_m, dist),
             toward=True,
         )
 
