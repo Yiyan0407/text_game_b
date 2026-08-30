@@ -694,6 +694,7 @@ class GameState(BaseModel):
     story_summary: str = ""
     chapter_summaries: list[str] = Field(default_factory=list)
     memory_journal: list[MemoryEntry] = Field(default_factory=list)
+    memory_journal_archive: list[MemoryEntry] = Field(default_factory=list)
     turn_count: int = 0
     last_summarized_turn: int = 0
     last_chapter_turn: int = 0
@@ -729,6 +730,11 @@ class GameState(BaseModel):
     @field_validator("memory_journal", mode="before")
     @classmethod
     def _coerce_memory_journal(cls, value):
+        return normalize_memory_journal(value)
+
+    @field_validator("memory_journal_archive", mode="before")
+    @classmethod
+    def _coerce_memory_journal_archive(cls, value):
         return normalize_memory_journal(value)
 
     @field_validator("visited_scenes", mode="before")
@@ -771,6 +777,11 @@ class GameState(BaseModel):
     @property
     def memory_facts(self) -> list[str]:
         return [entry.text for entry in self.memory_journal]
+
+    def player_memory_entries(self) -> list[MemoryEntry]:
+        from game.memory_journal import player_memory_entries
+
+        return player_memory_entries(self.memory_journal, self.memory_journal_archive)
 
     def add_memory_entries(
         self,
@@ -831,9 +842,14 @@ class GameState(BaseModel):
 
             if not incoming.text:
                 continue
+            from game.memory_journal import is_trivial_memory
+
+            if is_trivial_memory(incoming.text):
+                continue
+            existing_pool = self.memory_journal + self.memory_journal_archive
             if any(
                 incoming.text in existing.text or existing.text in incoming.text
-                for existing in self.memory_journal
+                for existing in existing_pool
             ):
                 continue
             if not incoming.narrative_time:
@@ -850,10 +866,14 @@ class GameState(BaseModel):
             added.append(incoming.text)
 
         if len(self.memory_journal) > max_facts:
-            pinned = [entry for entry in self.memory_journal if entry.pinned]
-            unpinned = [entry for entry in self.memory_journal if not entry.pinned]
-            keep_unpinned = max(0, max_facts - len(pinned))
-            self.memory_journal = pinned + unpinned[-keep_unpinned:]
+            from game.memory_journal import trim_memory_journal_with_archive
+
+            kept, dropped = trim_memory_journal_with_archive(
+                self.memory_journal,
+                max_facts,
+            )
+            self.memory_journal_archive.extend(dropped)
+            self.memory_journal = kept
         return added
 
     def add_memory_facts(self, new_facts: list[str], max_facts: int) -> None:

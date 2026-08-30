@@ -260,6 +260,27 @@ def journal_total_chars(entries: list[MemoryEntry]) -> int:
     return sum(len(entry.text) for entry in entries)
 
 
+_TRIVIAL_MEMORY_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"尝试「.+」失败（.+检定"),
+    re.compile(r"检定 \d+ vs DC \d+"),
+    re.compile(r"^社交尝试「.+」失败"),
+    re.compile(r"^潜入/潜行尝试失败"),
+    re.compile(r"^向他人学习「.+」失败"),
+    re.compile(r"^(观察|搜索|查看|检查|询问).{0,12}$"),
+)
+
+
+def is_trivial_memory(text: str) -> bool:
+    """过滤不应进入关键记忆的琐碎/临时条目。"""
+    cleaned = text.strip()
+    if len(cleaned) < 4:
+        return True
+    for pattern in _TRIVIAL_MEMORY_PATTERNS:
+        if pattern.search(cleaned):
+            return True
+    return False
+
+
 def format_entries_for_compress(entries: list[MemoryEntry]) -> str:
     """按主题格式化，供记忆压缩 prompt 使用。"""
     if not entries:
@@ -314,9 +335,51 @@ def merge_compressed_entries(
 
 def trim_memory_journal(entries: list[MemoryEntry], max_facts: int) -> list[MemoryEntry]:
     """置顶保留，未置顶保留最新若干条。"""
+    kept, _ = trim_memory_journal_with_archive(entries, max_facts)
+    return kept
+
+
+def trim_memory_journal_with_archive(
+    entries: list[MemoryEntry],
+    max_facts: int,
+) -> tuple[list[MemoryEntry], list[MemoryEntry]]:
+    """裁剪活跃记忆，返回 (保留, 应移入归档的条目)。"""
     if len(entries) <= max_facts:
-        return entries
+        return entries, []
     pinned = [entry for entry in entries if entry.pinned]
     unpinned = [entry for entry in entries if not entry.pinned]
     keep_unpinned = max(0, max_facts - len(pinned))
-    return pinned + unpinned[-keep_unpinned:]
+    if keep_unpinned:
+        dropped = unpinned[:-keep_unpinned]
+        kept = pinned + unpinned[-keep_unpinned:]
+    else:
+        dropped = unpinned
+        kept = pinned
+    return kept, dropped
+
+
+def player_memory_entries(
+    journal: list[MemoryEntry],
+    archive: list[MemoryEntry] | None = None,
+) -> list[MemoryEntry]:
+    """玩家可见的完整记忆：归档原文 + 当前活跃条目（按 id 去重）。"""
+    seen: set[str] = set()
+    combined: list[MemoryEntry] = []
+    for entry in list(archive or []) + list(journal):
+        entry_id = entry.id.strip()
+        if entry_id and entry_id in seen:
+            continue
+        if entry_id:
+            seen.add(entry_id)
+        combined.append(entry)
+    return combined
+
+
+def toggle_pin_in_state(
+    journal: list[MemoryEntry],
+    archive: list[MemoryEntry],
+    entry_id: str,
+) -> bool:
+    if toggle_pin(journal, entry_id):
+        return True
+    return toggle_pin(archive, entry_id)

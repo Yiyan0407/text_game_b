@@ -24,9 +24,16 @@ def render_game_state_panel(game_state: GameState, scenario: Scenario) -> None:
             else:
                 st.caption(f"⏰ {deadline.label} · 还剩 {format_duration(remaining)}")
 
+    player_memory_count = len(game_state.player_memory_entries())
     st.caption(
-        f"记忆事实：{len(game_state.memory_journal)} · "
-        f"章节：{len(game_state.chapter_summaries)}"
+        f"记忆事实：{player_memory_count}"
+        + (
+            f"（活跃 {len(game_state.memory_journal)} · "
+            f"归档 {len(game_state.memory_journal_archive)}）"
+            if game_state.memory_journal_archive
+            else ""
+        )
+        + f" · 章节：{len(game_state.chapter_summaries)}"
     )
 
     active = [q for q in game_state.active_quests if q.status == "active"]
@@ -44,7 +51,7 @@ def render_game_state_panel(game_state: GameState, scenario: Scenario) -> None:
                 if npc.notes:
                     st.caption(npc.notes)
 
-    if game_state.memory_journal:
+    if game_state.player_memory_entries():
         render_memory_journal_entry(game_state)
     else:
         st.caption("暂无关键记忆。")

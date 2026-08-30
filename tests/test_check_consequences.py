@@ -42,7 +42,7 @@ def test_check_failure_records_memory_and_damage():
     assert any("行动失败" in event for event in events)
     assert any("受到" in event or "伤害" in event for event in events)
     assert character.hp < 20
-    assert any("攀爬" in fact for fact in state.memory_facts)
+    assert state.memory_facts == []
 
 
 def test_check_failure_social_worsens_npc_attitude():
@@ -70,7 +70,7 @@ def test_check_failure_stealth_adds_alert():
         route, result, character, state, user_input=text
     )
     assert any("潜行失败" in event for event in events)
-    assert any("警戒" in fact for fact in state.memory_facts)
+    assert state.memory_facts == []
 
 
 def test_check_failure_does_not_auto_advance_time():

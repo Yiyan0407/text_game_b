@@ -911,7 +911,11 @@ class GameOrchestrator:
         if not game_state.is_in_combat() and route.needs_roll:
             from game.check_reroll import apply_pending_reroll_to_route
 
-            pre_tool_events.extend(apply_pending_reroll_to_route(route, game_state))
+            pre_tool_events.extend(
+                apply_pending_reroll_to_route(
+                    route, game_state, user_input=user_input
+                )
+            )
             roll_events, roll_success = self._execute_pre_roll(
                 route, character, game_state, user_input=user_input
             )

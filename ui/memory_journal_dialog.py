@@ -6,7 +6,7 @@ from collections import defaultdict
 
 import streamlit as st
 
-from game.memory_journal import MemoryEntry, list_memory_topics, toggle_pin
+from game.memory_journal import MemoryEntry, list_memory_topics, toggle_pin_in_state
 from game.models import GameState
 
 _VIEW_TOPIC = "topic"
@@ -37,7 +37,12 @@ def _group_timeline(entries: list[MemoryEntry]) -> list[tuple[str, list[MemoryEn
     return [(key, groups[key]) for key in ordered_keys]
 
 
-def _render_entry_row(entry: MemoryEntry, *, key_prefix: str) -> None:
+def _render_entry_row(
+    entry: MemoryEntry,
+    *,
+    key_prefix: str,
+    game_state: GameState,
+) -> None:
     meta_parts = []
     if entry.scene_name:
         meta_parts.append(entry.scene_name)
@@ -54,22 +59,36 @@ def _render_entry_row(entry: MemoryEntry, *, key_prefix: str) -> None:
         st.caption(f"{meta}{tag_text}" if meta or tag_text else " ")
     with col_pin:
         if st.button(pin_label, key=f"{key_prefix}_pin_{entry.id}", use_container_width=True):
-            toggle_pin(st.session_state.game_state.memory_journal, entry.id)
+            toggle_pin_in_state(
+                game_state.memory_journal,
+                game_state.memory_journal_archive,
+                entry.id,
+            )
             st.rerun()
 
 
-def _render_pinned_section(entries: list[MemoryEntry], *, key_prefix: str) -> None:
+def _render_pinned_section(
+    entries: list[MemoryEntry],
+    *,
+    key_prefix: str,
+    game_state: GameState,
+) -> None:
     pinned = [entry for entry in entries if entry.pinned]
     if not pinned:
         return
     st.markdown(f"**⭐ 置顶（{len(pinned)}）**")
     for entry in pinned:
         st.markdown(f"**[{entry.topic_label()}]**")
-        _render_entry_row(entry, key_prefix=f"{key_prefix}_pinned")
+        _render_entry_row(entry, key_prefix=f"{key_prefix}_pinned", game_state=game_state)
     st.divider()
 
 
-def _render_topic_view(entries: list[MemoryEntry], *, key_prefix: str) -> None:
+def _render_topic_view(
+    entries: list[MemoryEntry],
+    *,
+    key_prefix: str,
+    game_state: GameState,
+) -> None:
     topics = list_memory_topics(entries)
     tab_labels = ["全部"] + topics
     tabs = st.tabs(tab_labels)
@@ -83,10 +102,19 @@ def _render_topic_view(entries: list[MemoryEntry], *, key_prefix: str) -> None:
                 st.caption(f"暂无「{label}」相关记忆。")
                 continue
             for entry in reversed(subset):
-                _render_entry_row(entry, key_prefix=f"{key_prefix}_{label}_{entry.id}")
+                _render_entry_row(
+                    entry,
+                    key_prefix=f"{key_prefix}_{label}_{entry.id}",
+                    game_state=game_state,
+                )
 
 
-def _render_timeline_view(entries: list[MemoryEntry], *, key_prefix: str) -> None:
+def _render_timeline_view(
+    entries: list[MemoryEntry],
+    *,
+    key_prefix: str,
+    game_state: GameState,
+) -> None:
     if not entries:
         st.caption("暂无关键记忆。")
         return
@@ -94,14 +122,28 @@ def _render_timeline_view(entries: list[MemoryEntry], *, key_prefix: str) -> Non
         st.markdown(f"**{label}**")
         for entry in reversed(group):
             st.markdown(f"*{entry.topic_label()}*")
-            _render_entry_row(entry, key_prefix=f"{key_prefix}_tl_{entry.id}")
+            _render_entry_row(
+                entry,
+                key_prefix=f"{key_prefix}_tl_{entry.id}",
+                game_state=game_state,
+            )
         st.divider()
 
 
 def _render_memory_journal_content(game_state: GameState) -> None:
-    st.caption("按主题（如人物、地点）或时间线浏览；可置顶重要情报以便潜入时快速查阅。")
+    all_entries = game_state.player_memory_entries()
+    archive_count = len(game_state.memory_journal_archive)
+    active_count = len(game_state.memory_journal)
+    st.caption(
+        "按主题（如人物、地点）或时间线浏览；可置顶重要情报以便潜入时快速查阅。"
+        + (
+            f" 共 {len(all_entries)} 条"
+            + (f"（含 {archive_count} 条历史归档）" if archive_count else "")
+            + f"，当前活跃 {active_count} 条供 AI 引用。"
+        )
+    )
 
-    topics = list_memory_topics(game_state.memory_journal)
+    topics = list_memory_topics(all_entries)
     if topics:
         st.markdown("**已有主题**")
         st.caption(" · ".join(topics))
@@ -129,13 +171,13 @@ def _render_memory_journal_content(game_state: GameState) -> None:
         key="memory_journal_view",
     )
 
-    entries = _filter_entries(list(game_state.memory_journal), query)
-    _render_pinned_section(entries, key_prefix="memory_dialog")
+    entries = _filter_entries(all_entries, query)
+    _render_pinned_section(entries, key_prefix="memory_dialog", game_state=game_state)
 
     if view == _VIEW_TOPIC:
-        _render_topic_view(entries, key_prefix="memory_dialog")
+        _render_topic_view(entries, key_prefix="memory_dialog", game_state=game_state)
     else:
-        _render_timeline_view(entries, key_prefix="memory_dialog")
+        _render_timeline_view(entries, key_prefix="memory_dialog", game_state=game_state)
 
     if game_state.chapter_summaries or game_state.story_summary:
         with st.expander("更早剧情摘要", expanded=False):
@@ -162,15 +204,19 @@ def _open_memory_journal_dialog(game_state: GameState) -> None:
 
 def render_memory_journal_entry(game_state: GameState) -> None:
     """侧边栏入口：按钮 + 置顶预览。"""
-    count = len(game_state.memory_journal)
+    all_entries = game_state.player_memory_entries()
+    count = len(all_entries)
+    archive_hint = ""
+    if game_state.memory_journal_archive:
+        archive_hint = f"（含 {len(game_state.memory_journal_archive)} 条归档）"
     if st.button(
-        f"📖 关键记忆（{count}）",
+        f"📖 关键记忆（{count}）{archive_hint}",
         use_container_width=True,
         key="open_memory_journal",
     ):
         st.session_state.memory_journal_open = True
 
-    pinned = [entry for entry in game_state.memory_journal if entry.pinned]
+    pinned = [entry for entry in all_entries if entry.pinned]
     if pinned:
         st.caption("⭐ 置顶预览")
         for entry in pinned[:2]:

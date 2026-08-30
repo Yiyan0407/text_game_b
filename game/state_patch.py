@@ -231,7 +231,10 @@ def apply_state_patch(
         if result:
             events.append(result)
 
+    memory_facts_added = 0
     for fact in patch.memory_facts:
+        if memory_facts_added >= 2:
+            break
         if isinstance(fact, MemoryFactPatch):
             payload: str | dict = fact.model_dump(exclude_none=True)
             text = fact.text.strip()
@@ -246,6 +249,7 @@ def apply_state_patch(
             added = game_state.add_memory_entries([payload], settings.max_memory_facts)
             for item in added:
                 events.append(f"已记录关键事实：{item}")
+                memory_facts_added += 1
 
     from game.background_process import register_background_process, resolve_background_processes
 

@@ -4,6 +4,40 @@ from __future__ import annotations
 
 from game.models import ABILITY_LABELS, Character, GameState, LastAbilityCheckRecord, PendingReroll
 from game.results import RerollPatch
+from game.text_match import fuzzy_match_name
+
+
+def _reroll_applies_to_action(
+    pending: PendingReroll,
+    game_state: GameState,
+    user_input: str,
+) -> bool:
+    """待重掷仅可套用于玩家重试同一申诉行动，不可用于无关检定。"""
+    current = user_input.strip()
+    if not current:
+        return False
+
+    hints: list[str] = []
+    if pending.action_hint.strip():
+        hints.append(pending.action_hint.strip())
+    last = game_state.last_ability_check
+    if last:
+        if last.user_input.strip():
+            hints.append(last.user_input.strip())
+        if last.action_intent.strip():
+            hints.append(last.action_intent.strip())
+
+    if not hints:
+        return False
+
+    for hint in hints:
+        if fuzzy_match_name(hint, current) or fuzzy_match_name(current, hint):
+            return True
+        if len(hint) >= 4 and hint in current:
+            return True
+        if len(current) >= 4 and current in hint:
+            return True
+    return False
 
 
 def record_ability_check(
@@ -37,12 +71,18 @@ def record_ability_check(
 def apply_pending_reroll_to_route(
     route,
     game_state: GameState,
+    *,
+    user_input: str = "",
 ) -> list[str]:
-    """若存在 KP 授予的重掷，覆盖 DC 并消耗一次机会。"""
+    """若存在 KP 授予的重掷，覆盖 DC 并消耗一次机会（须与申诉行动一致）。"""
     pending = game_state.pending_reroll
     if pending is None:
         return []
     if not route.needs_roll or route.roll_type != "ability_check":
+        return []
+
+    if not _reroll_applies_to_action(pending, game_state, user_input):
+        game_state.pending_reroll = None
         return []
 
     events: list[str] = []

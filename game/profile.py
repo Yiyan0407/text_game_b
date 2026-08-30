@@ -203,7 +203,7 @@ def sync_card_from_adventure(
     card.skills = merged_skills
     card.inventory = [item.model_copy() for item in character.inventory]
 
-    for fact in game_state.memory_journal:
+    for fact in game_state.player_memory_entries():
         if fact.text not in card.notable_facts:
             card.notable_facts.append(fact.text)
     if len(card.notable_facts) > 30:

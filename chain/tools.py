@@ -122,7 +122,7 @@ def create_kp_tools(
         )
 
     def record_memory_fact(fact: str) -> str:
-        """当发生必须长期记住的事件时调用（获得关键物品、重要承诺、重大真相、NPC 秘密等）。"""
+        """仅当发生跨多回合仍须记住的重大事件时调用（关键承诺、重大真相、NPC 核心秘密、区域规则等）。日常观察、检定成败勿调用。"""
         from config.settings import get_settings
 
         settings = get_settings()

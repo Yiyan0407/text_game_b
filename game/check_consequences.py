@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import re
 
-from config.settings import get_settings
 from game.effect_resolver import apply_incoming_damage
-from game.models import ABILITY_LABELS, Character, GameState, NPCRelation
+from game.models import Character, GameState, NPCRelation
 from game.results import AbilityCheckResult, ActionRouteResult
 
 _DANGEROUS_MARKERS = (
@@ -142,15 +141,9 @@ def apply_check_failure_consequences(
         return []
 
     events: list[str] = []
-    settings = get_settings()
     margin = max(0, result.dc - result.check_total)
     intent = user_input.strip() or "本次行动"
-    ability_label = ABILITY_LABELS.get(result.ability, result.ability.upper())
 
-    fact = (
-        f"尝试「{intent}」失败（{ability_label}检定 {result.check_total} vs DC {result.dc}）"
-    )
-    game_state.add_memory_facts([fact], settings.max_memory_facts)
     events.append(f"📌 行动失败：{intent}")
 
     if is_dangerous_attempt(user_input, route) or (
@@ -168,20 +161,14 @@ def apply_check_failure_consequences(
                 npc.attitude = new_attitude
                 events.append(f"😠 {npc.name} 态度恶化：{old} → {new_attitude}")
         else:
-            alert = f"社交尝试「{intent}」失败，对方态度可能转差"
-            game_state.add_memory_facts([alert], settings.max_memory_facts)
             events.append("⚠️ 社交失败：关系可能恶化")
 
     if is_stealth_attempt(user_input, route) or (
         result.ability == "dex" and route.skill_usage == "use"
     ):
-        alert = "潜入/潜行尝试失败，现场警戒可能已提高"
-        game_state.add_memory_facts([alert], settings.max_memory_facts)
         events.append("⚠️ 潜行失败：对方可能已察觉")
 
     if route.skill_usage == "learn":
-        learn_fact = f"向他人学习「{', '.join(route.referenced_skills) or '新技能'}」失败"
-        game_state.add_memory_facts([learn_fact], settings.max_memory_facts)
         events.append("📚 学习失败：未掌握新技能")
 
     return events

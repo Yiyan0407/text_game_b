@@ -222,11 +222,15 @@ def _graph_scene_ids(game_state: GameState) -> set[str]:
     return {node.id.strip() for node in graph.nodes if node.id.strip()}
 
 
+def _memory_entries_for_scene(game_state: GameState) -> list:
+    return game_state.player_memory_entries()
+
+
 def _first_seen_turn_for_scene(game_state: GameState, scene_id: str) -> int:
     sid = scene_id.strip()
     turns = [
         entry.turn_count
-        for entry in game_state.memory_journal
+        for entry in _memory_entries_for_scene(game_state)
         if str(getattr(entry, "scene_id", "") or "").strip() == sid
     ]
     if turns:
@@ -251,7 +255,7 @@ def reconcile_visited_scenes(game_state: GameState) -> None:
                 turn_count=_first_seen_turn_for_scene(game_state, sid),
             )
 
-    for entry in game_state.memory_journal:
+    for entry in _memory_entries_for_scene(game_state):
         sid = str(getattr(entry, "scene_id", "") or "").strip()
         name = str(getattr(entry, "scene_name", "") or "").strip()
         if not sid or not name or find_scene_record(game_state, sid):
@@ -276,7 +280,7 @@ def reconcile_visited_scenes(game_state: GameState) -> None:
 
 def _memory_scene_ids(game_state: GameState) -> set[str]:
     ids: set[str] = set()
-    for entry in game_state.memory_journal:
+    for entry in _memory_entries_for_scene(game_state):
         sid = str(getattr(entry, "scene_id", "") or "").strip()
         if sid:
             ids.add(sid)
