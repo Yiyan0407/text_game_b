@@ -23,15 +23,22 @@ class LongTermMemoryManager:
         self.memory_journal_compress_at = settings.memory_journal_compress_at
         self.memory_journal_max_chars = settings.memory_journal_max_chars
 
-    def process_after_turn(self, game_state: GameState, history: list[ChatMessage]) -> None:
-        if game_state.turn_count <= 0:
+    def process_after_turn(
+        self,
+        game_state: GameState,
+        history: list[ChatMessage],
+        *,
+        at_turn: int | None = None,
+    ) -> None:
+        turn = at_turn if at_turn is not None else game_state.turn_count
+        if turn <= 0:
             return
 
-        if self._should_summarize(game_state):
-            self._run_periodic_summary(game_state, history)
+        if self._should_summarize(game_state, turn):
+            self._run_periodic_summary(game_state, history, turn)
 
-        if self._should_chapter(game_state):
-            self._run_chapter_summary(game_state, history)
+        if self._should_chapter(game_state, turn):
+            self._run_chapter_summary(game_state, history, turn)
 
         if len(game_state.story_summary) > self.max_story_summary_chars:
             game_state.story_summary = self.summarizer.compress_summary(
@@ -43,16 +50,21 @@ class LongTermMemoryManager:
             self._compress_journal(game_state)
 
     async def process_after_turn_async(
-        self, game_state: GameState, history: list[ChatMessage]
+        self,
+        game_state: GameState,
+        history: list[ChatMessage],
+        *,
+        at_turn: int | None = None,
     ) -> None:
-        if game_state.turn_count <= 0:
+        turn = at_turn if at_turn is not None else game_state.turn_count
+        if turn <= 0:
             return
 
-        if self._should_summarize(game_state):
-            await self._run_periodic_summary_async(game_state, history)
+        if self._should_summarize(game_state, turn):
+            await self._run_periodic_summary_async(game_state, history, turn)
 
-        if self._should_chapter(game_state):
-            await self._run_chapter_summary_async(game_state, history)
+        if self._should_chapter(game_state, turn):
+            await self._run_chapter_summary_async(game_state, history, turn)
 
         if len(game_state.story_summary) > self.max_story_summary_chars:
             game_state.story_summary = await self.summarizer.acompress_summary(
@@ -63,17 +75,11 @@ class LongTermMemoryManager:
         if self._should_compress_journal(game_state):
             await self._compress_journal_async(game_state)
 
-    def _should_summarize(self, game_state: GameState) -> bool:
-        return (
-            game_state.turn_count - game_state.last_summarized_turn
-            >= self.summary_interval
-        )
+    def _should_summarize(self, game_state: GameState, turn: int) -> bool:
+        return turn - game_state.last_summarized_turn >= self.summary_interval
 
-    def _should_chapter(self, game_state: GameState) -> bool:
-        return (
-            game_state.turn_count - game_state.last_chapter_turn
-            >= self.chapter_interval
-        )
+    def _should_chapter(self, game_state: GameState, turn: int) -> bool:
+        return turn - game_state.last_chapter_turn >= self.chapter_interval
 
     def _should_compress_journal(self, game_state: GameState) -> bool:
         unpinned = [entry for entry in game_state.memory_journal if not entry.pinned]
@@ -137,6 +143,7 @@ class LongTermMemoryManager:
         self,
         game_state: GameState,
         history: list[ChatMessage],
+        turn: int,
     ) -> None:
         recent = ConversationWindowMemory.format_for_summary(
             history,
@@ -149,12 +156,13 @@ class LongTermMemoryManager:
         )
         new_facts = self.summarizer.extract_facts(game_state.memory_facts, recent)
         game_state.add_memory_facts(new_facts, self.max_memory_facts)
-        game_state.last_summarized_turn = game_state.turn_count
+        game_state.last_summarized_turn = turn
 
     async def _run_periodic_summary_async(
         self,
         game_state: GameState,
         history: list[ChatMessage],
+        turn: int,
     ) -> None:
         recent = ConversationWindowMemory.format_for_summary(
             history,
@@ -167,12 +175,13 @@ class LongTermMemoryManager:
         )
         new_facts = await self.summarizer.aextract_facts(game_state.memory_facts, recent)
         game_state.add_memory_facts(new_facts, self.max_memory_facts)
-        game_state.last_summarized_turn = game_state.turn_count
+        game_state.last_summarized_turn = turn
 
     def _run_chapter_summary(
         self,
         game_state: GameState,
         history: list[ChatMessage],
+        turn: int,
     ) -> None:
         chapter_num = len(game_state.chapter_summaries) + 1
         recent = ConversationWindowMemory.format_for_summary(
@@ -197,12 +206,13 @@ class LongTermMemoryManager:
                 f"【较早章节归档】\n{merged}",
                 self.max_story_summary_chars,
             )
-        game_state.last_chapter_turn = game_state.turn_count
+        game_state.last_chapter_turn = turn
 
     async def _run_chapter_summary_async(
         self,
         game_state: GameState,
         history: list[ChatMessage],
+        turn: int,
     ) -> None:
         chapter_num = len(game_state.chapter_summaries) + 1
         recent = ConversationWindowMemory.format_for_summary(
@@ -227,4 +237,4 @@ class LongTermMemoryManager:
                 f"【较早章节归档】\n{merged}",
                 self.max_story_summary_chars,
             )
-        game_state.last_chapter_turn = game_state.turn_count
+        game_state.last_chapter_turn = turn

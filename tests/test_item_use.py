@@ -239,9 +239,21 @@ def test_resolve_use_item_heal_via_effects_on_durable_kind():
     assert not character.has_inventory_item("强心针")
 
 
-def test_resolve_throw_hammer_in_combat():
-    from game.models import CombatEnemy, CombatState, GameState
+def test_resolve_throw_hammer_in_combat(monkeypatch):
+    from game.models import CombatEnemy, CombatState, DiceRoll, GameState
     from tests.fixtures_effects import forged_weapon
+
+    rolls = iter(
+        [
+            DiceRoll(notation="1d20+1", rolls=[18], modifier=1, total=19),
+            DiceRoll(notation="2d10", rolls=[5, 6], modifier=0, total=11),
+        ]
+    )
+
+    def fake_roll(notation: str) -> DiceRoll:
+        return next(rolls)
+
+    monkeypatch.setattr("game.effect_use.roll", fake_roll)
 
     character = Character(
         name="测试",

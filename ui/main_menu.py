@@ -472,14 +472,15 @@ def start_new_game(
                 run_state_phase,
                 text_stream,
                 run_item_sync_phase,
-                run_memory_finalize,
                 finish_turn,
+                turn_context,
                 rollback_turn,
             ) = orchestrator.start_game_stream(
                 character, game_state, scenario, career_context=career_context, game_config=config
             )
             from game.session import append_tool_events
-            from ui.streaming import finalize_streaming_turn, render_phased_turn
+            from ui.deferred_turn_tasks import finalize_streaming_turn_with_deferred
+            from ui.streaming import render_phased_turn
 
             append_tool_events(pre_tool_events)
 
@@ -490,10 +491,11 @@ def start_new_game(
                 loading=progress,
             )
             append_tool_events(state_events)
-            turn = finalize_streaming_turn(
+            turn = finalize_streaming_turn_with_deferred(
+                orchestrator,
+                turn_context,
                 full,
                 run_item_sync_phase=run_item_sync_phase,
-                run_memory_finalize=run_memory_finalize,
                 finish_turn=finish_turn,
             )
             item_events = [
@@ -506,7 +508,8 @@ def start_new_game(
             st.session_state.messages.append(
                 ChatMessage(role="assistant", content=full or turn.response)
             )
-            st.session_state.action_suggestions = turn.action_suggestions
+            if turn.action_suggestions:
+                st.session_state.action_suggestions = turn.action_suggestions
             opening_completed = True
         except Exception as exc:
             if rollback_turn:
@@ -524,9 +527,16 @@ def start_new_game(
                 character, game_state, scenario, career_context=career_context, game_config=config
             )
         from game.session import append_turn_result
+        from ui.deferred_turn_tasks import schedule_turn_finalize
 
         append_turn_result(turn)
-        st.session_state.action_suggestions = turn.action_suggestions
+        schedule_turn_finalize(
+            orchestrator=orchestrator,
+            ctx=orchestrator.last_turn_ctx,
+            kp_response=turn.response,
+        )
+        if turn.action_suggestions:
+            st.session_state.action_suggestions = turn.action_suggestions
 
     persist_save()
     st.rerun()

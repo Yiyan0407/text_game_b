@@ -302,8 +302,8 @@ def test_kp_meta_turn_stream_skips_action_router():
         run_state,
         stream,
         item_sync,
-        mem,
         finish,
+        turn_context,
         rollback,
     ) = orchestrator.player_turn_stream(
         character,
@@ -315,13 +315,13 @@ def test_kp_meta_turn_stream_skips_action_router():
 
     assert rejection is None
     assert pre_events == []
+    assert turn_context is None
     run_state()
     assert list(stream) == ["**【KP 沟通】**\n\n好的，已记录。"]
     turn = finish("")
     assert turn.response.startswith("**【KP 沟通】**")
     router.aevaluate.assert_not_called()
     assert item_sync("") == []
-    assert mem() is False
 
 
 def test_kp_meta_agent_parse_top_level_quests():

@@ -111,8 +111,8 @@ def test_orchestrator_auto_combat_turn_mechanical_only():
         _run_state,
         _stream,
         _item_sync,
-        _mem,
         _finish,
+        _ctx,
         _rollback,
     ) = orchestrator.auto_combat_turn_stream(
         character,
