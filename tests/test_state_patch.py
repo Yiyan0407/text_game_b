@@ -262,6 +262,44 @@ def test_item_sync_adds_exploration_pickup_from_kp():
     assert not any("跳过重复添加" in event for event in events)
 
 
+def test_item_sync_blocks_duplicate_add_when_already_in_inventory():
+    character = Character(name="测试")
+    character.add_inventory_item(
+        "微型无人机群",
+        quantity=1,
+        unit="套",
+        description="七个黑色小球嵌在磁吸底板上",
+        kind="durable",
+    )
+    game_state = GameState()
+    patch = StatePatch(
+        inventory=[
+            InventoryPatch(
+                action="add",
+                item="微型无人机群",
+                quantity=2,
+                unit="套",
+                kind="durable",
+                description="七个黑色小球嵌在磁吸底板上，可进行侦察",
+            ),
+        ],
+        equipment=[
+            EquipmentPatch(action="equip", item="微型无人机群", slot="accessory"),
+        ],
+    )
+    events = apply_state_patch(
+        patch,
+        character,
+        game_state,
+        inventory_sync=True,
+    )
+    item = character.find_inventory_item("微型无人机群")
+    assert item is not None
+    assert item.quantity == 1
+    assert character.is_item_equipped("微型无人机群")
+    assert any("背包已有" in event for event in events)
+
+
 def test_item_sync_blocks_pickup_after_roll_failure():
     character = Character(name="测试")
     game_state = GameState()

@@ -30,6 +30,7 @@
 ## inventory
 - **description（add 时必填）**；**kind（必填）**：`consumable` | `durable` | `document`
 - 机械层已有 `获得：` 的同名物**禁止**再 add
+- **【背包/装备现状】已有同名物品**：本回合仅为「从背包取出/塞进口袋/穿上/装备」时，**只写 equipment equip**，**禁止** inventory add（勿把数量叠成 2）
 - 购买主商品：机械层已交货，**勿重复 add** 主商品
 - **KP 叙事已写玩家取得**：须 add
 - **战斗拾取**：机械层已入库，ItemSync 补描述/找零，勿重复 add 主物品

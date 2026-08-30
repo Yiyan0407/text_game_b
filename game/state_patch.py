@@ -510,6 +510,8 @@ def _should_block_inventory_add(
             and not combat_pickup_reserved(mechanical_events, item_name)
         ):
             return True
+        if character.has_inventory_item(item_name):
+            return True
         # ItemSync（KP 叙事后）：NPC 交付/叙事拾取等以 KP 为准
         return False
 
@@ -587,6 +589,8 @@ def _inventory_add_block_reason(
         and not _mechanical_granted_pickup(mechanical_events, item_name)
     ):
         return f"跳过重复添加：{inv.item}（战斗中须先消耗拾取动作且 KP 前已记录）。"
+    if inventory_sync and character.has_inventory_item(item_name):
+        return f"跳过重复添加：{inv.item}（背包已有，本回合仅需 equip/unequip）。"
     return f"跳过重复添加：{inv.item}（须与机械层结算一致）。"
 
 
