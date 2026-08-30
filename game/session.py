@@ -42,8 +42,11 @@ def apply_save_to_session(save_game: SaveGame, scenario: Scenario) -> None:
     st.session_state.last_loaded_save_at = save_game.saved_at
     st.session_state.game_state.dedupe_npcs()
     from game.scene_map import prune_foreign_visited_scenes
+    from game.scenario_progress import ensure_scenario_progress
 
     prune_foreign_visited_scenes(st.session_state.game_state, scenario)
+    if scenario.key_nodes:
+        ensure_scenario_progress(st.session_state.game_state)
     sync_character_card_to_library()
 
 

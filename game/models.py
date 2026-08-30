@@ -684,6 +684,14 @@ class PendingReroll(BaseModel):
     reason: str = ""
 
 
+class ScenarioProgress(BaseModel):
+    active_node_index: int = 0
+    completed_node_ids: list[str] = Field(default_factory=list)
+    completed_beat_keys: list[str] = Field(default_factory=list)
+    turns_on_active_node: int = 0
+    last_beat_completed_turn: int = 0
+
+
 class GameState(BaseModel):
     started: bool = False
     scenario_id: str = ""
@@ -710,6 +718,7 @@ class GameState(BaseModel):
     last_ability_check: LastAbilityCheckRecord | None = None
     pending_reroll: PendingReroll | None = None
     map_travel_from: str = ""
+    scenario_progress: ScenarioProgress | None = None
 
     @model_validator(mode="before")
     @classmethod

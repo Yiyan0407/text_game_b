@@ -483,6 +483,44 @@ def test_apply_map_update_replaces_graph():
     assert not any(edge.target == "obsolete" for edge in state.world_map_graph.edges)
 
 
+def test_apply_map_update_reconcile_merges_existing_nodes():
+    state = GameState(
+        scene_id="dock",
+        current_scene="灰港码头",
+        visited_scenes=[
+            SceneRecord(scene_id="tavern", scene_name="海鸥尾酒馆", first_seen_turn=1),
+            SceneRecord(scene_id="dock", scene_name="灰港码头", first_seen_turn=2),
+            SceneRecord(scene_id="warehouse", scene_name="旧仓库", first_seen_turn=3),
+        ],
+        world_map_graph=WorldMapGraph(
+            nodes=[
+                MapNode(id="tavern", label="海鸥尾酒馆", status="visited"),
+                MapNode(id="dock", label="灰港码头", status="current"),
+                MapNode(id="warehouse", label="旧仓库", status="visited"),
+            ],
+            edges=[MapEdge(source="tavern", target="dock", kind="known")],
+        ),
+    )
+    assert apply_map_update(
+        state,
+        {
+            "nodes": [
+                {"id": "tavern", "label": "海鸥尾酒馆", "status": "visited"},
+                {"id": "dock", "label": "灰港码头", "status": "current"},
+                {"id": "lighthouse", "label": "废弃灯塔", "status": "unknown"},
+            ],
+            "edges": [
+                {"source": "dock", "target": "lighthouse", "kind": "suspected"},
+            ],
+        },
+        _sample_scenario(),
+        reconcile=True,
+    )
+    node_ids = {node.id for node in state.world_map_graph.nodes}
+    assert "warehouse" in node_ids
+    assert "lighthouse" in node_ids
+
+
 def test_format_topology_correction_hints_lists_isolated_nodes():
     graph = WorldMapGraph(
         nodes=[

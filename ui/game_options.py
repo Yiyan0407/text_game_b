@@ -61,8 +61,8 @@ def render_game_options(*, show_background_validation: bool = True) -> GameConfi
             format_func=lambda key: KP_GUIDANCE_LABELS[key],
             key=KP_GUIDANCE_KEY,
             help=(
-                "自由：几乎不主动指路；平衡：开局与迷茫时轻量提示；"
-                "按剧本：更积极铺设模组关键节点与事件。"
+                "自由：几乎不追踪节点；平衡：每回合可见剧本进度与周期轻推；"
+                "按剧本：追踪 beats，逾期须在叙事中引入节点要素。"
             ),
         )
 

@@ -106,7 +106,8 @@ def _build_start_instruction(
     if config.kp_guidance == "script_guided":
         lines.append(
             "【按剧本推进】本局为剧本引导模式：开场须自然引出 initial_quests，"
-            "并在叙事中铺设第一个 key_node 的入口线索；仍禁止抢戏。"
+            "并在叙事中铺设第一个 key_node 的入口线索；"
+            "开场或紧随其后的 1–2 回合内须完成当前节点第 1 条 beat（若适用）；仍禁止抢戏。"
         )
     elif config.kp_guidance == "freeform":
         lines.append(

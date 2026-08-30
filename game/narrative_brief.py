@@ -2,17 +2,47 @@
 
 from game.check_consequences import format_check_failure_constraints_for_kp
 from game.combat_constraints import format_combat_constraints_for_kp
-from game.models import Character, GameState
+from game.game_config import GameConfig, default_game_config
+from game.models import Character, GameState, ScenarioProgress
 from game.narrative_time import format_turn_time_hint
 from game.results import ActionRouteResult
+from game.scenario import Scenario
+from game.scenario_progress import ensure_scenario_progress, format_progress_for_kp
+
+
+def _writing_scope_line(game_config: GameConfig) -> str:
+    if game_config.kp_guidance == "script_guided":
+        return (
+            "【写作要求】第二人称「你」，只写玩家本句请求范围内的事；"
+            "可引入【剧本进度·待完成要素】中的环境事件、通讯、NPC 接触，"
+            "但勿推进玩家未请求的、超出待完成 beats 的主线情节；"
+            "勿复述本简报字段；勿列编号选项。"
+        )
+    if game_config.kp_guidance == "balanced":
+        return (
+            "【写作要求】第二人称「你」，只写玩家本句请求范围内的事；"
+            "可用 1 句环境细节呼应【剧本进度】，勿擅自链式推进未提及的后续情节；"
+            "勿复述本简报字段；勿列编号选项。"
+        )
+    return (
+        "【写作要求】第二人称「你」，只写玩家本句请求范围内的事，"
+        "勿擅自推进未提及的后续情节；"
+        "勿复述本简报字段；勿列编号选项。"
+    )
 
 
 def build_narrative_brief_static(
     user_input: str,
     route: ActionRouteResult | None,
     mechanical_events: list[str],
+    *,
+    game_config: GameConfig | None = None,
+    scenario: Scenario | None = None,
+    progress: ScenarioProgress | None = None,
+    turn_count: int = 0,
 ) -> str:
     """构建不含补丁后状态的静态段（可在 StateAgent 等待期间预组装）。"""
+    config = game_config or default_game_config()
     lines: list[str] = ["【叙事简报】"]
     if route is not None:
         in_combat = route.mode == "combat" or route.trigger_combat
@@ -34,9 +64,23 @@ def build_narrative_brief_static(
     if combat_constraints:
         lines.append("")
         lines.append(combat_constraints)
+
+    if scenario is not None and scenario.key_nodes:
+        active_progress = progress
+        if active_progress is None and config.kp_guidance != "freeform":
+            active_progress = ScenarioProgress()
+        progress_block = format_progress_for_kp(
+            scenario,
+            active_progress or ScenarioProgress(),
+            config.kp_guidance,
+            turn_count=turn_count,
+        )
+        if progress_block:
+            lines.append("")
+            lines.append(progress_block)
+
+    lines.append(_writing_scope_line(config))
     lines.append(
-        "【写作要求】第二人称「你」，只写玩家本句请求范围内的事，勿擅自推进未提及的后续情节；"
-        "勿复述本简报字段；勿列编号选项。"
         "文笔：具体可感、有画面与气氛，像小说片段而非状态说明；五感与对话优先，机制词勿入文。"
         "叙事须与下方【当前状态】背包、装备、技能一致：【装备·手持】中的武器/工具/手电即已在手上；"
         "【装备·身体】中的防具/穿戴物应体现在叙事中；"
@@ -106,7 +150,20 @@ def build_narrative_brief(
     character: Character,
     game_state: GameState,
     state_events: list[str] | None = None,
+    *,
+    game_config: GameConfig | None = None,
+    scenario: Scenario | None = None,
 ) -> str:
     """一次性构建完整叙事简报。"""
-    static = build_narrative_brief_static(user_input, route, mechanical_events)
+    config = game_config or default_game_config()
+    progress = ensure_scenario_progress(game_state) if scenario and scenario.key_nodes else None
+    static = build_narrative_brief_static(
+        user_input,
+        route,
+        mechanical_events,
+        game_config=config,
+        scenario=scenario,
+        progress=progress,
+        turn_count=game_state.turn_count,
+    )
     return merge_narrative_brief_with_state(static, character, game_state, state_events)

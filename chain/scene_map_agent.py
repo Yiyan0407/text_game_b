@@ -63,7 +63,12 @@ class SceneMapAgent:
                 reconcile=reconcile,
             )
         )
-        return self._apply_response(game_state, scenario, (response.content or "").strip())
+        return self._apply_response(
+            game_state,
+            scenario,
+            (response.content or "").strip(),
+            reconcile=reconcile,
+        )
 
     def update(
         self,
@@ -88,7 +93,12 @@ class SceneMapAgent:
                 reconcile=reconcile,
             )
         )
-        return self._apply_response(game_state, scenario, (response.content or "").strip())
+        return self._apply_response(
+            game_state,
+            scenario,
+            (response.content or "").strip(),
+            reconcile=reconcile,
+        )
 
     @staticmethod
     def _prompt_inputs(
@@ -111,12 +121,18 @@ class SceneMapAgent:
         }
 
     @staticmethod
-    def _apply_response(game_state: GameState, scenario: Scenario, text: str) -> bool:
+    def _apply_response(
+        game_state: GameState,
+        scenario: Scenario,
+        text: str,
+        *,
+        reconcile: bool = False,
+    ) -> bool:
         data = extract_json_dict(text)
         if not isinstance(data, dict):
             logger.warning("场景地图 JSON 解析失败: %s", text[:500] or "（空响应）")
             return False
-        if not apply_map_update(game_state, data, scenario):
+        if not apply_map_update(game_state, data, scenario, reconcile=reconcile):
             logger.warning("场景地图 JSON 无效或缺少 nodes")
             return False
         return True

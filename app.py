@@ -398,7 +398,11 @@ def render_game() -> None:
         render_character_sheet(character)
         render_combat_panel(game_state)
         st.divider()
-        render_game_state_panel(game_state, scenario)
+        render_game_state_panel(
+            game_state,
+            scenario,
+            game_config=st.session_state.get("game_config"),
+        )
         st.divider()
         _render_scene_image(game_state, scenario)
         st.divider()

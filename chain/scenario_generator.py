@@ -135,7 +135,8 @@ class ScenarioGenerator:
             )
         return (
             base
-            + "生成完整剧本：含 initial_quests(1个)、key_nodes(3-4个)、endings(2-3个)；"
+            + "生成完整剧本：含 initial_quests(1个)、key_nodes(3-4个，每个含2-4条beats)、endings(2-3个)；"
+            "beats 为可验收的节点要素（每节点 2-4 条短句）；"
             "opening_prompt 写清开场情境与委托/动机（默认钩子，KP 会按玩家背景调整入场身份，勿写死职业）。"
         )
 
@@ -145,7 +146,7 @@ class ScenarioGenerator:
             "JSON 字段：id, title, description, world_id, world, tone, "
             "opening_scene_id, opening_scene_name, opening_prompt, custom_world_overlay, "
             "initial_quests[{id,title,status,description}], "
-            "key_nodes[{id,title,description}], endings[{id,title,condition}]"
+            "key_nodes[{id,title,description,beats[]}], endings[{id,title,condition}]"
         )
         if mode == "world":
             return base + "。custom_world_overlay 写 150-300 字世界观细节。"

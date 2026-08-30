@@ -94,6 +94,8 @@ class TurnPipeline:
             ctx.user_input,
             ctx.game_state.turn_count,
             ctx.game_config,
+            scenario=ctx.scenario,
+            progress=ctx.game_state.scenario_progress,
         )
         ctx.route = await self.router.aevaluate(
             ctx.enriched_input,
@@ -270,6 +272,17 @@ class TurnPipeline:
             if not ctx.map_needs_update:
                 ctx.game_state.map_travel_from = ""
 
+        from game.scenario_progress import update_scenario_progress_after_turn
+
+        events.extend(
+            update_scenario_progress_after_turn(
+                ctx.game_state,
+                ctx.scenario,
+                kp_text=ctx.kp_response,
+                state_events=events,
+            )
+        )
+
         return events
 
     async def define_entities(self, ctx: TurnContext) -> list[str]:
@@ -338,8 +351,21 @@ class TurnPipeline:
         return ctx.narrative_brief or self._build_narrative_brief(ctx)
 
     def _build_narrative_brief(self, ctx: TurnContext) -> str:
+        from game.scenario_progress import ensure_scenario_progress
+
+        progress = (
+            ensure_scenario_progress(ctx.game_state)
+            if ctx.scenario.key_nodes
+            else None
+        )
         brief_static = build_narrative_brief_static(
-            ctx.effective_input, ctx.route, ctx.mechanical_events
+            ctx.effective_input,
+            ctx.route,
+            ctx.mechanical_events,
+            game_config=ctx.game_config,
+            scenario=ctx.scenario,
+            progress=progress,
+            turn_count=ctx.game_state.turn_count,
         )
         return merge_narrative_brief_with_state(
             brief_static,

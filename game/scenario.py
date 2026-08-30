@@ -13,11 +13,23 @@ class ScenarioNode(BaseModel):
     id: str
     title: str
     description: str = ""
+    beats: list[str] = Field(default_factory=list)
 
     @field_validator("description", mode="before")
     @classmethod
     def _coerce_description(cls, value):
         return _coerce_optional_str(value)
+
+    @field_validator("beats", mode="before")
+    @classmethod
+    def _coerce_beats(cls, value):
+        if not value:
+            return []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            return [part.strip() for part in value.splitlines() if part.strip()]
+        return []
 
 
 class ScenarioEnding(BaseModel):
@@ -88,6 +100,7 @@ class Scenario(BaseModel):
     def apply_to_game_state(self, game_state: GameState) -> None:
         from game.narrative_time import initialize_story_clock_from_scenario
         from game.scene_map import bootstrap_scene_map
+        from game.scenario_progress import initialize_scenario_progress
 
         game_state.scenario_id = self.id
         game_state.scene_id = self.opening_scene_id
@@ -96,3 +109,4 @@ class Scenario(BaseModel):
             game_state.active_quests = list(self.initial_quests)
         initialize_story_clock_from_scenario(game_state, self)
         bootstrap_scene_map(game_state, self, reset=True)
+        initialize_scenario_progress(game_state)
