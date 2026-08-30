@@ -1,6 +1,10 @@
 from game.game_config import GameConfig
-from game.models import GameState, ScenarioProgress
-from game.narrative_brief import build_narrative_brief_static
+from game.models import Character, ChatMessage, GameState, ScenarioProgress
+from game.narrative_brief import (
+    build_narrative_brief,
+    build_narrative_brief_static,
+    merge_narrative_brief_with_state,
+)
 from game.results import ActionRouteResult
 from game.scenario import Scenario, ScenarioNode
 
@@ -47,7 +51,7 @@ def test_narrative_brief_freeform_skips_progress_after_opening():
         turn_count=5,
     )
     assert "【剧本进度】" not in text
-    assert "勿擅自推进未提及的后续情节" in text
+    assert "勿擅自推进未提及的后续主线情节" in text
 
 
 def test_narrative_brief_balanced_allows_light_nudge():
@@ -63,3 +67,36 @@ def test_narrative_brief_balanced_allows_light_nudge():
     )
     assert "【剧本进度】" in text
     assert "环境细节呼应【剧本进度】" in text
+
+
+def test_merge_brief_includes_continuity_hint():
+    history = [
+        ChatMessage(role="user", content="查看文件"),
+        ChatMessage(
+            role="assistant",
+            content="你打开文件。\n\n脚步声在门外停了下来。",
+        ),
+    ]
+    text = merge_narrative_brief_with_state(
+        "【叙事简报】\n【玩家输入】\n等待并查看",
+        Character(name="测试"),
+        GameState(),
+        history=history,
+    )
+    assert "【叙事接续 — 禁止复述】" in text
+    assert "脚步声在门外停了下来" in text
+
+
+def test_build_narrative_brief_passes_history():
+    history = [
+        ChatMessage(role="assistant", content="上一轮结尾。"),
+    ]
+    text = build_narrative_brief(
+        "继续",
+        ActionRouteResult(approved=True),
+        [],
+        Character(name="测试"),
+        GameState(),
+        history=history,
+    )
+    assert "【叙事接续" in text

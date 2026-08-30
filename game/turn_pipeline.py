@@ -386,6 +386,7 @@ class TurnPipeline:
             ctx.character,
             ctx.game_state,
             None,
+            history=ctx.history,
         )
 
     async def suggest_actions(self, ctx: TurnContext, turn: TurnResult) -> list[str]:

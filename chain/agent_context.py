@@ -2,8 +2,33 @@
 
 from __future__ import annotations
 
+from game.kp_directive import is_kp_meta_response
 from game.models import Character, ChatMessage, GameState
 from game.results import ActionRouteResult
+
+
+def format_kp_continuity_hint(history: list[ChatMessage]) -> str:
+    """供叙事简报：要求 KP 从上一轮结尾接续，禁止复制粘贴。"""
+    last_kp = ""
+    for msg in reversed(history):
+        if msg.role != "assistant":
+            continue
+        if is_kp_meta_response(msg.content):
+            continue
+        last_kp = msg.content.strip()
+        break
+    if not last_kp:
+        return ""
+
+    tail = last_kp.split("\n\n")[-1].strip()
+    if len(tail) > 320:
+        tail = "…" + tail[-300:].lstrip()
+    return (
+        "【叙事接续 — 禁止复述】\n"
+        f"上一轮 KP 叙事停在：{tail}\n"
+        "本回合须从该状态继续：让环境、NPC 或敌对势力产生**新的行动或变化**，"
+        "不可复制【历史对话】已有段落，也不可把同一悬念原样再写一遍。"
+    )
 
 
 def format_tool_event_line(content: str) -> str:

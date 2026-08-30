@@ -11,24 +11,22 @@ from game.scenario_progress import ensure_scenario_progress, format_progress_for
 
 
 def _writing_scope_line(game_config: GameConfig) -> str:
-    if game_config.kp_guidance == "script_guided":
-        return (
-            "【写作要求】第二人称「你」，只写玩家本句请求范围内的事；"
-            "可引入【剧本进度·待完成要素】中的环境事件、通讯、NPC 接触，"
-            "但勿推进玩家未请求的、超出待完成 beats 的主线情节；"
-            "勿复述本简报字段；勿列编号选项。"
-        )
-    if game_config.kp_guidance == "balanced":
-        return (
-            "【写作要求】第二人称「你」，只写玩家本句请求范围内的事；"
-            "可用 1 句环境细节呼应【剧本进度】，勿擅自链式推进未提及的后续情节；"
-            "勿复述本简报字段；勿列编号选项。"
-        )
-    return (
-        "【写作要求】第二人称「你」，只写玩家本句请求范围内的事，"
-        "勿擅自推进未提及的后续情节；"
+    base = (
+        "【写作要求】第二人称「你」，只写玩家本句请求范围内的事；"
+        "须让已登场的环境、NPC、敌对势力本回合有所行动或变化，"
+        "悬而未决的局面须推进，不可原样重复同一悬念；"
+        "勿替玩家决定目标、去向或具体动作；"
         "勿复述本简报字段；勿列编号选项。"
     )
+    if game_config.kp_guidance == "script_guided":
+        return (
+            base
+            + "可引入【剧本进度·待完成要素】中的环境事件、通讯、NPC 接触，"
+            "但勿推进玩家未请求的、超出待完成 beats 的主线情节。"
+        )
+    if game_config.kp_guidance == "balanced":
+        return base + "可用 1 句环境细节呼应【剧本进度】，勿擅自链式推进未提及的后续情节。"
+    return base + "勿擅自推进未提及的后续主线情节。"
 
 
 def build_narrative_brief_static(
@@ -100,14 +98,22 @@ def merge_narrative_brief_with_state(
     character: Character,
     game_state: GameState,
     state_events: list[str] | None = None,
+    *,
+    history: list | None = None,
 ) -> str:
     """合并补丁应用后的状态快照。"""
+    from chain.agent_context import format_kp_continuity_hint
     from game.narrative_time import (
         format_narrative_time_context,
         format_time_constraints_for_kp,
     )
 
     lines = [brief_static.rstrip()]
+    if history:
+        continuity = format_kp_continuity_hint(history)
+        if continuity:
+            lines.append("")
+            lines.append(continuity)
     if state_events:
         lines.append("")
         lines.append("【状态同步事件】")
@@ -153,6 +159,7 @@ def build_narrative_brief(
     *,
     game_config: GameConfig | None = None,
     scenario: Scenario | None = None,
+    history: list | None = None,
 ) -> str:
     """一次性构建完整叙事简报。"""
     config = game_config or default_game_config()
@@ -166,4 +173,6 @@ def build_narrative_brief(
         progress=progress,
         turn_count=game_state.turn_count,
     )
-    return merge_narrative_brief_with_state(static, character, game_state, state_events)
+    return merge_narrative_brief_with_state(
+        static, character, game_state, state_events, history=history
+    )
