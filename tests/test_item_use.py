@@ -237,3 +237,31 @@ def test_resolve_use_item_heal_via_effects_on_durable_kind():
     assert any("治疗" in event for event in events)
     assert character.hp > 8
     assert not character.has_inventory_item("强心针")
+
+
+def test_resolve_throw_hammer_in_combat():
+    from game.models import CombatEnemy, CombatState, GameState
+    from tests.fixtures_effects import forged_weapon
+
+    character = Character(
+        name="测试",
+        inventory=[forged_weapon("锤子", "2d10")],
+    )
+    state = GameState()
+    state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="变异体", hp=30, max_hp=30, ac=5)],
+        turn_order=["player"],
+        turn_index=0,
+        enemy_distances={"变异体": 5},
+    )
+    events = resolve_use_item(
+        character,
+        ["锤子"],
+        game_state=state,
+        attack_target="变异体",
+    )
+    assert any("投掷" in event for event in events)
+    assert not character.has_inventory_item("锤子")
+    assert state.combat.enemies[0].hp < 30

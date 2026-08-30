@@ -26,6 +26,8 @@
 
 **对敌消耗品（手雷、炸弹、进攻符等）**：`item_usage=use` + `referenced_items` 填物品名，**`attack_target` 必填**（范围/手雷若系统判定为 AOE 可填任一在场敌人名）；不可省略目标。
 
+**投掷物品（锤子、工具等砸向敌人）**：`item_usage=use` + `referenced_items` + **`attack_target` 必填** → **附加动作**（`action_cost=bonus`）；**禁止**当作快速装备（free）；**不需要**先 equip 到手持栏。
+
 **治疗消耗品**：`item_usage=use`，无需 attack_target。
 
 **拔武器**：枪在背包里但未握持时，攻击会先消耗一次免费物件互动；本回合已拾取并握住的武器不再额外消耗。
@@ -33,6 +35,8 @@
 **距离与射程**：【游戏状态】显示各敌人距离（米）。徒手/近战有效约 2m；手枪约 30m（远距至 50m 命中 -2）；超出射程无法攻击，须先移动。同一输入「先靠近 N 米再攻击」→ `combat_action=attack`，`move_meters=N`，`move_target` 与 `attack_target` 填同一敌人，系统先移动再攻击。
 - **「使用/用 X 攻击」**（含已装备武器）→ 必须 `combat_action=attack`，`item_usage=none`；**禁止** `item_usage=use` / `use_item`
 - **「接近/靠近到攻击距离 + 攻击」** → `combat_action=attack`（**不是** `move`）；`move_meters` 填需靠近的米数（不确定时可填剩余移动力或 8）；`attack_target` 与 `move_target` 填同一敌人
+- **「保持/维持 N 米距离」** → 若当前距离 > N：`move_toward=true`，`move_meters=当前距离-N`；若当前 < N：`move_toward=false`，`move_meters=N-当前距离`（**不是**一律远离）
+- **attack_target / move_target 须填 canonical 敌人名**（与【游戏状态】一致）；仅一名存活敌人时，「未知实体/敌人/目标/怪物」等占位称呼系统会自动映射到该敌人
 
 **疾跑（dash）**：消耗主要动作，本回合移动力再 + 基础移动力（相当于可跑两倍距离）。
 
@@ -115,7 +119,9 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 
 **已在战斗中（combat.active=true）** 的攻击 → `trigger_combat=false`，`combat_action=attack`，`attack_target`，`action_cost=main`
 
-**enemy_defs（必填，按个体自由裁定）**：每个敌人须单独填写 `name, hp, ac, attack_damage, attack_bonus, sp, sp_max, start_distance_m`。
+**enemy_defs（必填，按个体自由裁定）**：每个敌人须单独填写 `name, hp, ac, attack_damage, attack_bonus, sp, sp_max, start_distance_m`；远程/载具可额外填 `use_dex`（枪械）、`attack_range_normal_m` / `attack_range_max_m`（米，覆盖自动推断）。
+
+**敌人攻击距离**：与玩家类似——近战约 **2m**；枪械 `use_dex`+`1d10` 约 30m（极限 50m）；重火力/高 SP（≥20）或 `3d8+` 级伤害视为远程（约 80m/150m）。超出极限射程时敌人会先靠近（每回合最多 6m），仍够不着则本回合无法攻击。
 
 **没有固定档位表。** 读玩家输入、KP 叙事、敌人名称与 implied 装备/护甲，像 DM 一样判断「这人/这东西有多硬、多能打」。同一 world_id 里，路边老农 ≠ 安保队长 ≠ 主战坦克 ≠ 高达。
 

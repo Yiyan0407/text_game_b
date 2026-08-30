@@ -9,8 +9,11 @@ from game.combat_range import (
     DEFAULT_START_DISTANCE_M,
     MELEE_REACH_M,
     attack_range_status,
+    enemy_approach_meters,
+    enemy_attack_range_status,
     movement_speed_for,
 )
+from game.combat_targets import effective_enemy_distance
 from game.models import Character, CombatEnemy, CombatState, GameState
 from game.rules import ability_check, format_check_for_kp
 
@@ -47,6 +50,11 @@ def _parse_enemy_record(data: dict) -> CombatEnemy | None:
     attack_damage = str(data.get("attack_damage") or data.get("damage") or "").strip()
     sp = _extract_int(data.get("sp") or data.get("SP"))
     sp_max = _extract_int(data.get("sp_max") or data.get("SP_max"))
+    use_dex = bool(data.get("use_dex"))
+    attack_range_normal_m = _extract_int(
+        data.get("attack_range_normal_m") or data.get("attack_range_m")
+    )
+    attack_range_max_m = _extract_int(data.get("attack_range_max_m"))
     if not name or hp is None:
         return None
     enemy = CombatEnemy(
@@ -65,6 +73,12 @@ def _parse_enemy_record(data: dict) -> CombatEnemy | None:
         enemy.sp = max(0, sp)
     if sp_max is not None:
         enemy.sp_max = max(0, sp_max)
+    if use_dex:
+        enemy.use_dex = True
+    if attack_range_normal_m is not None:
+        enemy.attack_range_normal_m = max(0, attack_range_normal_m)
+    if attack_range_max_m is not None:
+        enemy.attack_range_max_m = max(0, attack_range_max_m)
     return enemy
 
 
@@ -227,19 +241,30 @@ def enemy_attack(
     defending: bool = False,
     *,
     game_state: GameState | None = None,
+    range_penalty: int = 0,
+    distance_m: int | None = None,
+    range_note: str = "",
 ) -> str:
     from game.combat_modifiers import enemy_attack_roll_modifier
 
     ac = player_ac(character, defending=defending, game_state=game_state)
-    roll_mod = enemy.attack_bonus + enemy_attack_roll_modifier(
-        game_state.combat if game_state else None
+    roll_mod = (
+        enemy.attack_bonus
+        + enemy_attack_roll_modifier(game_state.combat if game_state else None)
+        - range_penalty
     )
     attack = roll(f"1d20{roll_mod:+d}")
     hit = attack.total >= ac
 
+    range_suffix = ""
+    if distance_m is not None and (range_penalty or distance_m > MELEE_REACH_M):
+        range_suffix = f"，{distance_m}m"
+        if range_note:
+            range_suffix += f" · {range_note}"
+
     if not hit:
         return (
-            f"{enemy.name} 攻击你：1d20[{attack.rolls[0]}]{roll_mod:+d}="
+            f"{enemy.name} 攻击你{range_suffix}：1d20[{attack.rolls[0]}]{roll_mod:+d}="
             f"{attack.total} vs AC {ac} → 未命中"
         )
 
@@ -248,7 +273,7 @@ def enemy_attack(
     result = apply_incoming_damage(character, raw_damage)
     events = result.format_events()
     detail = (
-        f"{enemy.name} 攻击你：1d20[{attack.rolls[0]}]{roll_mod:+d}="
+        f"{enemy.name} 攻击你{range_suffix}：1d20[{attack.rolls[0]}]{roll_mod:+d}="
         f"{attack.total} vs AC {ac} → 命中！伤害 {damage_roll.describe()}。"
     )
     if events:
@@ -258,11 +283,11 @@ def enemy_attack(
 
 
 def _enemy_approach(combat: CombatState, enemy: CombatEnemy) -> str | None:
-    """近战敌人回合开始时尝试靠近玩家。"""
-    dist = combat.enemy_distances.get(enemy.name, DEFAULT_START_DISTANCE_M)
-    if dist <= MELEE_REACH_M:
+    """敌人回合开始时尝试靠近玩家（仅当超出攻击极限射程）。"""
+    dist = effective_enemy_distance(combat, enemy.name)
+    move = enemy_approach_meters(enemy, dist)
+    if move <= 0:
         return None
-    move = min(6, dist - MELEE_REACH_M)
     new_dist = dist - move
     combat.set_distance_to(enemy.name, new_dist)
     return f"{enemy.name} 靠近 {move}m（距离 {new_dist}m）。"
@@ -284,8 +309,21 @@ def _resolve_enemy_turn(
     if not enemy.can_act():
         return f"{enemy.name} 已失能，跳过回合。"
     approach = _enemy_approach(combat, enemy)
+    dist = effective_enemy_distance(combat, enemy.name)
+    in_range, range_penalty, range_note = enemy_attack_range_status(dist, enemy)
+    if not in_range:
+        out_of_range = f"{enemy.name} 够不着你（{range_note}，当前 {dist}m）。"
+        if approach:
+            return f"{approach} {out_of_range}"
+        return out_of_range
     attack = enemy_attack(
-        enemy, character, defending=combat.defending, game_state=game_state
+        enemy,
+        character,
+        defending=combat.defending,
+        game_state=game_state,
+        range_penalty=range_penalty,
+        distance_m=dist,
+        range_note=range_note if range_penalty else "",
     )
     if approach:
         return f"{approach} {attack}"
@@ -369,7 +407,7 @@ def player_move(
     if not enemy or enemy.hp <= 0:
         return f"找不到存活的敌人：{target_name}"
 
-    current = combat.distance_to(enemy.name) or DEFAULT_START_DISTANCE_M
+    current = effective_enemy_distance(combat, enemy.name)
     actual = combat.spend_movement(meters)
     if actual <= 0:
         return "移动力不足，无法移动。"
@@ -443,7 +481,7 @@ def player_attack(
         return draw_msg
     ensure_weapon_ready(character, weapon)
 
-    distance = combat.distance_to(enemy.name) or DEFAULT_START_DISTANCE_M
+    distance = effective_enemy_distance(combat, enemy.name)
     in_range, range_penalty, range_note = attack_range_status(distance, weapon)
     if not in_range:
         combat.action_used = False

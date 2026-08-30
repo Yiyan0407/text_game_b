@@ -810,6 +810,53 @@ def test_successful_deescalation_talk_ends_combat_without_enemy_attack(monkeypat
     assert not state.is_in_combat()
 
 
+def test_combat_use_item_cost_bonus_when_attack_target_set():
+    from game.combat_item_use import combat_use_item_cost
+
+    character = Character(
+        name="测试",
+        inventory=[forged_weapon("锤子", "2d10")],
+    )
+    assert combat_use_item_cost(character, "锤子") == "free"
+    assert combat_use_item_cost(character, "锤子", attack_target="变异体") == "bonus"
+    assert combat_use_item_cost(character, "锤子", is_throw=True) == "bonus"
+
+
+def test_validate_throw_hammer_after_free_interact_used():
+    character = Character(
+        name="测试",
+        inventory=[forged_weapon("锤子", "2d10")],
+    )
+    game_state = GameState()
+    game_state.combat = CombatState(
+        active=True,
+        round=1,
+        enemies=[CombatEnemy(name="变异体", hp=30, max_hp=30, ac=12)],
+        turn_order=["player"],
+        turn_index=0,
+        enemy_distances={"变异体": 5},
+        free_interact_used=True,
+    )
+    route = _approved_route(
+        mode="combat",
+        item_usage="use",
+        combat_action="use_item",
+        referenced_items=["锤子"],
+        attack_target="变异体",
+        action_intent="将锤子朝着怪物丢过去",
+    )
+    result = ActionRouter.validate(
+        route,
+        character,
+        game_state,
+        user_input="将锤子朝着怪物丢过去",
+    )
+    assert result.approved is True
+    assert result.action_cost == "bonus"
+    assert "免费物件互动" not in (result.rejection_reason or "")
+    assert "快速装备" not in (result.rejection_reason or "")
+
+
 def test_incapacitated_enemy_cannot_act():
     enemy = CombatEnemy(name="领头", hp=4, max_hp=12, ac=12)
     assert enemy.can_act() is False

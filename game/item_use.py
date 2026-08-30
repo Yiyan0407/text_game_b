@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from game.effect_use import item_has_resolved_use, resolve_item_use
+from game.effect_use import item_has_resolved_use, resolve_item_use, resolve_throw_attack_item
 from game.models import Character, GameState
 
 
@@ -44,6 +44,20 @@ def resolve_use_item(
         return use_events
 
     has_attack = bool(target.effects and target.effects.attack_damage.strip())
+    if (
+        game_state
+        and game_state.is_in_combat()
+        and attack_target.strip()
+        and has_attack
+    ):
+        return resolve_throw_attack_item(
+            character,
+            target,
+            item_ref,
+            game_state=game_state,
+            attack_target=attack_target,
+        )
+
     if target.kind == "durable" or has_attack:
         if has_attack and character.is_item_equipped(target.name):
             return [f"{target.name} 已装备并就绪，可直接攻击。"]

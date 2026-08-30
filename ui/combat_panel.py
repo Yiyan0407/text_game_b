@@ -2,6 +2,8 @@ import streamlit as st
 
 from game.models import GameState
 
+AUTO_COMBAT_PENDING_KEY = "auto_combat_pending"
+
 _ACTION_GUIDE = """
 **每回合资源（用完输入「结束回合」）**
 
@@ -56,6 +58,14 @@ def render_combat_panel(game_state: GameState) -> None:
             f"移动力 {move} ({combat.movement_remaining_m}/{combat.movement_speed_m}m) · "
             f"免费互动 {free} · 主要动作 {main} · 附加动作 {bonus}"
         )
+        if st.button(
+            "⚡ 自动战斗",
+            key="auto_combat_button",
+            use_container_width=True,
+            help="系统代跑剩余战斗并结算，KP 将根据结果描写整场战斗。",
+        ):
+            st.session_state[AUTO_COMBAT_PENDING_KEY] = True
+            st.rerun()
     else:
         st.warning(f"等待 {actor_label} 的回合（敌人行动已在后台结算）")
 

@@ -478,6 +478,9 @@ class CombatEnemy(BaseModel):
     sp_max: int = Field(default=0, ge=0)
     start_distance_m: int = 10
     surrendered: bool = False
+    use_dex: bool = False
+    attack_range_normal_m: int = 0
+    attack_range_max_m: int = 0
 
     @model_validator(mode="after")
     def _sync_attack_damage(self) -> Self:
@@ -642,11 +645,14 @@ class CombatState(BaseModel):
         return [e for e in self.enemies if e.can_act()]
 
     def get_enemy(self, name: str) -> CombatEnemy | None:
+        from game.combat_targets import resolve_living_enemy_ref
+
+        resolved = resolve_living_enemy_ref(self, name) or name.strip()
         for enemy in self.enemies:
-            if enemy.name == name:
+            if enemy.name == resolved:
                 return enemy
         for enemy in self.enemies:
-            if fuzzy_match_name(name, enemy.name):
+            if fuzzy_match_name(name, enemy.name) or fuzzy_match_name(resolved, enemy.name):
                 return enemy
         return None
 

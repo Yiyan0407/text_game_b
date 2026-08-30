@@ -7,10 +7,21 @@ from game.item_kinds import GearSlot
 from game.models import Character
 
 
-def combat_use_item_cost(character: Character, item_ref: str) -> str:
+def combat_use_item_cost(
+    character: Character,
+    item_ref: str,
+    *,
+    attack_target: str = "",
+    is_throw: bool = False,
+) -> str:
     """返回战斗中使用物品的动作成本：bonus / main / free。"""
     target = character.find_inventory_item(item_ref)
     if target is None:
+        return "bonus"
+
+    if attack_target.strip() or is_throw:
+        if target.kind == "document":
+            return "main"
         return "bonus"
 
     if target.kind == "document":

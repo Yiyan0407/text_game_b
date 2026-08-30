@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+
+from game.models import CombatEnemy
 from game.weapon_combat import WeaponProfile
 
 MELEE_REACH_M = 2
@@ -11,6 +14,7 @@ RIFLE_NORMAL_M = 80
 RIFLE_MAX_M = 150
 DEFAULT_START_DISTANCE_M = 10
 LONG_RANGE_PENALTY = 2
+_ENEMY_MOVE_M = 6
 
 
 def movement_speed_for(character) -> int:
@@ -29,9 +33,54 @@ def weapon_range_m(profile: WeaponProfile) -> tuple[int, int, int]:
     return 0, MELEE_REACH_M, MELEE_REACH_M
 
 
-def attack_range_status(distance_m: int, profile: WeaponProfile) -> tuple[bool, int, str]:
+def enemy_attack_profile(enemy: CombatEnemy) -> WeaponProfile:
+    return WeaponProfile(
+        label=enemy.name,
+        use_dex=enemy.use_dex,
+        damage_notation=enemy.effective_attack_damage(),
+        attack_bonus=enemy.attack_bonus,
+    )
+
+
+def _damage_suggests_artillery(damage: str) -> bool:
+    match = re.match(r"(\d+)d(\d+)", damage.strip())
+    if not match:
+        return False
+    count = int(match.group(1))
+    return count >= 3
+
+
+def enemy_weapon_range_m(enemy: CombatEnemy) -> tuple[int, int, int]:
+    """敌人攻击射程（最小, 正常最大, 极限最大）。"""
+    if enemy.attack_range_max_m > 0:
+        normal = (
+            enemy.attack_range_normal_m
+            if enemy.attack_range_normal_m > 0
+            else enemy.attack_range_max_m
+        )
+        min_r = 2 if enemy.use_dex and normal > MELEE_REACH_M else 0
+        return min_r, normal, enemy.attack_range_max_m
+
+    profile = enemy_attack_profile(enemy)
+    base_min, base_normal, base_hard = weapon_range_m(profile)
+
+    if enemy.sp_max >= 20 or _damage_suggests_artillery(enemy.effective_attack_damage()):
+        return 10, RIFLE_NORMAL_M, RIFLE_MAX_M
+
+    if enemy.start_distance_m >= 25 and base_hard <= MELEE_REACH_M:
+        return 2, PISTOL_NORMAL_M, PISTOL_MAX_M
+
+    return base_min, base_normal, base_hard
+
+
+def attack_range_status(
+    distance_m: int,
+    profile: WeaponProfile,
+    *,
+    range_m: tuple[int, int, int] | None = None,
+) -> tuple[bool, int, str]:
     """是否可攻击、命中减值、说明。"""
-    _min_r, normal_max, hard_max = weapon_range_m(profile)
+    _min_r, normal_max, hard_max = range_m or weapon_range_m(profile)
     if distance_m > hard_max:
         return False, 0, f"超出射程（{distance_m}m > {hard_max}m）"
     penalty = 0
@@ -42,6 +91,22 @@ def attack_range_status(distance_m: int, profile: WeaponProfile) -> tuple[bool, 
     elif profile.use_dex and distance_m < _min_r:
         return False, 0, f"距离过近（{distance_m}m < {_min_r}m）"
     return True, penalty, note
+
+
+def enemy_attack_range_status(
+    distance_m: int,
+    enemy: CombatEnemy,
+) -> tuple[bool, int, str]:
+    profile = enemy_attack_profile(enemy)
+    return attack_range_status(distance_m, profile, range_m=enemy_weapon_range_m(enemy))
+
+
+def enemy_approach_meters(enemy: CombatEnemy, distance_m: int) -> int:
+    """敌人本回合为进入射程可靠近的米数（0 表示无需移动）。"""
+    _min_r, _normal_max, hard_max = enemy_weapon_range_m(enemy)
+    if distance_m <= hard_max:
+        return 0
+    return min(_ENEMY_MOVE_M, distance_m - hard_max)
 
 
 def format_distance_line(enemy_name: str, distance_m: int) -> str:

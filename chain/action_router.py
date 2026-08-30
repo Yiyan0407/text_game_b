@@ -188,6 +188,14 @@ _WEAPON_ATTACK_MARKERS = (
     "打向",
     "招呼",
 )
+_THROW_MARKERS = (
+    "投掷",
+    "扔",
+    "甩",
+    "抛",
+    "掷",
+    "丢",
+)
 _APPROACH_MARKERS = (
     "接近",
     "靠近",
@@ -204,6 +212,11 @@ _APPROACH_MARKERS = (
 def _input_implies_weapon_attack(user_input: str) -> bool:
     text = user_input.strip()
     return bool(text) and any(marker in text for marker in _WEAPON_ATTACK_MARKERS)
+
+
+def _input_implies_throw(user_input: str) -> bool:
+    text = user_input.strip()
+    return bool(text) and any(marker in text for marker in _THROW_MARKERS)
 
 
 def _input_implies_approach(user_input: str) -> bool:
@@ -240,6 +253,66 @@ def _normalize_combat_attack_route(
         route.roll_type = "none"
 
 
+def _normalize_combat_throw_route(
+    route: ActionRouteResult,
+    user_input: str,
+) -> None:
+    """投掷物品须走 use_item + 附加动作，不可误判为快速装备。"""
+    if not _input_implies_throw(user_input):
+        return
+    if route.item_usage not in ("use", "none") and route.combat_action != "use_item":
+        return
+    route.item_usage = "use"
+    route.combat_action = "use_item"
+    route.action_cost = "bonus"
+    route.needs_roll = False
+    route.roll_type = "none"
+
+
+def _normalize_combat_enemy_refs(
+    route: ActionRouteResult,
+    combat,
+) -> None:
+    from game.combat_targets import normalize_combat_enemy_refs
+
+    normalize_combat_enemy_refs(route, combat)
+
+
+def _normalize_hold_distance_move(
+    route: ActionRouteResult,
+    combat,
+    user_input: str,
+) -> None:
+    from game.combat_range import DEFAULT_START_DISTANCE_M, attack_range_status
+    from game.combat_targets import effective_enemy_distance, normalize_enemy_ref, parse_hold_distance_meters
+
+    hold_m = parse_hold_distance_meters(user_input)
+    if hold_m is None:
+        return
+    if route.combat_action not in ("move", "attack"):
+        return
+
+    target = route.move_target.strip() or route.attack_target.strip()
+    if not target:
+        return
+
+    canonical = normalize_enemy_ref(combat, target)
+    if route.move_target.strip() or route.combat_action == "move":
+        route.move_target = canonical
+    if route.combat_action == "attack" and route.move_meters > 0:
+        route.move_target = canonical
+
+    current = effective_enemy_distance(combat, canonical)
+    if current > hold_m:
+        route.move_toward = True
+        route.move_meters = current - hold_m
+    elif current < hold_m:
+        route.move_toward = False
+        route.move_meters = hold_m - current
+    elif route.combat_action == "move":
+        route.move_meters = 0
+
+
 def _auto_fill_approach_move_for_attack(
     route: ActionRouteResult,
     character: Character,
@@ -253,11 +326,12 @@ def _auto_fill_approach_move_for_attack(
     if not combat:
         return
 
-    from game.combat_range import DEFAULT_START_DISTANCE_M, weapon_range_m
+    from game.combat_range import weapon_range_m
+    from game.combat_targets import effective_enemy_distance
     from game.weapon_combat import resolve_weapon_profile
 
     weapon = resolve_weapon_profile(character, route, user_input=user_input)
-    dist = combat.distance_to(route.attack_target) or DEFAULT_START_DISTANCE_M
+    dist = effective_enemy_distance(combat, route.attack_target)
     _, _, hard_max = weapon_range_m(weapon)
     wants_approach = _input_implies_approach(user_input) or route.move_meters > 0
     if dist <= hard_max:
@@ -529,7 +603,12 @@ class ActionRouter:
 
         if in_combat:
             _normalize_combat_attack_route(route, user_input)
+            _normalize_combat_throw_route(route, user_input)
             route.mode = "combat"
+            combat = game_state.combat
+            if combat and route.approved:
+                _normalize_combat_enemy_refs(route, combat)
+                _normalize_hold_distance_move(route, combat, user_input)
             route.trigger_combat = False
             combat = game_state.combat
             if combat and route.approved and not combat.is_player_turn():
@@ -651,7 +730,8 @@ class ActionRouter:
                 route.roll_type = "none"
 
             if route.combat_action == "attack" and game_state.combat:
-                from game.combat_range import DEFAULT_START_DISTANCE_M, attack_range_status
+                from game.combat_range import attack_range_status
+                from game.combat_targets import effective_enemy_distance
                 from game.weapon_combat import resolve_weapon_profile
 
                 _auto_fill_approach_move_for_attack(
@@ -660,7 +740,7 @@ class ActionRouter:
 
                 combat = game_state.combat
                 weapon = resolve_weapon_profile(character, route)
-                dist = combat.distance_to(route.attack_target) or DEFAULT_START_DISTANCE_M
+                dist = effective_enemy_distance(combat, route.attack_target)
                 if route.move_meters > 0 and route.move_toward:
                     dist = max(0, dist - route.move_meters)
                 elif route.move_meters > 0 and not route.move_toward:
@@ -710,7 +790,10 @@ class ActionRouter:
             if route.combat_action == "use_item":
                 if route.referenced_items:
                     route.action_cost = combat_use_item_cost(
-                        character, route.referenced_items[0]
+                        character,
+                        route.referenced_items[0],
+                        attack_target=route.attack_target,
+                        is_throw=_input_implies_throw(user_input),
                     )
                 else:
                     route.action_cost = "bonus"
@@ -726,7 +809,12 @@ class ActionRouter:
                     return route
                 if route.action_cost == "bonus" and not combat.has_bonus_action():
                     route.approved = False
-                    route.rejection_reason = "本回合附加动作已用尽，无法使用该物品。"
+                    throw_hint = (
+                        "无法投掷该物品。"
+                        if _input_implies_throw(user_input) or route.attack_target.strip()
+                        else "无法使用该物品。"
+                    )
+                    route.rejection_reason = f"本回合附加动作已用尽，{throw_hint}"
                     return route
                 if route.action_cost == "main" and not combat.has_main_action():
                     route.approved = False
