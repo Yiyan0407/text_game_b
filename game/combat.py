@@ -906,10 +906,10 @@ def resolve_use_item_in_combat(
     *,
     attack_target: str = "",
 ) -> list[str]:
-    """消耗对应动作额度；用物效果在 KP 叙事后结算。"""
-    from game.combat_item_use import combat_use_item_cost
-
-    _ = attack_target  # 效果结算阶段使用
+    """消耗对应动作额度；伤害/投掷类效果在 KP 前结算，装备类仍于叙事后结算。"""
+    from game.combat_item_use import combat_use_item_cost, combat_use_resolves_pre_kp
+    from game.combat_targets import normalize_enemy_ref
+    from game.item_use import resolve_use_item
 
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
@@ -922,7 +922,11 @@ def resolve_use_item_in_combat(
         return [f"背包中没有：{refs[0]}"]
 
     if cost not in ("main", "bonus", "free"):
-        cost = combat_use_item_cost(character, refs[0])
+        cost = combat_use_item_cost(
+            character,
+            refs[0],
+            attack_target=attack_target,
+        )
 
     if cost == "free":
         err = spend_free_interact_or_error(combat)
@@ -938,4 +942,19 @@ def resolve_use_item_in_combat(
         "bonus": "附加动作",
         "main": "主要动作",
     }.get(cost, "动作")
-    return [f"{cost_label}：使用 {label}"]
+    events = [f"{cost_label}：使用 {label}"]
+
+    if combat_use_resolves_pre_kp(character, refs[0], attack_target=attack_target):
+        resolved_target = (
+            normalize_enemy_ref(combat, attack_target) if attack_target.strip() else ""
+        )
+        events.extend(
+            resolve_use_item(
+                character,
+                refs,
+                game_state=game_state,
+                attack_target=resolved_target,
+            )
+        )
+
+    return events

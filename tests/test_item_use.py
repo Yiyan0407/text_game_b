@@ -184,8 +184,10 @@ def test_resolve_use_item_grenade_in_combat():
         attack_target="敌人",
     )
     assert any("附加动作：使用" in event for event in events)
+    assert any("💥" in event for event in events)
     assert state.combat.bonus_action_used is True
-    assert character.has_inventory_item("破片手雷")
+    assert state.combat.enemies[0].hp < 30
+    assert not character.has_inventory_item("破片手雷")
 
     from game.post_kp_mechanics import resolve_post_kp_mechanics
     from game.results import ActionRouteResult
@@ -197,9 +199,7 @@ def test_resolve_use_item_grenade_in_combat():
         attack_target="敌人",
     )
     effect_events = resolve_post_kp_mechanics(route, character, state, events)
-    assert any("💥" in event for event in effect_events)
-    assert state.combat.enemies[0].hp < 30
-    assert not character.has_inventory_item("破片手雷")
+    assert effect_events == []
 
 
 def test_resolve_use_item_smoke_tag_consumes():
