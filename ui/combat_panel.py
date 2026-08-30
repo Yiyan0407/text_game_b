@@ -61,8 +61,10 @@ def render_combat_panel(game_state: GameState) -> None:
 
     for enemy in combat.enemies:
         if enemy.hp > 0:
+            max_hp = max(1, enemy.max_hp)
+            hp_ratio = max(0.0, min(1.0, enemy.hp / max_hp))
             st.progress(
-                enemy.hp / enemy.max_hp,
+                hp_ratio,
                 text=_enemy_status(enemy, combat),
             )
         else:

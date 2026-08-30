@@ -26,7 +26,9 @@ def render_character_sheet(character: Character) -> None:
         mod = character.modifier(key)
         col.metric(f"{label} {key.upper()}", value, delta=f"{mod:+d}", delta_color="off")
 
-    st.progress(character.hp / character.max_hp, text=f"HP {character.hp}/{character.effective_max_hp()}")
+    max_hp = max(1, character.effective_max_hp())
+    hp_ratio = max(0.0, min(1.0, character.hp / max_hp))
+    st.progress(hp_ratio, text=f"HP {character.hp}/{max_hp}")
 
     effective_sp, sp_source = _effective_sp_display(character)
     if effective_sp > 0:
