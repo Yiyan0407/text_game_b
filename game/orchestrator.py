@@ -267,7 +267,7 @@ class GameOrchestrator:
             mechanical_events=[],
             game_config=config,
         )
-        rejection, pre_events, run_state, stream, item_sync, finish = (
+        rejection, pre_events, run_state, stream, item_sync, finish, _ = (
             self._stream_turn_phased(ctx)
         )
 
@@ -554,7 +554,7 @@ class GameOrchestrator:
                 lambda: restore_adventure(character, game_state, char_snap, state_snap),
             )
 
-        rejection, pre_events, run_state, stream, item_sync, finish = (
+        rejection, pre_events, run_state, stream, item_sync, finish, _ = (
             self._stream_turn_phased(ctx)
         )
 
