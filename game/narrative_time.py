@@ -18,6 +18,33 @@ _DEFAULT_START_MINUTE = 8 * 60  # 第1天 08:00
 _IMMINENT_MINUTES = 30
 _TIME_ADVANCE_RE = re.compile(r"时间推进\s+(.+?)（")
 _CLOCK_LABEL_RE = re.compile(r"第(\d+)天\s*(\d{1,2}):(\d{2})")
+_DAY_TIME_RE = re.compile(r"第(\d+)天\s*(\d{1,2})[:：点时](\d{1,2})")
+_NOW_CLOCK_ANCHOR_RES: list[tuple[re.Pattern[str], bool]] = [
+    (
+        re.compile(
+            r"(?:时间显示|当前时间|现在是|此时|钟表显示|表盘显示|时钟显示|看了(?:看)?(?:表|时间))"
+            r"[：:\s]*"
+            r"(?:(凌晨|清晨|早上|上午|中午|午后|下午|傍晚|晚上|深夜)\s*)?"
+            r"(\d{1,2})\s*[:：点时]\s*(\d{1,2})\s*分?"
+        ),
+        True,
+    ),
+    (
+        re.compile(
+            r"(?:(凌晨|清晨|早上|上午|中午|午后|下午|傍晚|晚上|深夜)\s*)?"
+            r"(\d{1,2})\s*[:：点时]\s*(\d{1,2})\s*分?"
+            r"(?!\s*(?:到|至|—|–|-|\~))"
+        ),
+        False,
+    ),
+]
+_PERIOD_HOUR_OFFSET = {
+    "下午": 12,
+    "午后": 12,
+    "傍晚": 12,
+    "晚上": 12,
+    "深夜": 0,
+}
 
 
 def parse_time_label(label: str) -> tuple[int, int, int] | None:
@@ -59,6 +86,97 @@ def initialize_story_clock_from_scenario(game_state: GameState, scenario: Scenar
     return
 
 
+def current_absolute_minutes(game_state: GameState) -> int:
+    return game_state.story_start_absolute_minutes + max(0, game_state.elapsed_minutes)
+
+
+def reanchor_story_clock(
+    game_state: GameState,
+    day: int,
+    hour: int,
+    minute: int,
+    *,
+    elapsed_minutes: int = 0,
+) -> None:
+    absolute = absolute_minutes_from_day_time(day, hour, minute)
+    game_state.story_start_absolute_minutes = absolute
+    game_state.elapsed_minutes = max(0, int(elapsed_minutes))
+    game_state.narrative_time_label = format_clock(
+        game_state.elapsed_minutes,
+        game_state.story_start_absolute_minutes,
+    )
+
+
+def _normalize_clock_hour(period: str, hour: int) -> int:
+    hour = min(23, max(0, hour))
+    if period in {"下午", "午后", "傍晚", "晚上"} and hour < 12:
+        hour += 12
+    if period == "中午" and hour < 11:
+        hour += 12
+    return hour
+
+
+def extract_explicit_current_clock(text: str) -> tuple[int, int, int] | None:
+    """从 KP 叙事中提取「当前时刻」；忽略排班表等区间描述。"""
+    normalized = text.strip()
+    if not normalized:
+        return None
+
+    day_match = _DAY_TIME_RE.search(normalized)
+    if day_match:
+        return (
+            max(1, int(day_match.group(1))),
+            min(23, max(0, int(day_match.group(2)))),
+            min(59, max(0, int(day_match.group(3)))),
+        )
+
+    for pattern, _ in _NOW_CLOCK_ANCHOR_RES:
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        groups = match.groups()
+        if len(groups) == 3:
+            period, hour_raw, minute_raw = groups
+        else:
+            period, hour_raw, minute_raw = "", groups[0], groups[1]
+        hour = _normalize_clock_hour(period or "", int(hour_raw))
+        minute = min(59, max(0, int(minute_raw)))
+        return 1, hour, minute
+    return None
+
+
+def reconcile_clock_from_kp_narrative(
+    game_state: GameState,
+    kp_text: str,
+    *,
+    tolerance_minutes: int = 20,
+    extra_elapsed: int = 0,
+) -> list[str]:
+    """KP 叙事若明确写出当前时刻，与系统钟相差过大时重锚定（如穿越后仍为默认 08:00）。"""
+    parsed = extract_explicit_current_clock(kp_text)
+    if parsed is None:
+        return []
+
+    day, hour, minute = parsed
+    target = absolute_minutes_from_day_time(day, hour, minute) + max(0, extra_elapsed)
+    current = current_absolute_minutes(game_state)
+    if abs(target - current) <= tolerance_minutes:
+        return []
+
+    before_label = narrative_time_display(game_state)
+    reanchor_story_clock(
+        game_state,
+        day,
+        hour,
+        minute,
+        elapsed_minutes=max(0, extra_elapsed),
+    )
+    after_label = narrative_time_display(game_state)
+    return [
+        f"⏳ 叙事时间校正 {before_label} → {after_label}（与 KP 叙事中的当前时刻对齐）"
+    ]
+
+
 def apply_story_clock_label(game_state: GameState, label: str) -> None:
     parsed = parse_time_label(label)
     if parsed is None:
@@ -67,13 +185,14 @@ def apply_story_clock_label(game_state: GameState, label: str) -> None:
 
     day, hour, minute = parsed
     absolute = absolute_minutes_from_day_time(day, hour, minute)
+    current = current_absolute_minutes(game_state)
     if game_state.turn_count == 0 and game_state.elapsed_minutes == 0:
-        game_state.story_start_absolute_minutes = absolute
-        game_state.elapsed_minutes = 0
-    else:
-        game_state.elapsed_minutes = max(
-            0, absolute - game_state.story_start_absolute_minutes
-        )
+        reanchor_story_clock(game_state, day, hour, minute, elapsed_minutes=0)
+        return
+    if abs(absolute - current) > 20 or absolute < game_state.story_start_absolute_minutes:
+        reanchor_story_clock(game_state, day, hour, minute, elapsed_minutes=0)
+        return
+    game_state.elapsed_minutes = max(0, absolute - game_state.story_start_absolute_minutes)
     game_state.narrative_time_label = format_clock(
         game_state.elapsed_minutes,
         game_state.story_start_absolute_minutes,

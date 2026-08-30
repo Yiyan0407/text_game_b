@@ -657,12 +657,11 @@ def _coerce_reroll_patch(value) -> RerollPatch | None:
 
 
 def sanitize_kp_meta_patch(patch: StatePatch) -> StatePatch:
-    """KP 出戏沟通：允许 inventory/equipment 修正（由 KP meta AI 裁定）；禁止推进时间或登记新时限。"""
+    """KP 出戏沟通：允许 inventory/equipment/时钟标签修正；禁止推进时间或登记新时限。"""
     if patch.time is None:
         return patch
     patch.time.advance_minutes = 0
     patch.time.advance_reason = ""
-    patch.time.time_label = ""
     patch.time.deadlines = []
     return patch
 

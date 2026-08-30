@@ -364,6 +364,14 @@ class GameOrchestrator:
             user_input="",
         )
         time_patch = result.patch.time
+        if time_patch is not None and time_patch.time_label.strip():
+            events.extend(
+                apply_time_patch(
+                    game_state,
+                    TimePatch(time_label=time_patch.time_label.strip()),
+                    character,
+                )
+            )
         if time_patch is not None and (
             time_patch.cancel_deadline_ids or time_patch.enforce_deadline_ids
         ):

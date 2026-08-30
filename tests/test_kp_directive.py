@@ -68,6 +68,7 @@ def test_sanitize_kp_meta_patch_keeps_inventory_and_strips_time():
             ],
             time=TimePatch(
                 advance_minutes=60,
+                time_label="第1天 02:20",
                 deadlines=[{"label": "新炸弹", "due_in_minutes": 10}],
                 cancel_deadline_ids=["old"],
             ),
@@ -80,6 +81,7 @@ def test_sanitize_kp_meta_patch_keeps_inventory_and_strips_time():
     assert patch.time is not None
     assert patch.time.advance_minutes == 0
     assert patch.time.deadlines == []
+    assert patch.time.time_label == "第1天 02:20"
     assert patch.time.cancel_deadline_ids == ["old"]
 
 
@@ -230,6 +232,26 @@ def test_kp_meta_empty_body_skips_router_and_llm():
     assert "请在 【kp】 后面写上" in turn.response
     router.aevaluate.assert_not_called()
     kp_meta.arespond.assert_not_called()
+
+
+def test_kp_meta_turn_corrects_narrative_clock():
+    game_state = GameState(story_start_absolute_minutes=8 * 60, elapsed_minutes=15)
+    kp_meta = MagicMock(spec=KpMetaAgent)
+    kp_meta.arespond = AsyncMock(
+        return_value=KpMetaResult(
+            response="已将叙事时间修正为第1天 02:20。",
+            patch=StatePatch(time=TimePatch(time_label="第1天 02:20")),
+        )
+    )
+    orchestrator = GameOrchestrator(kp_meta_agent=kp_meta)
+    orchestrator.player_turn(
+        Character(name="测试"),
+        game_state,
+        MagicMock(format_for_prompt=lambda: "", world_id="modern"),
+        "【kp】叙事写凌晨2:17，系统时间却是8:15",
+        [],
+    )
+    assert game_state.narrative_time_label == "第1天 02:20"
 
 
 def test_kp_meta_turn_cancels_deadline():

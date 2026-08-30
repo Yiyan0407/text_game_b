@@ -248,6 +248,20 @@ class TurnPipeline:
                 **patch_kwargs,
             )
             events.extend(ctx.time_sync_events)
+            from game.narrative_time import reconcile_clock_from_kp_narrative
+
+            extra_elapsed = (
+                ctx.time_patch.time.advance_minutes
+                if ctx.time_patch.time is not None
+                else 0
+            )
+            events.extend(
+                reconcile_clock_from_kp_narrative(
+                    ctx.game_state,
+                    ctx.kp_response,
+                    extra_elapsed=extra_elapsed,
+                )
+            )
 
         if plan.world_sync:
             ctx.world_patch = await self.world_sync.apropose(
