@@ -1,9 +1,11 @@
 from collections import Counter
 
+import logging
 from datetime import datetime, timezone
 
 import streamlit as st
 
+from chain.llm_errors import format_llm_user_error
 from config.worlds import DEFAULT_WORLD_ID, WORLD_OPTIONS
 from game.profile import CharacterCard
 from game.save import SaveManager
@@ -32,6 +34,8 @@ from ui.chat import render_tool_events_live
 from ui.loading import LoadingPlaceholder, run_with_spinner
 from ui.profile_menu import render_profile_switcher
 from ui.streaming import render_streaming_markdown
+
+logger = logging.getLogger(__name__)
 
 
 def _format_saved_at(saved_at: str) -> str:
@@ -511,12 +515,13 @@ def start_new_game(
                 st.session_state.action_suggestions = turn.action_suggestions
             opening_completed = True
         except Exception as exc:
+            logger.exception("开场生成失败")
             if rollback_turn:
                 rollback_turn()
             st.session_state.messages = []
             st.session_state.game_started = False
             st.session_state.page = "menu"
-            st.error(f"开场生成失败：{exc}")
+            st.error(f"开场生成失败：{format_llm_user_error(exc)}")
             return
         if not opening_completed:
             return

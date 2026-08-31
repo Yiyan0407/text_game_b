@@ -1,5 +1,8 @@
+import logging
+
 import streamlit as st
 
+from chain.llm_errors import format_llm_user_error
 from config.logging_setup import setup_logging
 from config.settings import get_settings
 from game.game_config import default_game_config
@@ -35,6 +38,8 @@ from ui.scenario_generator import render_scenario_generator, render_scenario_pre
 from ui.auth import render_login_gate
 
 setup_logging()
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="AI 跑团", page_icon="🎲", layout="wide")
 
@@ -167,6 +172,7 @@ def handle_auto_combat(*, history: list[ChatMessage]) -> None:
             st.session_state.action_suggestions = turn.action_suggestions
         turn_completed = True
     except Exception as exc:
+        logger.exception("自动战斗处理失败")
         if rollback_turn:
             rollback_turn()
         st.session_state.messages = st.session_state.messages[:user_msg_index]
@@ -176,7 +182,7 @@ def handle_auto_combat(*, history: list[ChatMessage]) -> None:
                 content=f"⚠️ 自动战斗处理出错：{exc}。状态已回滚，请稍后重试。",
             )
         )
-        st.error(f"自动战斗失败：{exc}")
+        st.error(f"自动战斗失败：{format_llm_user_error(exc)}")
     finally:
         if turn_completed and st.session_state.get("game_started") and st.session_state.get("character"):
             persist_save()
@@ -303,6 +309,7 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
         st.session_state.action_suggestions = turn.action_suggestions
         turn_completed = True
     except Exception as exc:
+        logger.exception("玩家回合处理失败")
         if rollback_turn:
             rollback_turn()
         st.session_state.messages = st.session_state.messages[: user_msg_index + 1]
@@ -315,7 +322,7 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
                 ),
             )
         )
-        st.error(f"处理失败：{exc}")
+        st.error(f"处理失败：{format_llm_user_error(exc)}")
     finally:
         if turn_completed and st.session_state.get("game_started") and st.session_state.get("character"):
             persist_save()

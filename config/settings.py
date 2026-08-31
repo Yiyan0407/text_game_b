@@ -45,6 +45,11 @@ class Settings:
     seedream_watermark: bool
     app_password: str
     log_level: str
+    llm_retry_enabled: bool
+    llm_max_retries: int
+    llm_retry_initial_delay: float
+    llm_retry_max_delay: float
+    llm_retry_backoff_factor: float
 
 
 @lru_cache
@@ -83,4 +88,9 @@ def get_settings() -> Settings:
         seedream_watermark=os.getenv("SEEDREAM_WATERMARK", "false").lower() == "true",
         app_password=os.getenv("APP_PASSWORD", "1123"),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        llm_retry_enabled=os.getenv("LLM_RETRY_ENABLED", "true").lower() == "true",
+        llm_max_retries=max(1, int(os.getenv("LLM_MAX_RETRIES", "3"))),
+        llm_retry_initial_delay=float(os.getenv("LLM_RETRY_INITIAL_DELAY", "1.0")),
+        llm_retry_max_delay=float(os.getenv("LLM_RETRY_MAX_DELAY", "60.0")),
+        llm_retry_backoff_factor=float(os.getenv("LLM_RETRY_BACKOFF_FACTOR", "2.0")),
     )
