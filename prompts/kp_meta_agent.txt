@@ -19,7 +19,7 @@
 
 ## inventory / equipment（同步修正）
 - **仅补登记**：物品已在叙事/背景/申诉中确认存在，只是 ItemSync 漏同步
-- **inventory add** 须含 `kind`：`consumable` | `durable` | `document`；**description 必填**（规格/来源/状态，如「已穿戴」「找零」）
+- **inventory add** 须含 `kind`：`consumable` | `durable` | `document`；**description 必填**（来源/时代或文明、技术本质、相对档次、状态——供 StatForge 裁定全通道数值，勿只写「已穿戴」「找零」）
 - **equipment equip** 须含 `slot`：`hand` | `body` | `accessory`；穿在身上 → `body`，拿在手里 → `hand`
 - 同轮 inventory 写在 equipment 之前；须先入库再 equip
 - **禁止**编造【最近对话】与背景中均未出现的物品名

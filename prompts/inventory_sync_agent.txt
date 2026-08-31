@@ -9,7 +9,9 @@
 ```json
 {{
   "inventory": [
-    {{"action": "add", "item": "手电筒", "quantity": 1, "unit": "把", "kind": "durable", "description": "背景持有，可照明"}},
+    {{"action": "add", "item": "手电筒", "quantity": 1, "unit": "把", "kind": "durable", "description": "2020 工业LED手电，背景持有，照明用无战斗数值"}},
+    {{"action": "add", "item": "相位匕首", "quantity": 1, "unit": "把", "kind": "durable", "description": "2277 实验室便携原型，短距切割空间结构，人类实验级近战，强于当代一切单兵火器"}},
+    {{"action": "add", "item": "止血凝胶", "quantity": 1, "unit": "支", "kind": "consumable", "description": "2020 民用急救耗材，单次快速闭合浅表伤口"}},
     {{"action": "remove", "item": "空瓶", "quantity": 1}}
   ],
   "equipment": [
@@ -28,7 +30,12 @@
 - 纯观察/询问且**叙事未引入新物件、装备栏已与叙事一致** → 输出 `{{}}`
 
 ## inventory
-- **description（add 时必填）**；**kind（必填）**：`consumable` | `durable` | `document`
+- **description（add 时必填，极重要）**：供 StatForge 裁定**攻击/使用/被动**全通道数值；勿只写「一把枪/一件甲/一瓶药」。至少写清：
+  - **来源/时代/文明**：如「2020 当地缴获」「2277 实验原型」「外星步兵制式」
+  - **技术本质**：如「火药动能」「相位切割」「纳米修复凝胶」「纯文档无战斗」
+  - **相对档次**（一句即可）：如「强于当代警用装备」「背景封存的人类侧王牌」「一次性战场急救」
+  - **状态**（若相关）：如「已穿戴」「找零」「半满」
+- **kind（必填）**：`consumable` | `durable` | `document`
 - 机械层已有 `获得：` 的同名物**禁止**再 add
 - **【背包/装备现状】已有同名物品**：本回合仅为「从背包取出/塞进口袋/穿上/装备」时，**只写 equipment equip**，**禁止** inventory add（勿把数量叠成 2）
 - 购买主商品：机械层已交货，**勿重复 add** 主商品

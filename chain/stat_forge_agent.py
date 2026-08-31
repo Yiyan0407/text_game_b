@@ -16,6 +16,7 @@ from game.scenario import Scenario
 from game.stat_forge import (
     ForgeTarget,
     apply_entity_effects,
+    collect_forged_references,
     mark_entity_skipped,
 )
 
@@ -34,6 +35,8 @@ class StatForgeAgent:
                     "【世界观】\nworld_id={world_id}\n"
                     "【模组】\n{scenario_context}\n\n"
                     "【角色背景】\n{background}\n\n"
+                    "【已裁定参照（同角色内横向比较；新实体勿无理由强于/弱于下列档次）】\n"
+                    "{forged_references_json}\n\n"
                     "【待裁定实体】\n{targets_json}\n\n"
                     "请输出 JSON：",
                 ),
@@ -65,11 +68,17 @@ class StatForgeAgent:
             for target in targets
         ]
         chain = self.prompt | self.llm
+        forged_refs = collect_forged_references(character)
         response = await chain.ainvoke(
             {
                 "world_id": scenario.world_id or "modern",
                 "scenario_context": scenario.format_for_prompt(),
                 "background": character.background.strip() or "（无）",
+                "forged_references_json": json.dumps(
+                    forged_refs if forged_refs else [{"note": "（尚无已裁定实体）"}],
+                    ensure_ascii=False,
+                    indent=2,
+                ),
                 "targets_json": json.dumps(targets_payload, ensure_ascii=False, indent=2),
             }
         )

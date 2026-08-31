@@ -17,6 +17,42 @@ class ForgeTarget:
     skill_kind: str = ""  # active | passive（仅 kind=skill 时）
 
 
+def collect_forged_references(character: Character) -> list[dict[str, str]]:
+    """已裁定实体摘要，供 StatForge 横向比较（避免新入库与旧装备数值倒挂）。"""
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _append(*, kind: str, name: str, description: str, effects: EntityEffects | None, skill_kind: str = "") -> None:
+        if not name or not effects or not effects.forged:
+            return
+        key = (kind, name)
+        if key in seen:
+            return
+        seen.add(key)
+        summary = effects.format_summary()
+        entry: dict[str, str] = {
+            "kind": kind,
+            "name": name,
+            "description": description.strip() or "（无）",
+            "effects": summary or "非战斗/无机械",
+        }
+        if skill_kind:
+            entry["skill_kind"] = skill_kind
+        refs.append(entry)
+
+    for item in character.inventory:
+        _append(kind="item", name=item.name, description=item.description, effects=item.effects)
+    for skill in character.skills:
+        _append(
+            kind="skill",
+            name=skill.name,
+            description=skill.description,
+            effects=skill.effects,
+            skill_kind=skill.kind,
+        )
+    return refs
+
+
 def collect_forge_targets(character: Character) -> list[ForgeTarget]:
     """收集所有尚未经 StatForge 裁定的实体（不依赖关键词）。"""
     targets: list[ForgeTarget] = []

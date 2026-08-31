@@ -11,7 +11,7 @@ from game.effect_resolver import (
 from game.effect_validate import validate_effects
 from game.effects import EntityEffects
 from game.models import Character, CombatEnemy
-from game.stat_forge import ForgeTarget, collect_forge_targets, mark_entity_skipped
+from game.stat_forge import ForgeTarget, collect_forge_targets, collect_forged_references, mark_entity_skipped
 
 
 def _character_with_armor(name: str, sp: int, *, slot: str = "body") -> Character:
@@ -149,6 +149,25 @@ def test_collect_forge_targets_includes_unforged_items_without_keywords():
     assert "单分子线" in names
     assert "仓库钥匙" in names
     assert "潜行" in names
+
+
+def test_collect_forged_references_skips_pending_and_lists_forged():
+    from tests.fixtures_effects import forged_weapon
+
+    character = Character(
+        name="测试",
+        inventory=[forged_weapon("相位匕首", "3d8"), "仓库钥匙"],
+    )
+    key = character.find_inventory_item("仓库钥匙")
+    key.description = "2020 办公室钥匙"
+    mark_entity_skipped(character, ForgeTarget(kind="item", name="仓库钥匙"))
+
+    refs = collect_forged_references(character)
+    assert len(refs) == 2
+    dagger = next(r for r in refs if r["name"] == "相位匕首")
+    assert "3d8" in dagger["effects"]
+    key_ref = next(r for r in refs if r["name"] == "仓库钥匙")
+    assert key_ref["effects"] == "非战斗/无机械"
 
 
 def test_mark_entity_skipped_sets_forged():
