@@ -149,7 +149,7 @@ class TurnPipeline:
         return ctx.kp_response
 
     async def settle_after_kp(self, ctx: TurnContext) -> list[str]:
-        """KP 后 · 统一结算编排（v1 串行）。"""
+        """KP 后 · 统一结算编排（Sync Agent 并发 propose、串行 apply）。"""
         if ctx.rejected or not ctx.kp_response.strip():
             return []
 
@@ -192,99 +192,133 @@ class TurnPipeline:
             scene_record_turn=record_turn,
         )
 
+        propose_labels: list[str] = []
+        propose_coros = []
         if plan.inventory_sync:
-            ctx.inventory_patch = await self.inventory_sync.apropose(
-                ctx.effective_input,
-                ctx.kp_response,
-                ctx.character,
-                ctx.game_state,
-                ctx.settlement_events,
-                ctx.history,
-                route=ctx.route,
-            )
-            ctx.inventory_sync_events = apply_state_patch(
-                ctx.inventory_patch,
-                ctx.character,
-                ctx.game_state,
-                apply_time=False,
-                inventory_sync=True,
-                **patch_kwargs,
-            )
-            events.extend(ctx.inventory_sync_events)
-
-        if plan.skill_sync:
-            ctx.skill_patch = await self.skill_sync.apropose(
-                ctx.effective_input,
-                ctx.kp_response,
-                ctx.character,
-                ctx.game_state,
-                ctx.settlement_events,
-                route=ctx.route,
-            )
-            ctx.skill_sync_events = apply_state_patch(
-                ctx.skill_patch,
-                ctx.character,
-                ctx.game_state,
-                apply_time=False,
-                **patch_kwargs,
-            )
-            events.extend(ctx.skill_sync_events)
-
-        if plan.time_sync:
-            ctx.time_patch = await self.time_sync.apropose(
-                ctx.effective_input,
-                ctx.kp_response,
-                ctx.character,
-                ctx.game_state,
-                ctx.settlement_events,
-                route=ctx.route,
-            )
-            ctx.time_sync_events = apply_state_patch(
-                ctx.time_patch,
-                ctx.character,
-                ctx.game_state,
-                apply_time=True,
-                inventory_sync=False,
-                **patch_kwargs,
-            )
-            events.extend(ctx.time_sync_events)
-            from game.narrative_time import reconcile_clock_from_kp_narrative
-
-            extra_elapsed = (
-                ctx.time_patch.time.advance_minutes
-                if ctx.time_patch.time is not None
-                else 0
-            )
-            events.extend(
-                reconcile_clock_from_kp_narrative(
-                    ctx.game_state,
+            propose_labels.append("inventory")
+            propose_coros.append(
+                self.inventory_sync.apropose(
+                    ctx.effective_input,
                     ctx.kp_response,
-                    extra_elapsed=extra_elapsed,
+                    ctx.character,
+                    ctx.game_state,
+                    ctx.settlement_events,
+                    ctx.history,
+                    route=ctx.route,
+                )
+            )
+        if plan.skill_sync:
+            propose_labels.append("skill")
+            propose_coros.append(
+                self.skill_sync.apropose(
+                    ctx.effective_input,
+                    ctx.kp_response,
+                    ctx.character,
+                    ctx.game_state,
+                    ctx.settlement_events,
+                    route=ctx.route,
+                )
+            )
+        if plan.time_sync:
+            propose_labels.append("time")
+            propose_coros.append(
+                self.time_sync.apropose(
+                    ctx.effective_input,
+                    ctx.kp_response,
+                    ctx.character,
+                    ctx.game_state,
+                    ctx.settlement_events,
+                    route=ctx.route,
+                )
+            )
+        if plan.world_sync:
+            propose_labels.append("world")
+            propose_coros.append(
+                self.world_sync.apropose(
+                    ctx.effective_input,
+                    ctx.kp_response,
+                    ctx.character,
+                    ctx.game_state,
+                    ctx.settlement_events,
+                    ctx.history,
+                    route=ctx.route,
                 )
             )
 
+        proposed = await gather_best_effort(*propose_coros) if propose_coros else []
+        patches = dict(zip(propose_labels, proposed))
+
+        if plan.inventory_sync:
+            patch = patches.get("inventory")
+            if patch is not None:
+                ctx.inventory_patch = patch
+                ctx.inventory_sync_events = apply_state_patch(
+                    ctx.inventory_patch,
+                    ctx.character,
+                    ctx.game_state,
+                    apply_time=False,
+                    inventory_sync=True,
+                    **patch_kwargs,
+                )
+                events.extend(ctx.inventory_sync_events)
+
+        if plan.skill_sync:
+            patch = patches.get("skill")
+            if patch is not None:
+                ctx.skill_patch = patch
+                ctx.skill_sync_events = apply_state_patch(
+                    ctx.skill_patch,
+                    ctx.character,
+                    ctx.game_state,
+                    apply_time=False,
+                    **patch_kwargs,
+                )
+                events.extend(ctx.skill_sync_events)
+
+        if plan.time_sync:
+            patch = patches.get("time")
+            if patch is not None:
+                ctx.time_patch = patch
+                ctx.time_sync_events = apply_state_patch(
+                    ctx.time_patch,
+                    ctx.character,
+                    ctx.game_state,
+                    apply_time=True,
+                    inventory_sync=False,
+                    **patch_kwargs,
+                )
+                events.extend(ctx.time_sync_events)
+                from game.narrative_time import reconcile_clock_from_kp_narrative
+
+                extra_elapsed = (
+                    ctx.time_patch.time.advance_minutes
+                    if ctx.time_patch.time is not None
+                    else 0
+                )
+                events.extend(
+                    reconcile_clock_from_kp_narrative(
+                        ctx.game_state,
+                        ctx.kp_response,
+                        extra_elapsed=extra_elapsed,
+                    )
+                )
+
         if plan.world_sync:
-            ctx.world_patch = await self.world_sync.apropose(
-                ctx.effective_input,
-                ctx.kp_response,
-                ctx.character,
-                ctx.game_state,
-                ctx.settlement_events,
-                ctx.history,
-                route=ctx.route,
-            )
-            ctx.world_sync_events = apply_state_patch(
-                ctx.world_patch,
-                ctx.character,
-                ctx.game_state,
-                apply_time=False,
-                inventory_sync=False,
-                **patch_kwargs,
-            )
-            events.extend(ctx.world_sync_events)
-            ctx.map_needs_update = _should_refresh_scene_map(ctx)
-            if not ctx.map_needs_update:
-                ctx.game_state.map_travel_from = ""
+            patch = patches.get("world")
+            if patch is not None:
+                ctx.world_patch = patch
+                ctx.world_sync_events = apply_state_patch(
+                    ctx.world_patch,
+                    ctx.character,
+                    ctx.game_state,
+                    apply_time=False,
+                    inventory_sync=False,
+                    **patch_kwargs,
+                )
+                events.extend(ctx.world_sync_events)
+                ctx.map_needs_update = _should_refresh_scene_map(ctx)
+                if not ctx.map_needs_update:
+                    ctx.game_state.map_travel_from = ""
 
         from game.scenario_progress import update_scenario_progress_after_turn
 
@@ -346,50 +380,7 @@ class TurnPipeline:
             turn.summary_updated = True
         return turn
 
-    async def run_deferred_finalize(
-        self,
-        *,
-        character: Character,
-        game_state: GameState,
-        scenario: Scenario,
-        ctx: TurnContext,
-        snapshot,
-    ):
-        """后台收尾：记忆 + 地图 + 行动建议。"""
-        from game.deferred_finalize import DeferredFinalizeResult
-
-        summary_before = game_state.story_summary
-        turn = TurnResult(response=snapshot.kp_response, tool_events=ctx.all_tool_events)
-
-        async def _memory() -> None:
-            await self.memory.process_after_turn_async(
-                game_state,
-                snapshot.history,
-                at_turn=snapshot.turn_count,
-            )
-
-        async def _scene_map() -> None:
-            if not snapshot.map_needs_update:
-                return
-            await self.scene_map.aupdate(
-                game_state,
-                scenario,
-                snapshot.history,
-                travel_from=snapshot.map_travel_from,
-            )
-            game_state.map_travel_from = ""
-
-        suggestions, _, _ = await gather_best_effort(
-            self.suggest_actions(ctx, turn),
-            _memory(),
-            _scene_map(),
-        )
-        return DeferredFinalizeResult(
-            action_suggestions=list(suggestions or []),
-            summary_updated=game_state.story_summary != summary_before,
-        )
-
-    async def run_turn(self, ctx: TurnContext, *, defer_finalize: bool = True) -> TurnResult:
+    async def run_turn(self, ctx: TurnContext) -> TurnResult:
         """非流式完整回合。"""
         if not await self.prepare(ctx):
             return TurnResult(
@@ -401,8 +392,6 @@ class TurnPipeline:
         await self.narrate(ctx)
         await self.settle_after_kp(ctx)
         await self.define_entities(ctx)
-        if defer_finalize and get_settings().enable_deferred_finalize:
-            return TurnResult(response=ctx.kp_response.strip(), tool_events=ctx.all_tool_events)
         return await self.finalize(ctx, ctx.kp_response)
 
     def build_narrative_brief_for_stream(self, ctx: TurnContext) -> str:

@@ -4,7 +4,6 @@ from config.settings import get_settings
 from game.game_config import default_game_config
 from game.models import Character, ChatMessage, GameState
 from game.orchestrator import GameOrchestrator
-from game.results import TurnResult
 from game.profile import ProfileManager
 from game.save import SaveManager
 from game.scenario import Scenario
@@ -21,14 +20,7 @@ from ui.game_state_panel import render_game_state_panel
 from ui.combat_panel import AUTO_COMBAT_PENDING_KEY, render_combat_panel
 from ui.action_suggestions import render_action_suggestions
 from ui.loading import LoadingPlaceholder, run_with_spinner
-from ui.deferred_turn_tasks import (
-    deferred_poll_fragment,
-    finalize_streaming_turn_with_deferred,
-    poll_deferred_results,
-    render_deferred_status,
-    schedule_turn_finalize,
-)
-from ui.streaming import render_phased_turn
+from ui.streaming import finalize_streaming_turn, render_phased_turn
 from ui.game_export import render_game_pdf_download
 from ui.main_menu import (
     render_character_creation,
@@ -97,6 +89,7 @@ def handle_auto_combat(*, history: list[ChatMessage]) -> None:
                 run_state_phase,
                 text_stream,
                 run_item_sync_phase,
+                run_finalize_phase,
                 finish_turn,
                 turn_context,
                 rollback_turn,
@@ -126,11 +119,10 @@ def handle_auto_combat(*, history: list[ChatMessage]) -> None:
                 kp_meta=False,
             )
             append_tool_events(state_events)
-            turn = finalize_streaming_turn_with_deferred(
-                orchestrator,
-                turn_context,
+            turn = finalize_streaming_turn(
                 full_response,
                 run_item_sync_phase=run_item_sync_phase,
+                run_finalize_phase=run_finalize_phase,
                 finish_turn=finish_turn,
             )
             append_tool_events(
@@ -165,15 +157,10 @@ def handle_auto_combat(*, history: list[ChatMessage]) -> None:
             st.session_state.messages.append(
                 ChatMessage(role="assistant", content=turn.response)
             )
-            schedule_turn_finalize(
-                orchestrator=orchestrator,
-                ctx=orchestrator.last_turn_ctx,
-                kp_response=turn.response,
-            )
 
         if game_state.story_summary != summary_before:
             pass
-        if turn is not None and turn.action_suggestions:
+        if turn is not None:
             st.session_state.action_suggestions = turn.action_suggestions
         turn_completed = True
     except Exception as exc:
@@ -216,6 +203,7 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
                 run_state_phase,
                 text_stream,
                 run_item_sync_phase,
+                run_finalize_phase,
                 finish_turn,
                 turn_context,
                 rollback_turn,
@@ -250,11 +238,10 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
                 kp_meta=kp_meta_turn,
             )
             append_tool_events(state_events)
-            turn = finalize_streaming_turn_with_deferred(
-                orchestrator,
-                turn_context,
+            turn = finalize_streaming_turn(
                 full_response,
                 run_item_sync_phase=run_item_sync_phase,
+                run_finalize_phase=run_finalize_phase,
                 finish_turn=finish_turn,
                 kp_meta=kp_meta_turn,
             )
@@ -279,11 +266,6 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
                 append_tool_events(turn.tool_events)
                 st.session_state.messages.append(
                     ChatMessage(role="assistant", content=turn.response)
-                )
-                schedule_turn_finalize(
-                    orchestrator=orchestrator,
-                    ctx=orchestrator.last_turn_ctx,
-                    kp_response=turn.response,
                 )
             full_response = turn.response
 
@@ -315,8 +297,7 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
                 ChatMessage(role="assistant", content=full_response or turn.response)
             )
 
-        if turn.action_suggestions:
-            st.session_state.action_suggestions = turn.action_suggestions
+        st.session_state.action_suggestions = turn.action_suggestions
         turn_completed = True
     except Exception as exc:
         if rollback_turn:
@@ -409,8 +390,6 @@ def _render_sync_save_button(*, button_key: str) -> None:
 
 
 def render_game() -> None:
-    poll_deferred_results()
-    deferred_poll_fragment()
     _render_sync_save_feedback()
     character: Character = st.session_state.character
     game_state: GameState = st.session_state.game_state
@@ -431,7 +410,6 @@ def render_game() -> None:
         if st.session_state.get("current_character_id"):
             st.caption("长期角色：进度会自动同步到角色卡")
         st.caption("每回合结束后自动存档")
-        render_deferred_status()
         if st.session_state.get("last_loaded_save_at"):
             st.caption(f"存档时间：{st.session_state.last_loaded_save_at}")
         _render_sync_save_button(button_key="sync_save_sidebar")

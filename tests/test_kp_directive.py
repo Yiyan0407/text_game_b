@@ -302,6 +302,7 @@ def test_kp_meta_turn_stream_skips_action_router():
         run_state,
         stream,
         item_sync,
+        run_finalize,
         finish,
         turn_context,
         rollback,

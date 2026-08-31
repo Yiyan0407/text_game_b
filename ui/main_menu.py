@@ -472,6 +472,7 @@ def start_new_game(
                 run_state_phase,
                 text_stream,
                 run_item_sync_phase,
+                run_finalize_phase,
                 finish_turn,
                 turn_context,
                 rollback_turn,
@@ -479,8 +480,7 @@ def start_new_game(
                 character, game_state, scenario, career_context=career_context, game_config=config
             )
             from game.session import append_tool_events
-            from ui.deferred_turn_tasks import finalize_streaming_turn_with_deferred
-            from ui.streaming import render_phased_turn
+            from ui.streaming import finalize_streaming_turn, render_phased_turn
 
             append_tool_events(pre_tool_events)
 
@@ -491,11 +491,10 @@ def start_new_game(
                 loading=progress,
             )
             append_tool_events(state_events)
-            turn = finalize_streaming_turn_with_deferred(
-                orchestrator,
-                turn_context,
+            turn = finalize_streaming_turn(
                 full,
                 run_item_sync_phase=run_item_sync_phase,
+                run_finalize_phase=run_finalize_phase,
                 finish_turn=finish_turn,
             )
             item_events = [
@@ -527,16 +526,9 @@ def start_new_game(
                 character, game_state, scenario, career_context=career_context, game_config=config
             )
         from game.session import append_turn_result
-        from ui.deferred_turn_tasks import schedule_turn_finalize
 
         append_turn_result(turn)
-        schedule_turn_finalize(
-            orchestrator=orchestrator,
-            ctx=orchestrator.last_turn_ctx,
-            kp_response=turn.response,
-        )
-        if turn.action_suggestions:
-            st.session_state.action_suggestions = turn.action_suggestions
+        st.session_state.action_suggestions = turn.action_suggestions
 
     persist_save()
     st.rerun()

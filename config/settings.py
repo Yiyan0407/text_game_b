@@ -34,7 +34,6 @@ class Settings:
     memory_journal_max_chars: int
     enable_streaming: bool
     enable_action_suggestions: bool
-    enable_deferred_finalize: bool
     enable_scene_map: bool
     enable_scene_images: bool
     image_provider: str
@@ -69,7 +68,6 @@ def get_settings() -> Settings:
         memory_journal_max_chars=int(os.getenv("MEMORY_JOURNAL_MAX_CHARS", "6000")),
         enable_streaming=os.getenv("ENABLE_STREAMING", "true").lower() == "true",
         enable_action_suggestions=os.getenv("ENABLE_ACTION_SUGGESTIONS", "true").lower() == "true",
-        enable_deferred_finalize=os.getenv("ENABLE_DEFERRED_FINALIZE", "true").lower() == "true",
         enable_scene_map=os.getenv("ENABLE_SCENE_MAP", "true").lower() == "true",
         enable_scene_images=os.getenv("ENABLE_SCENE_IMAGES", "false").lower() == "true",
         image_provider=os.getenv("IMAGE_PROVIDER", "seedream"),

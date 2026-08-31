@@ -5,7 +5,6 @@ from collections.abc import Callable, Iterator
 import streamlit as st
 
 from game.results import TurnResult
-from game.turn_context import TurnContext
 from ui.loading import LoadingPlaceholder
 
 
@@ -95,14 +94,14 @@ def finalize_streaming_turn(
     full_response: str,
     *,
     run_item_sync_phase: Callable[[str], list[str]],
+    run_finalize_phase: Callable[[], bool],
     finish_turn: Callable[[str], TurnResult],
-    turn_context: TurnContext | None = None,
-    schedule_finalize: Callable[[str], None] | None = None,
     kp_meta: bool = False,
 ) -> TurnResult:
-    """流式回合收尾：同步物品结算 → 立即返回；记忆/建议后台处理。"""
+    """流式回合收尾：物品同步 → 记忆/地图/建议并发整理。"""
     if kp_meta:
         run_item_sync_phase(full_response or "")
+        run_finalize_phase()
         return finish_turn(full_response or "")
 
     with st.spinner("同步物品与装备中……"):
@@ -112,8 +111,9 @@ def finalize_streaming_turn(
 
         render_tool_events_live(item_events)
 
-    response = (full_response or "").strip()
-    if schedule_finalize is not None and turn_context is not None:
-        schedule_finalize(response)
-
-    return finish_turn(response)
+    with st.spinner("整理记忆、地图与行动建议中……"):
+        summary_updated = run_finalize_phase()
+    turn = finish_turn(full_response or "")
+    if summary_updated:
+        turn.summary_updated = True
+    return turn

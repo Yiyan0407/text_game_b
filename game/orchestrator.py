@@ -267,7 +267,7 @@ class GameOrchestrator:
             mechanical_events=[],
             game_config=config,
         )
-        rejection, pre_events, run_state, stream, item_sync, finish, _ = (
+        rejection, pre_events, run_state, stream, item_sync, run_finalize, finish, _ = (
             self._stream_turn_phased(ctx)
         )
 
@@ -283,6 +283,7 @@ class GameOrchestrator:
             run_state,
             stream,
             item_sync,
+            run_finalize,
             finish_with_opening,
             ctx,
             rollback_turn,
@@ -492,11 +493,6 @@ class GameOrchestrator:
             await self.pipeline.narrate(ctx)
             await self.pipeline.settle_after_kp(ctx)
             await self.pipeline.define_entities(ctx)
-            if get_settings().enable_deferred_finalize:
-                return TurnResult(
-                    response=ctx.kp_response.strip(),
-                    tool_events=ctx.all_tool_events,
-                )
             return await self.pipeline.finalize(ctx, ctx.kp_response)
         return await self.pipeline.run_turn(ctx)
 
@@ -543,25 +539,39 @@ class GameOrchestrator:
             def run_item_sync_phase_rejected(_kp_response: str) -> list[str]:
                 return []
 
+            def run_finalize_phase_rejected() -> bool:
+                return False
+
             return (
                 rejected_turn,
                 ctx.mechanical_events,
                 run_state_phase_rejected,
                 iter([]),
                 run_item_sync_phase_rejected,
+                run_finalize_phase_rejected,
                 finish_rejected,
                 ctx,
                 lambda: restore_adventure(character, game_state, char_snap, state_snap),
             )
 
-        rejection, pre_events, run_state, stream, item_sync, finish, _ = (
+        rejection, pre_events, run_state, stream, item_sync, run_finalize, finish, _ = (
             self._stream_turn_phased(ctx)
         )
 
         def rollback_turn() -> None:
             restore_adventure(character, game_state, char_snap, state_snap)
 
-        return rejection, pre_events, run_state, stream, item_sync, finish, ctx, rollback_turn
+        return (
+            rejection,
+            pre_events,
+            run_state,
+            stream,
+            item_sync,
+            run_finalize,
+            finish,
+            ctx,
+            rollback_turn,
+        )
 
     def auto_combat_turn_stream(
         self,
@@ -591,6 +601,7 @@ class GameOrchestrator:
                 lambda: [],
                 iter([]),
                 lambda _kp: [],
+                lambda: False,
                 finish_rejected,
                 None,
                 lambda: None,
@@ -614,14 +625,24 @@ class GameOrchestrator:
         ctx.enriched_input = user_input
         ctx.mechanical_events = list(auto_result.events)
 
-        rejection, pre_events, run_state, stream, item_sync, finish, _ctx = (
+        rejection, pre_events, run_state, stream, item_sync, run_finalize, finish, _ = (
             self._stream_turn_phased(ctx)
         )
 
         def rollback_turn() -> None:
             restore_adventure(character, game_state, char_snap, state_snap)
 
-        return rejection, pre_events, run_state, stream, item_sync, finish, ctx, rollback_turn
+        return (
+            rejection,
+            pre_events,
+            run_state,
+            stream,
+            item_sync,
+            run_finalize,
+            finish,
+            ctx,
+            rollback_turn,
+        )
 
     def auto_combat_turn(
         self,
@@ -659,6 +680,7 @@ class GameOrchestrator:
             run_state,
             stream,
             item_sync,
+            run_finalize,
             finish,
             ctx,
             rollback,
@@ -670,22 +692,12 @@ class GameOrchestrator:
         run_state()
         response = "".join(stream)
         item_sync(response)
+        summary_updated = run_finalize()
         turn = finish(response)
         if ctx is not None:
             self._last_turn_ctx = ctx
-            if not get_settings().enable_deferred_finalize:
-                from game.deferred_finalize import snapshot_from_context
-
-                deferred = await self.pipeline.run_deferred_finalize(
-                    character=character,
-                    game_state=game_state,
-                    scenario=scenario,
-                    ctx=ctx,
-                    snapshot=snapshot_from_context(ctx, response),
-                )
-                if deferred.action_suggestions:
-                    turn.action_suggestions = deferred.action_suggestions
-                turn.summary_updated = deferred.summary_updated
+        if summary_updated:
+            turn.summary_updated = True
         return turn
 
     def _stream_kp_meta_turn(
@@ -743,6 +755,7 @@ class GameOrchestrator:
             run_state_phase,
             text_stream(),
             run_item_sync_phase,
+            lambda: False,
             finish,
             None,
             rollback_turn,
@@ -752,7 +765,7 @@ class GameOrchestrator:
         self,
         ctx: TurnContext,
     ):
-        """分阶段流式回合：机械 → 叙事简报 → KP 流 → KP 后结算 → 异步收尾。"""
+        """分阶段流式回合：机械 → 叙事简报 → KP 流 → KP 后结算 → 并发收尾。"""
         self._last_turn_ctx = ctx
         tool_events = list(ctx.mechanical_events)
         state_result: dict[str, object] = {}
@@ -784,11 +797,50 @@ class GameOrchestrator:
             tool_events.extend(forge_events)
             return settle_events + forge_events
 
+        finalize_state: dict[str, object] = {}
+
+        def run_finalize_phase() -> bool:
+            summary_before = ctx.game_state.story_summary
+
+            async def _run() -> list[str]:
+                turn_stub = TurnResult(
+                    response=ctx.kp_response.strip(),
+                    tool_events=tool_events,
+                )
+
+                async def _memory() -> None:
+                    await self.memory.process_after_turn_async(
+                        ctx.game_state, ctx.history
+                    )
+
+                suggestions, _, _ = await gather_best_effort(
+                    self.pipeline.suggest_actions(ctx, turn_stub),
+                    _memory(),
+                    self._refresh_scene_map_if_needed(ctx),
+                )
+                return list(suggestions or [])
+
+            finalize_state["suggestions"] = run_async(_run())
+            return ctx.game_state.story_summary != summary_before
+
         def finish(response: str) -> TurnResult:
             ctx.kp_response = sanitize_kp_narrative(response.strip())
-            return TurnResult(response=ctx.kp_response, tool_events=tool_events)
+            turn = TurnResult(response=ctx.kp_response, tool_events=tool_events)
+            suggestions = finalize_state.get("suggestions")
+            if suggestions:
+                turn.action_suggestions = suggestions
+            return turn
 
-        return None, list(ctx.mechanical_events), run_state_phase, text_stream(), run_item_sync_phase, finish, ctx
+        return (
+            None,
+            list(ctx.mechanical_events),
+            run_state_phase,
+            text_stream(),
+            run_item_sync_phase,
+            run_finalize_phase,
+            finish,
+            ctx,
+        )
 
     async def _aprepare_player_input(
         self,
