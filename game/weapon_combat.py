@@ -46,7 +46,7 @@ def _resolve_active_skill(
     seen: set[str] = set()
     for ref in candidates:
         skill = character.find_skill(ref)
-        if skill is None:
+        if skill is None or skill.kind == "passive":
             continue
         name = skill.name.strip()
         if not name or name in seen:

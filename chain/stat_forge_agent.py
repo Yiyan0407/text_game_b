@@ -56,6 +56,11 @@ class StatForgeAgent:
                 "kind": target.kind,
                 "name": target.name,
                 "description": target.description,
+                **(
+                    {"skill_kind": target.skill_kind}
+                    if target.kind == "skill" and target.skill_kind
+                    else {}
+                ),
             }
             for target in targets
         ]

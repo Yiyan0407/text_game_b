@@ -15,12 +15,24 @@
 
 | 通道 | 何时生效 | 填哪些字段 |
 |------|----------|------------|
-| **被动** | 装备在 body/hand/accessory | `sp/sp_max`、`ac_bonus`、`max_hp_bonus` |
+| **被动** | 装备在 body/hand/accessory；**或** kind=passive 的技能（常驻） | `sp/sp_max`、`ac_bonus`、`max_hp_bonus`、`check_bonus`、`related_abilities` |
 | **攻击** | 战斗 `attack` 动作 | `attack_damage`、`attack_bonus`、`use_dex` |
 | **使用** | 战斗/探索 `use_item` | `heal_dice`、`use_damage`、`use_auto_hit`、`use_tag`、`consumes_on_use`、`use_aoe` |
 | **手持用途** | 耐久品在战斗中是否免主动作 | `gear_slot`: `weapon` / `light` / `tool` |
 
-**战斗攻击 + 技能**：玩家 `attack` 且主动施展带 `attack_damage` 的技能时，武器与技能伤害骰**叠加**（凡剑 1d6 + 裂气斩 10d10 → 分别裁定后相加）。
+**战斗攻击 + 技能**：玩家 `attack` 且主动施展带 `attack_damage` 的**主动**技能时，武器与技能伤害骰**叠加**（凡剑 1d6 + 裂气斩 10d10 → 分别裁定后相加）。**被动技能**不提供 attack 通道。
+
+### 被动技能（kind=passive）
+- 祝福/改造/神选：可填 **正数** `max_hp_bonus`、`ac_bonus`、`check_bonus`（+2 典型）
+- **诅咒/代价/恶魔契约/反噬**：可填 **负数**（如 `max_hp_bonus: -8`、`ac_bonus: -1`、`check_bonus: -2`）；相关检定自动减值
+- **有代价的强大被动**：正负混搭（例：恶魔契约 `attack` 不给，但 `max_hp_bonus: -5` + `check_bonus: -2` + 叙事上的力量——若需攻击骰请拆成主动技能）
+- 填写 **`related_abilities`**：`["con"]`、`["wis","cha"]` 或 `["all"]`
+- `check_bonus: 0` 表示未指定，系统按名称/正负 stat 推断 ±2
+- 勿给被动技能填 `attack_damage` / `heal_dice`
+
+### 主动技能（kind=active）· 代价型
+- 高伤害可配 **`attack_bonus`** 负值或较低命中（`-1`），表示不稳定/反噬
+- 极端威力（`3d10+`）可搭配描述中的代价；永久 debuff 应登记为 **passive** 诅咒而非挂在主动上
 
 ### 攻击 / 使用 · 上下文裁定示例（仅作思路，可超出）
 | 实体（读描述再定） | 典型 attack_damage / use_damage | 说明 |
@@ -44,8 +56,9 @@
 非战斗、无机械：skip: true。
 
 ## 字段一览
-attack_damage, attack_bonus, use_dex, sp, sp_max, ac_bonus, max_hp_bonus,
-heal_dice, use_damage, use_aoe, use_auto_hit, use_tag, consumes_on_use, gear_slot
+attack_damage, attack_bonus, use_dex, sp, sp_max, ac_bonus, max_hp_bonus, check_bonus,
+heal_dice, use_damage, use_aoe, use_auto_hit, use_tag, consumes_on_use, gear_slot,
+related_abilities
 
 ## world_id
 仅作**风格参考**，禁止当作默认赋值表。数值不符叙事时，**以叙事为准**。
@@ -80,12 +93,31 @@ heal_dice, use_damage, use_aoe, use_auto_hit, use_tag, consumes_on_use, gear_slo
       }}
     }},
     {{
-      "kind": "item",
-      "name": "微型核弹发射器",
+      "kind": "skill",
+      "name": "古神诅咒",
       "effects": {{
-        "use_damage": "10d10",
-        "use_aoe": true,
-        "consumes_on_use": true
+        "max_hp_bonus": -6,
+        "check_bonus": -2,
+        "related_abilities": ["wis", "cha"]
+      }}
+    }},
+    {{
+      "kind": "skill",
+      "name": "恶魔契约",
+      "effects": {{
+        "max_hp_bonus": -5,
+        "ac_bonus": -1,
+        "check_bonus": -2,
+        "related_abilities": ["cha"]
+      }}
+    }},
+    {{
+      "kind": "skill",
+      "name": "裂魂斩",
+      "effects": {{
+        "attack_damage": "2d10",
+        "attack_bonus": -1,
+        "use_dex": false
       }}
     }}
   ]

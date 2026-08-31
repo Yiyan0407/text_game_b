@@ -181,6 +181,13 @@ class TurnPipeline:
             )
             ctx.settlement_plan = resolve_settlement_plan(ctx, router_plan=router_plan)
 
+        from game.settlement_plan import ensure_skill_sync_for_acquisition
+
+        ctx.settlement_plan = ensure_skill_sync_for_acquisition(
+            ctx.route,
+            ctx.settlement_plan,
+        )
+
         plan = ctx.settlement_plan
         assert plan is not None
         events.append(format_settlement_plan_event(plan))

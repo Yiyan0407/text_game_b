@@ -528,7 +528,7 @@ def _apply_deadline_penalties(
             if actual > 0:
                 events.extend(result.format_events())
                 events.append(
-                    f"💔 时限后果：受到 {actual} 点伤害（HP {character.hp}/{character.max_hp}）"
+                    f"💔 时限后果：受到 {actual} 点伤害（HP {character.hp}/{character.effective_max_hp()}）"
                 )
 
     return events

@@ -87,11 +87,12 @@ def format_route_summary(route: ActionRouteResult | None) -> str:
     if route.referenced_skills:
         lines.append(f"涉及技能：{', '.join(route.referenced_skills)}")
     if route.skill_usage == "learn":
-        lines.append("（学习技能：仅检定成功或 NPC 同意时可 add）")
+        lines.append("（学习主动技能：仅检定成功或 NPC 同意时可 add，kind=active）")
     return "\n".join(lines)
 
 
 def format_character_block(character: Character) -> dict[str, str]:
+    cap = character.effective_max_hp()
     return {
         "character_name": character.name,
         "character_background": character.background.strip() or "（未填写）",
@@ -99,4 +100,8 @@ def format_character_block(character: Character) -> dict[str, str]:
         "character_inventory": character.format_inventory(),
         "character_equipment": character.format_equipment(),
         "character_skills": character.format_skills(),
+        "hp": str(character.hp),
+        "max_hp": str(cap),
+        "character_hp": str(character.hp),
+        "character_max_hp": str(cap),
     }

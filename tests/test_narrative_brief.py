@@ -87,6 +87,22 @@ def test_merge_brief_includes_continuity_hint():
     assert "脚步声在门外停了下来" in text
 
 
+def test_merge_brief_includes_passive_skills_for_kp():
+    from game.skills import Skill
+
+    character = Character(
+        name="测试",
+        skills=[Skill(name="基因改造", kind="passive", description="强化体质")],
+    )
+    text = merge_narrative_brief_with_state(
+        "【叙事简报】\n【玩家输入】\n忍痛前进",
+        character,
+        GameState(),
+    )
+    assert "【被动技能 — 常驻生效】" in text
+    assert "基因改造" in text
+
+
 def test_build_narrative_brief_passes_history():
     history = [
         ChatMessage(role="assistant", content="上一轮结尾。"),

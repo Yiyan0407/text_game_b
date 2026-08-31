@@ -124,10 +124,11 @@ def apply_reroll_patch(
         else:
             if last.hp_after < last.hp_before and character.hp < last.hp_before:
                 before = character.hp
-                character.hp = min(character.max_hp, last.hp_before)
+                cap = character.effective_max_hp()
+                character.hp = min(cap, last.hp_before)
                 if character.hp != before:
                     events.append(
-                        f"↩️ 撤销检定伤害：HP {before} → {character.hp}/{character.max_hp}"
+                        f"↩️ 撤销检定伤害：HP {before} → {character.hp}/{cap}"
                     )
             ability_label = ABILITY_LABELS.get(last.ability, last.ability.upper())
             events.append(

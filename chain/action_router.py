@@ -514,7 +514,7 @@ class ActionRouter:
             "character_background": character.background,
             "character_abilities": character.format_abilities(),
             "hp": character.hp,
-            "max_hp": character.max_hp,
+            "max_hp": character.effective_max_hp(),
             "character_inventory": character.format_inventory(),
             "character_equipment": character.format_equipment(),
             "character_skills": character.format_skills(),
@@ -888,6 +888,16 @@ class ActionRouter:
                 if not fuzzy_in_list(skill, character.skill_names()):
                     route.approved = False
                     route.rejection_reason = f"你没有「{skill}」这项技能，无法执行该行动。"
+                    route.needs_roll = False
+                    route.roll_type = "none"
+                    return route
+                matched = character.find_skill(skill)
+                if matched and matched.kind == "passive":
+                    route.approved = False
+                    route.rejection_reason = (
+                        f"「{matched.name}」是被动技能，无法主动施展；"
+                        "其效果已常驻生效，请直接描述你想做的行动。"
+                    )
                     route.needs_roll = False
                     route.roll_type = "none"
                     return route

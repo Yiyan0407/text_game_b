@@ -49,8 +49,15 @@ def get_item_effects(character: Character, item_name: str) -> EntityEffects | No
     return item.effects
 
 
+def _iter_passive_skill_effects(character: Character):
+    for skill in character.skills:
+        if skill.kind != "passive" or skill.effects is None:
+            continue
+        yield skill.name, skill.effects
+
+
 def get_effective_sp(character: Character) -> tuple[int, str]:
-    """有效 SP = 已装备物品中 SP 最高值（不叠加）。"""
+    """有效 SP = 已装备物品与被动技能中 SP 最高值（不叠加）。"""
     character.prune_equipment()
     best_sp = 0
     best_name = ""
@@ -61,6 +68,10 @@ def get_effective_sp(character: Character) -> tuple[int, str]:
         if effects.sp > best_sp:
             best_sp = effects.sp
             best_name = entry.item_name
+    for skill_name, effects in _iter_passive_skill_effects(character):
+        if effects.sp > best_sp:
+            best_sp = effects.sp
+            best_name = skill_name
     return best_sp, best_name
 
 
@@ -69,9 +80,18 @@ def sum_equipped_ac_bonus(character: Character) -> int:
     total = 0
     for entry in character.equipment:
         effects = get_item_effects(character, entry.item_name)
-        if effects and effects.ac_bonus:
+        if effects and effects.ac_bonus != 0:
             total += effects.ac_bonus
+    total += sum_passive_skill_ac_bonus(character)
     return total
+
+
+def sum_passive_skill_ac_bonus(character: Character) -> int:
+    return sum(
+        effects.ac_bonus
+        for _, effects in _iter_passive_skill_effects(character)
+        if effects.ac_bonus != 0
+    )
 
 
 def sum_equipped_max_hp_bonus(character: Character) -> int:
@@ -79,9 +99,18 @@ def sum_equipped_max_hp_bonus(character: Character) -> int:
     total = 0
     for entry in character.equipment:
         effects = get_item_effects(character, entry.item_name)
-        if effects and effects.max_hp_bonus:
+        if effects and effects.max_hp_bonus != 0:
             total += effects.max_hp_bonus
+    total += sum_passive_skill_max_hp_bonus(character)
     return total
+
+
+def sum_passive_skill_max_hp_bonus(character: Character) -> int:
+    return sum(
+        effects.max_hp_bonus
+        for _, effects in _iter_passive_skill_effects(character)
+        if effects.max_hp_bonus != 0
+    )
 
 
 def _degrade_sp_source(character: Character, item_name: str) -> tuple[int, int, bool]:

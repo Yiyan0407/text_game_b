@@ -146,6 +146,12 @@ def merge_narrative_brief_with_state(
     lines.append(f"背包：{character.format_inventory()}")
     lines.append(f"装备：{character.format_equipment()}")
     lines.append(f"技能：{character.format_skills()}")
+    from game.skill_check import format_passive_skills_for_kp
+
+    passive_block = format_passive_skills_for_kp(character)
+    if passive_block:
+        lines.append("")
+        lines.append(passive_block)
     return "\n".join(lines)
 
 

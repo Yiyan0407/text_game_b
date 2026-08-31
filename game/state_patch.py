@@ -36,6 +36,17 @@ from game.narrative_time import apply_turn_time_from_patch
 logger = logging.getLogger(__name__)
 
 
+def _coerce_skill_kind(value) -> Literal["active", "passive"] | None:
+    if value is None or value == "":
+        return None
+    cleaned = str(value).strip().lower()
+    if cleaned in ("passive", "被动"):
+        return "passive"
+    if cleaned in ("active", "主动"):
+        return "active"
+    return None
+
+
 def apply_inventory_change(
     character: Character,
     patch: InventoryPatch,
@@ -226,11 +237,10 @@ def apply_state_patch(
 
     for skill in patch.skills:
         if skill.action == "add" and roll_failed:
-            events.append(f"跳过技能添加：{skill.skill}（检定未成功）。")
-            continue
-        if skill.action == "add" and route and route.skill_usage == "learn" and roll_failed:
-            events.append(f"跳过技能添加：{skill.skill}（学习未成功）。")
-            continue
+            add_kind = skill.kind or "active"
+            if route and route.skill_usage == "learn" and add_kind == "active":
+                events.append(f"跳过技能添加：{skill.skill}（学习未成功）。")
+                continue
         result = _apply_skill(character, skill)
         if result:
             events.append(result)
@@ -331,10 +341,14 @@ def _apply_skill(character: Character, skill: SkillPatch) -> str:
     if not cleaned:
         return ""
     if skill.action == "add":
-        if character.add_skill(cleaned, description=skill.description):
+        add_kind = skill.kind or "active"
+        if character.add_skill(cleaned, description=skill.description, kind=add_kind):
+            character.clamp_hp_to_effective_max()
             matched = character.find_skill(cleaned)
             label = matched.format_detail() if matched else cleaned
-            return f"习得技能：{label}"
+            if matched and matched.kind == "passive":
+                return f"获得被动技能：{label}"
+            return f"习得主动技能：{label}"
         if character.has_skill(cleaned):
             return f"已拥有技能：{cleaned}"
         return "添加失败。"
@@ -872,6 +886,7 @@ def _coerce_skill_list(value) -> list[SkillPatch]:
                 action=action,  # type: ignore[arg-type]
                 skill=str(item.get("skill", "")).strip(),
                 description=str(item.get("description", "")).strip(),
+                kind=_coerce_skill_kind(item.get("kind")),
             )
         )
     return [s for s in skills if s.skill]

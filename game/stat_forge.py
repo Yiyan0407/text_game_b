@@ -14,6 +14,7 @@ class ForgeTarget:
     kind: str  # "item" | "skill"
     name: str
     description: str = ""
+    skill_kind: str = ""  # active | passive（仅 kind=skill 时）
 
 
 def collect_forge_targets(character: Character) -> list[ForgeTarget]:
@@ -38,7 +39,12 @@ def collect_forge_targets(character: Character) -> list[ForgeTarget]:
             continue
         seen.add(key)
         targets.append(
-            ForgeTarget(kind="skill", name=skill.name, description=skill.description)
+            ForgeTarget(
+                kind="skill",
+                name=skill.name,
+                description=skill.description,
+                skill_kind=skill.kind,
+            )
         )
     return targets
 
@@ -74,10 +80,12 @@ def apply_entity_effects(
             return f"StatForge 跳过：未找到物品 {target.name}"
         item.effects = effects
         summary = effects.format_summary()
+        character.clamp_hp_to_effective_max()
         return f"StatForge·{item.name}" + (f"：{summary}" if summary else "")
     skill = character.find_skill(target.name)
     if skill is None:
         return f"StatForge 跳过：未找到技能 {target.name}"
     skill.effects = effects
     summary = effects.format_summary()
+    character.clamp_hp_to_effective_max()
     return f"StatForge·{skill.name}" + (f"：{summary}" if summary else "")

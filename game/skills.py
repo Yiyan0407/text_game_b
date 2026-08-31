@@ -1,15 +1,30 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from game.effects import EntityEffects
 
+SkillKind = Literal["active", "passive"]
+
 _SKILL_DESC_RE = re.compile(r"^(.+?)（(.+?)）$")
 
 
-def parse_skill_text(text: str, description: str = "") -> Skill:
+def normalize_skill_kind(value) -> SkillKind:
+    cleaned = str(value or "active").strip().lower()
+    if cleaned in ("passive", "被动"):
+        return "passive"
+    return "active"
+
+
+def parse_skill_text(
+    text: str,
+    description: str = "",
+    *,
+    kind: SkillKind | None = None,
+) -> Skill:
     """解析「技能名（说明）」或纯技能名；显式 description 优先于括号内说明。"""
     raw = text.strip()
     explicit = description.strip()
@@ -22,9 +37,17 @@ def parse_skill_text(text: str, description: str = "") -> Skill:
         embedded = match.group(2).strip()
         if not name:
             raise ValueError("技能名称不能为空")
-        return Skill(name=name, description=explicit or embedded)
+        return Skill(
+            name=name,
+            description=explicit or embedded,
+            kind=normalize_skill_kind(kind or "active"),
+        )
 
-    return Skill(name=raw, description=explicit)
+    return Skill(
+        name=raw,
+        description=explicit,
+        kind=normalize_skill_kind(kind or "active"),
+    )
 
 
 def split_skill_description(skill: Skill) -> Skill:
@@ -39,6 +62,7 @@ def split_skill_description(skill: Skill) -> Skill:
 class Skill(BaseModel):
     name: str
     description: str = ""
+    kind: SkillKind = "active"
     effects: EntityEffects | None = None
 
     @field_validator("effects", mode="before")
@@ -46,15 +70,25 @@ class Skill(BaseModel):
     def _coerce_effects(cls, value):
         return EntityEffects.coerce(value)
 
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _coerce_kind(cls, value) -> SkillKind:
+        return normalize_skill_kind(value)
+
     @field_validator("name", "description")
     @classmethod
     def _strip_text(cls, value: str) -> str:
         return value.strip()
 
+    @property
+    def is_passive(self) -> bool:
+        return self.kind == "passive"
+
     def format_detail(self) -> str:
+        tag = "（被动·常驻）" if self.is_passive else ""
         if self.description:
-            return f"{self.name} — {self.description}"
-        return self.name
+            return f"{self.name}{tag} — {self.description}"
+        return f"{self.name}{tag}"
 
 
 def coerce_skill_list(value) -> list[str]:

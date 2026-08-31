@@ -150,20 +150,20 @@ def test_apply_state_patch_blocks_purchase_duplicate():
     assert any("跳过重复添加" in event for event in events)
 
 
-def test_apply_state_patch_blocks_skill_on_failed_roll():
+def test_apply_state_patch_blocks_active_skill_on_failed_learn():
+    from game.results import ActionRouteResult
+
     character = Character(name="测试")
     game_state = GameState()
-    patch = StatePatch(
-        skills=[{"action": "add", "skill": "潜行", "description": "隐蔽"}]  # type: ignore
-    )
-    # use proper SkillPatch via patch_from_dict
     patch = patch_from_dict(
-        {"skills": [{"action": "add", "skill": "潜行", "description": "隐蔽"}]}
+        {"skills": [{"action": "add", "skill": "潜行", "description": "隐蔽", "kind": "active"}]}
     )
+    route = ActionRouteResult(approved=True, skill_usage="learn", referenced_skills=["潜行"])
     events = apply_state_patch(
         patch,
         character,
         game_state,
+        route=route,
         mechanical_events=["敏捷检定 d20=5 vs DC14 → 失败 ✗"],
     )
     assert any("跳过技能添加" in event for event in events)

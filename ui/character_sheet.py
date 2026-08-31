@@ -60,14 +60,27 @@ def render_character_sheet(character: Character) -> None:
                 st.caption("空空如也——物品会在冒险中获得")
 
     if character.skills:
+        active = [s for s in character.skills if s.kind != "passive"]
+        passive = [s for s in character.skills if s.kind == "passive"]
         with st.expander("技能", expanded=False):
-            for skill in character.skills:
-                line = skill.name
-                if skill.effects and skill.effects.format_summary():
-                    line += f" · {skill.effects.format_summary()}"
-                st.markdown(f"- **{line}**")
-                if skill.description:
-                    st.caption(skill.description)
+            if active:
+                st.caption("主动 — 施展时生效")
+                for skill in active:
+                    line = skill.name
+                    if skill.effects and skill.effects.format_summary():
+                        line += f" · {skill.effects.format_summary()}"
+                    st.markdown(f"- **{line}**")
+                    if skill.description:
+                        st.caption(skill.description)
+            if passive:
+                st.caption("被动 — 常驻生效")
+                for skill in passive:
+                    line = skill.name
+                    if skill.effects and skill.effects.format_summary():
+                        line += f" · {skill.effects.format_summary()}"
+                    st.markdown(f"- **{line}**")
+                    if skill.description:
+                        st.caption(skill.description)
     else:
         with st.expander("技能", expanded=False):
             st.caption(

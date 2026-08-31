@@ -16,7 +16,14 @@ from game.inventory import (
     normalize_item_quantity_unit,
     _merge_description,
 )
-from game.skills import Skill, normalize_skills_list, parse_skill_text, split_skill_description
+from game.skills import (
+    Skill,
+    SkillKind,
+    normalize_skill_kind,
+    normalize_skills_list,
+    parse_skill_text,
+    split_skill_description,
+)
 from game.memory_journal import (
     MemoryEntry,
     entry_from_text,
@@ -248,6 +255,7 @@ class Character(BaseModel):
             if not removed:
                 return False, f"未装备槽位：{resolved}"
             self.equipment = kept
+            self.clamp_hp_to_effective_max()
             return True, f"卸下：{removed[0]}（回背包）" if len(removed) == 1 else f"卸下：{'、'.join(removed)}（回背包）"
 
         if not item_ref.strip():
@@ -261,6 +269,7 @@ class Character(BaseModel):
                 break
         if not target_name:
             return False, f"未装备：{item_ref}"
+        self.clamp_hp_to_effective_max()
         return True, f"卸下：{target_name}（回背包）"
 
     def clear_equipment_item(self, item_name: str) -> None:
@@ -274,7 +283,23 @@ class Character(BaseModel):
     def format_skills(self) -> str:
         if not self.skills:
             return "（无）"
-        return "；".join(skill.format_detail() for skill in self.skills)
+        active = [skill for skill in self.skills if skill.kind != "passive"]
+        passive = [skill for skill in self.skills if skill.kind == "passive"]
+        parts: list[str] = []
+        if active:
+            parts.append(
+                "主动："
+                + "；".join(skill.format_detail().replace("[被动] ", "") for skill in active)
+            )
+        if passive:
+            parts.append("被动：" + "；".join(skill.format_detail() for skill in passive))
+        return " | ".join(parts)
+
+    def active_skills(self) -> list[Skill]:
+        return [skill for skill in self.skills if skill.kind != "passive"]
+
+    def passive_skills(self) -> list[Skill]:
+        return [skill for skill in self.skills if skill.kind == "passive"]
 
     def skill_names(self) -> list[str]:
         return [skill.name for skill in self.skills]
@@ -288,21 +313,37 @@ class Character(BaseModel):
     def has_skill(self, skill_ref: str) -> bool:
         return self.find_skill(skill_ref) is not None
 
-    def add_skill(self, skill: str | Skill, description: str = "") -> bool:
+    def add_skill(
+        self,
+        skill: str | Skill,
+        description: str = "",
+        *,
+        kind: SkillKind | None = None,
+    ) -> bool:
         if isinstance(skill, Skill):
             incoming = split_skill_description(skill.model_copy())
+            if kind is not None:
+                incoming.kind = normalize_skill_kind(kind)
         else:
             text = skill.strip()
             if not text:
                 return False
-            incoming = parse_skill_text(text, description=description)
+            incoming = parse_skill_text(
+                text,
+                description=description,
+                kind=kind or "active",
+            )
 
         existing = self.find_skill(incoming.name)
         if existing:
+            changed = False
             if incoming.description and not existing.description:
                 existing.description = incoming.description
-                return True
-            return False
+                changed = True
+            if incoming.kind == "passive" and existing.kind != "passive":
+                existing.kind = "passive"
+                changed = True
+            return changed
 
         self.skills.append(incoming)
         return True
@@ -312,6 +353,7 @@ class Character(BaseModel):
         if target is None:
             return False
         self.skills.remove(target)
+        self.clamp_hp_to_effective_max()
         return True
 
     def add_inventory_item(
@@ -421,14 +463,23 @@ class Character(BaseModel):
     def effective_max_hp(self) -> int:
         from game.effect_resolver import sum_equipped_max_hp_bonus
 
-        return self.max_hp + sum_equipped_max_hp_bonus(self)
+        return max(1, self.max_hp + sum_equipped_max_hp_bonus(self))
+
+    def clamp_hp_to_effective_max(self) -> bool:
+        """卸装等导致有效上限下降时，将当前 HP 压回 cap。"""
+        cap = self.effective_max_hp()
+        if self.hp > cap:
+            self.hp = cap
+            return True
+        return False
 
     def summary(self) -> str:
         attrs = " ".join(
             f"{key.upper()} {getattr(self, field)}"
             for key, field, _ in ABILITY_ORDER
         )
-        return f"{self.name} | HP {self.hp}/{self.max_hp} | {attrs}"
+        cap = self.effective_max_hp()
+        return f"{self.name} | HP {self.hp}/{cap} | {attrs}"
 
 
 class NPCRelation(BaseModel):

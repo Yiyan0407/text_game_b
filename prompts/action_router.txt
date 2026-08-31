@@ -71,9 +71,11 @@
 - 探索模式用物：**KP 叙事后**系统 equip/consume，路由只分类
 
 ### 技能（探索模式）
-- **使用已有技能**（「用潜行溜进去」「施展急救」）→ `skill_usage=use`，`referenced_skills` 填技能名；玩家须已掌握，否则驳回。
-- 学习/请教/训练 → `skill_usage=learn`，`referenced_skills` 填欲习得的技能名；**即使尚未掌握也批准**；通常 `needs_roll=true`；**技能入库在 KP 叙事后**由 ItemSync 同步
-- **普通行动**（观察、询问、搜查、走路）**不要**填 referenced_skills，也不要因缺技能驳回——用属性检定即可。
+技能分两类，入库时由 SkillSync 标 `kind`：
+- **主动技能**：须**明确施展**才生效（「用潜行溜进去」「施展急救」）→ `skill_usage=use`，`referenced_skills` 填技能名；须已掌握且为**主动**技能。**被动技能不可**设 `skill_usage=use`（它们常驻生效，无需施展）。
+- **学习主动技能**：请教/训练 → `skill_usage=learn`，`referenced_skills` 填技能名；通常 `needs_roll=true`；KP 叙事后 SkillSync 以 `kind=active` 入库。
+- **获得被动技能**（基因改造、神选、祝福、恶魔契约、血脉等）：**不必**设 skill_usage；玩家行动可能是 `item_usage=use`（打针）或普通对话（接受祝福）。KP 叙事后 SkillSync 以 `kind=passive` 入库；被动效果**自动常驻**，StatForge 可填 HP/AC/SP 加成。
+- **普通行动**不要填 referenced_skills，也不要因缺技能驳回——用属性检定即可。
 
 ### 口语短回复（必须结合【最近对话】）
 NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**一句答应**——结合上下文理解其指代，`approved=true`。不要因句子短就驳回。
@@ -100,8 +102,9 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 **专业加值（proficiency_bonus）**：属性检定时，若行动明显符合玩家**背景**的本职范畴，设 `proficiency_bonus=true`（系统 +2）。
 
 **技能加值（自动，勿手写进 JSON）**：系统在掷骰时自动结算——
-- `skill_usage=use` 且 `referenced_skills` 中有角色**已掌握**的技能 → **+4 技能**
-- 仅 `referenced_skills` 匹配已掌握技能 → **+2 技能**
+- `skill_usage=use` 且 **主动**技能匹配 → **+4**
+- 仅 referenced_skills 匹配已掌握**主动**技能 → **+2**
+- **被动技能**（kind=passive）：相关属性检定**自动 +2/项**，无需 referenced_skills、不可设 skill_usage=use（见【当前状态·被动技能】）
 - 专业与技能加值**可叠加**；满属性(+4)+专业(+2)+主动技能(+4)+掷出20 = **30**，故极高 DC（25–30）应留给「专家用对口技能挑战极限」的场景
 - 使用技能检定时务必填 `referenced_skills`；施展技能时设 `skill_usage=use`
 

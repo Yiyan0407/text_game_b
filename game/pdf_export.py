@@ -591,7 +591,7 @@ def build_game_pdf(
         story,
         [
             ("背景", character.background),
-            ("生命", f"HP {character.hp} / {character.max_hp}"),
+            ("生命", f"HP {character.hp} / {character.effective_max_hp()}"),
             ("背包", character.format_inventory()),
             ("技能", character.format_skills()),
         ],

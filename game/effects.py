@@ -11,6 +11,8 @@ class EntityEffects(BaseModel):
     sp_max: int = Field(default=0, ge=0)
     ac_bonus: int = 0
     max_hp_bonus: int = 0
+    # 被动技能：相关检定加值（可为负；0=由系统按祝福/诅咒推断 ±2）
+    check_bonus: int = 0
 
     # --- 攻击：attack 动作、手持武器 ---
     attack_damage: str = ""
@@ -26,7 +28,22 @@ class EntityEffects(BaseModel):
     consumes_on_use: bool | None = None
     gear_slot: str = ""
 
+    # 被动技能：相关属性检定自动 +2（由 skill_check 读取）
+    related_abilities: list[str] = Field(default_factory=list)
+
     forged: bool = False
+
+    @field_validator("related_abilities", mode="before")
+    @classmethod
+    def _coerce_related_abilities(cls, value) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            stripped = value.strip()
+            return [stripped] if stripped else []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
 
     @field_validator(
         "attack_damage", "heal_dice", "use_damage", "use_tag", "gear_slot", mode="before"
@@ -45,6 +62,11 @@ class EntityEffects(BaseModel):
 
     def format_summary(self) -> str:
         parts: list[str] = []
+
+        def _signed(label: str, value: int) -> str:
+            sign = "+" if value > 0 else ""
+            return f"{label}{sign}{value}"
+
         if self.attack_damage:
             parts.append(f"伤害 {self.attack_damage}")
         if self.use_damage:
@@ -53,9 +75,11 @@ class EntityEffects(BaseModel):
             max_sp = self.sp_max or self.sp
             parts.append(f"SP {self.sp}/{max_sp}")
         if self.ac_bonus:
-            parts.append(f"AC+{self.ac_bonus}")
+            parts.append(_signed("AC", self.ac_bonus))
         if self.max_hp_bonus:
-            parts.append(f"HP+{self.max_hp_bonus}")
+            parts.append(_signed("HP", self.max_hp_bonus))
+        if self.check_bonus:
+            parts.append(_signed("检定", self.check_bonus))
         if self.heal_dice:
             parts.append(f"治疗 {self.heal_dice}")
         if self.use_tag:
@@ -66,8 +90,9 @@ class EntityEffects(BaseModel):
         return bool(
             self.sp > 0
             or self.sp_max > 0
-            or self.ac_bonus
-            or self.max_hp_bonus
+            or self.ac_bonus != 0
+            or self.max_hp_bonus != 0
+            or self.check_bonus != 0
         )
 
     def has_attack_profile(self) -> bool:
@@ -81,7 +106,7 @@ class EntityEffects(BaseModel):
             self.has_passive_stats()
             or self.has_attack_profile()
             or bool(self.use_damage)
-            or bool(self.attack_bonus)
+            or self.attack_bonus != 0
         )
 
     def has_mechanical_effect(self) -> bool:
@@ -124,6 +149,7 @@ class EntityEffects(BaseModel):
                     "sp_max",
                     "ac_bonus",
                     "max_hp_bonus",
+                    "check_bonus",
                     "attack_bonus",
                     "heal_dice",
                     "use_tag",

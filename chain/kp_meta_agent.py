@@ -85,8 +85,6 @@ class KpMetaAgent:
         inputs.update(
             {
                 "game_state_context": game_state.format_for_prompt(),
-                "character_hp": str(character.hp),
-                "character_max_hp": str(character.max_hp),
                 "recent_history": format_recent_history(history, limit=20),
                 "recent_system_events": format_recent_system_events(history, limit=15),
                 "meta_message": meta_message.strip(),

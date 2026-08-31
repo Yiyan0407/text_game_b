@@ -12,6 +12,9 @@ class AbilityCheckResult(BaseModel):
     roll: DiceRoll
     proficiency_bonus: int = 0
     skill_bonus: int = 0
+    active_skill_bonus: int = 0
+    passive_skill_bonus: int = 0
+    passive_skills_applied: list[str] = Field(default_factory=list)
     situational_bonus: int = 0
     check_total: int = 0
     success: bool
@@ -20,11 +23,22 @@ class AbilityCheckResult(BaseModel):
         ability_label = self.ability.upper()
         outcome = "成功 ✓" if self.success else "失败 ✗"
         prof_part = f"+{self.proficiency_bonus}专业 " if self.proficiency_bonus else ""
-        skill_part = f"+{self.skill_bonus}技能 " if self.skill_bonus else ""
+        skill_part = ""
+        if self.active_skill_bonus:
+            skill_part += f"+{self.active_skill_bonus}主动 "
+        if self.passive_skill_bonus != 0:
+            names = "、".join(self.passive_skills_applied) or "被动"
+            sign = "+" if self.passive_skill_bonus > 0 else ""
+            skill_part += f"{sign}{self.passive_skill_bonus}被动({names}) "
+        elif self.skill_bonus and not self.active_skill_bonus:
+            skill_part = f"+{self.skill_bonus}技能 "
+        situational_part = (
+            f"+{self.situational_bonus}环境 " if self.situational_bonus else ""
+        )
         total = self.check_total if self.check_total else self.roll.total
         return (
             f"{ability_label} 检定 {self.roll.describe()} {prof_part}{skill_part}"
-            f"= {total} vs DC {self.dc} → {outcome}"
+            f"{situational_part}= {total} vs DC {self.dc} → {outcome}"
         )
 
 
@@ -145,6 +159,7 @@ class SkillPatch(BaseModel):
     action: Literal["add", "remove"] = "add"
     skill: str = ""
     description: str = ""
+    kind: Literal["active", "passive"] | None = None
 
 
 class EquipmentPatch(BaseModel):

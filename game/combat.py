@@ -680,17 +680,29 @@ def resolve_combat_ability_check(
     game_state: GameState | None = None,
     proficiency_bonus: bool = False,
     skill_bonus: int = 0,
+    active_skill_bonus: int = 0,
+    passive_skill_bonus: int = 0,
+    passive_skills_applied: list[str] | None = None,
 ) -> str:
     from game.combat_modifiers import player_check_bonus
 
     combat = game_state.combat if game_state else None
     situational = player_check_bonus(combat, ability)
+    if skill_bonus and not (active_skill_bonus or passive_skill_bonus):
+        active_skill_bonus = 0
+        passive_skill_bonus = 0
+        total_skill = skill_bonus
+    else:
+        total_skill = 0
     result = ability_check(
         character,
         ability,
         dc,
         proficiency_bonus=proficiency_bonus,
-        skill_bonus=skill_bonus,
+        skill_bonus=total_skill,
+        active_skill_bonus=active_skill_bonus,
+        passive_skill_bonus=passive_skill_bonus,
+        passive_skills_applied=passive_skills_applied,
         situational_bonus=situational,
     )
     outcome = "成功" if result.success else "失败"
@@ -705,6 +717,9 @@ def resolve_interact(
     *,
     proficiency_bonus: bool = False,
     skill_bonus: int = 0,
+    active_skill_bonus: int = 0,
+    passive_skill_bonus: int = 0,
+    passive_skills_applied: list[str] | None = None,
 ) -> str:
     combat = game_state.combat
     if not combat or not combat.is_player_turn():
@@ -737,6 +752,9 @@ def resolve_interact(
         game_state=game_state,
         proficiency_bonus=proficiency_bonus,
         skill_bonus=skill_bonus,
+        active_skill_bonus=active_skill_bonus,
+        passive_skill_bonus=passive_skill_bonus,
+        passive_skills_applied=passive_skills_applied,
     )
 
 
@@ -748,6 +766,9 @@ def resolve_talk(
     *,
     proficiency_bonus: bool = False,
     skill_bonus: int = 0,
+    active_skill_bonus: int = 0,
+    passive_skill_bonus: int = 0,
+    passive_skills_applied: list[str] | None = None,
     action_cost: str = "main",
     action_intent: str = "",
 ) -> str:
@@ -777,12 +798,21 @@ def resolve_talk(
     if not route.needs_roll:
         return f"{label}：缺少合法 DC。"
     situational = player_check_bonus(combat, "cha")
+    if skill_bonus and not (active_skill_bonus or passive_skill_bonus):
+        total_skill = skill_bonus
+        active_skill_bonus = 0
+        passive_skill_bonus = 0
+    else:
+        total_skill = 0
     result = ability_check(
         character,
         "cha",
         route.dc,
         proficiency_bonus=proficiency_bonus,
-        skill_bonus=skill_bonus,
+        skill_bonus=total_skill,
+        active_skill_bonus=active_skill_bonus,
+        passive_skill_bonus=passive_skill_bonus,
+        passive_skills_applied=passive_skills_applied,
         situational_bonus=situational,
     )
     outcome = "成功" if result.success else "失败"

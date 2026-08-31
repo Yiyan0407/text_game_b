@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from game.results import ActionRouteResult
+
 
 class SettlementRouterError(ValueError):
     """Settlement Router 输出无法解析为有效 plan。"""
@@ -16,6 +18,27 @@ class SettlementPlan:
     time_sync: bool
     world_sync: bool
     reason: str = ""
+
+
+def ensure_skill_sync_for_acquisition(
+    route: ActionRouteResult | None,
+    plan: SettlementPlan,
+) -> SettlementPlan:
+    """学习类行动强制开启 skill_sync，避免 Settlement Router 漏开。"""
+    if route is None or plan.skill_sync:
+        return plan
+    if route.skill_usage not in ("learn",):
+        return plan
+    reason = plan.reason.strip()
+    suffix = "强制 skill_sync（技能获取）"
+    merged = f"{reason}；{suffix}" if reason else suffix
+    return SettlementPlan(
+        inventory_sync=plan.inventory_sync,
+        skill_sync=True,
+        time_sync=plan.time_sync,
+        world_sync=plan.world_sync,
+        reason=merged,
+    )
 
 
 OPENING_SETTLEMENT_PLAN = SettlementPlan(

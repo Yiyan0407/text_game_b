@@ -132,7 +132,7 @@ class KPChain:
                 "character_background": character.background,
                 "character_abilities": character.format_abilities(),
                 "hp": character.hp,
-                "max_hp": character.max_hp,
+                "max_hp": character.effective_max_hp(),
                 "character_inventory": character.format_inventory(),
                 "character_equipment": character.format_equipment(),
                 "character_skills": character.format_skills(),

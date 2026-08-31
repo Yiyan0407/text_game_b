@@ -51,7 +51,7 @@ from game.turn_context import TurnContext
 from game.turn_pipeline import TurnPipeline
 from game.check_consequences import apply_check_failure_consequences
 from game.rules import ability_check, format_check_for_kp
-from game.skill_check import skill_bonus_for_route
+from game.skill_check import compute_skill_bonus
 from game.scenario import Scenario
 
 START_GAME_INSTRUCTION = """\
@@ -414,10 +414,11 @@ class GameOrchestrator:
             )
         if result.character_hp is not None:
             before = character.hp
-            character.hp = max(0, min(int(result.character_hp), character.max_hp))
+            cap = character.effective_max_hp()
+            character.hp = max(0, min(int(result.character_hp), cap))
             if character.hp != before:
                 events.append(
-                    f"💚 KP 修正：HP {before} → {character.hp}/{character.max_hp}"
+                    f"💚 KP 修正：HP {before} → {character.hp}/{cap}"
                 )
         if result.patch.reroll is not None:
             from game.check_reroll import apply_reroll_patch
@@ -1058,6 +1059,48 @@ class GameOrchestrator:
         if action == "end_turn":
             return end_player_turn(character, game_state)
 
+        def check_bonus(ability: str):
+            return compute_skill_bonus(
+                character,
+                route,
+                ability=ability,
+                user_input=user_input,
+            )
+
+        def _resolve_interact():
+            bd = check_bonus(route.ability or "str")
+            return [
+                resolve_interact(
+                    character,
+                    game_state,
+                    route.ability,
+                    route.dc,
+                    proficiency_bonus=route.proficiency_bonus,
+                    active_skill_bonus=bd.active,
+                    passive_skill_bonus=bd.passive,
+                    passive_skills_applied=bd.passive_skills,
+                )
+            ]
+
+        def _resolve_talk():
+            bd = check_bonus("cha")
+            return [
+                resolve_talk(
+                    character,
+                    game_state,
+                    route.attack_target,
+                    route.dc,
+                    proficiency_bonus=route.proficiency_bonus,
+                    active_skill_bonus=bd.active,
+                    passive_skill_bonus=bd.passive,
+                    passive_skills_applied=bd.passive_skills,
+                    action_cost=route.action_cost
+                    if route.action_cost in ("main", "bonus")
+                    else "main",
+                    action_intent=user_input,
+                )
+            ]
+
         handlers = {
             "move": lambda: [
                 player_move(
@@ -1089,30 +1132,8 @@ class GameOrchestrator:
                 else "bonus",
                 attack_target=route.attack_target,
             ),
-            "interact": lambda: [
-                resolve_interact(
-                    character,
-                    game_state,
-                    route.ability,
-                    route.dc,
-                    proficiency_bonus=route.proficiency_bonus,
-                    skill_bonus=skill_bonus_for_route(character, route),
-                )
-            ],
-            "talk": lambda: [
-                resolve_talk(
-                    character,
-                    game_state,
-                    route.attack_target,
-                    route.dc,
-                    proficiency_bonus=route.proficiency_bonus,
-                    skill_bonus=skill_bonus_for_route(character, route),
-                    action_cost=route.action_cost
-                    if route.action_cost in ("main", "bonus")
-                    else "main",
-                    action_intent=user_input,
-                )
-            ],
+            "interact": _resolve_interact,
+            "talk": _resolve_talk,
             "grapple": lambda: [
                 resolve_grapple(character, game_state, route.attack_target, route.dc)
             ],
@@ -1159,12 +1180,20 @@ class GameOrchestrator:
             combat = game_state.combat if game_state.is_in_combat() else None
             situational = player_check_bonus(combat, route.ability)
             hp_before = character.hp
+            skill_bd = compute_skill_bonus(
+                character,
+                route,
+                ability=route.ability,
+                user_input=user_input,
+            )
             result = ability_check(
                 character,
                 route.ability,
                 route.dc,
                 proficiency_bonus=route.proficiency_bonus,
-                skill_bonus=skill_bonus_for_route(character, route),
+                active_skill_bonus=skill_bd.active,
+                passive_skill_bonus=skill_bd.passive,
+                passive_skills_applied=skill_bd.passive_skills,
                 situational_bonus=situational,
             )
             events.append(format_check_for_kp(result, character))
