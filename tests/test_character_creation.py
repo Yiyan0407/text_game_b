@@ -46,7 +46,7 @@ def test_build_character_applies_starter_skills():
     rolled = roll_ability_scores()
     character = build_character(
         "测试",
-        "一位初到灰港的冒险者。",
+        "一位初到此地的冒险者。",
         rolled,
         starter_skills=["观察（留意细节）", "交涉"],
     )

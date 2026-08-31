@@ -14,7 +14,7 @@
     "time_sync": true,
     "world_sync": true
   }},
-  "reason": "KP写了拾取U盘并离开码头；无学技能"
+  "reason": "KP写了取得物品并离开地点；无学技能"
 }}
 ```
 
@@ -34,7 +34,7 @@
 - 打针/祝福等：即使 route 只有 `item_usage=use`，KP 若写永久改造生效 → skill_sync **true**
 - 无 KP 叙事变更且仅时间流逝：inventory/skill/world false，time_sync true
 
-## 示例：注射基因针且 KP 写永久改造
+## 示例：消耗物品且 KP 写永久被动生效
 ```json
-{{"tasks": {{"inventory_sync": true, "skill_sync": true, "time_sync": true, "world_sync": true}}, "reason": "消耗针剂且KP确认基因改造常驻生效"}}
+{{"tasks": {{"inventory_sync": true, "skill_sync": true, "time_sync": true, "world_sync": true}}, "reason": "消耗物品且KP确认永久改造/祝福常驻生效"}}
 ```

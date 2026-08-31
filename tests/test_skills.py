@@ -60,13 +60,8 @@ def test_starter_skills_generator_parse():
 
 
 def test_starter_skills_generator_prompt_variables():
-    from chain.starter_skills_generator import StarterSkillsGenerator
+    from config.settings import PROMPTS_DIR
 
-    generator = StarterSkillsGenerator()
-    formatted = generator.prompt.format_messages(
-        world_rules="规则",
-        world_id="fantasy",
-        background="灰港老渔民",
-    )
-    assert formatted
-    assert '"name"' in formatted[0].content
+    prompt = (PROMPTS_DIR / "starter_loadout_generator.txt").read_text(encoding="utf-8")
+    assert "skills" in prompt
+    assert "inventory" in prompt

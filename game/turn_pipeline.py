@@ -223,6 +223,7 @@ class TurnPipeline:
                     ctx.settlement_events,
                     ctx.history,
                     route=ctx.route,
+                    scenario=ctx.scenario,
                 )
             )
         if plan.skill_sync:

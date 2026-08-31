@@ -5,10 +5,10 @@
 - **输出完整** nodes/edges（要保留的必须列出；未出现的 id 视为删除）
 
 ## scene_id 与 scope（通用）
-- 推荐：`scope/局部/id`，scope = **时代 / 城市 / 大楼 / 位面** 等互不混用的区域
-  - 单楼：`vacant/floor-1-hall`、`vacant/floor-1-storage`
-  - 跨楼：`vacant-b1/entrance`、`vacant-b2/lobby`、`gray-harbor/street-7`（街道 macro）
-  - 穿越：`2270/portal-lab`、`2020/senkawa/basement`
+- 推荐：`scope/局部/id`，scope = **时代 / 区域 / 建筑 / 位面** 等互不混用的区域
+  - 单区：`camp/main-gate`、`camp/trade-tent`
+  - 多区：`city-a/street-1`、`city-b/market`
+  - 穿越（仅模组需要时）：`future/portal-lab`、`past/basement`
 - **无 `/` 的旧 id**（如 `floor-1-hall`）视为单区模组，照常维护
 - node `id` **必须与 scene_id 完全一致**
 
@@ -36,7 +36,7 @@
 - **同 scope**：换层 → meso 连 meso；进房间 → micro 只连来源 hub
 - **跨 scope**（换楼/换城/穿越）：scope 入口 ↔ macro ↔ 另一 scope 入口；label 反映交通方式
 - **折返**：可加反向边；仍遵守 scope 与三层规则
-- **禁止**删除已探索的其他 scope 节点（穿越后 2270 仍保留为 visited）
+- **禁止**删除已探索的其他 scope 节点（穿越后其他时代/位面仍保留为 visited）
 
 ## map_discovery
 - 在当前 scope 内补 unknown + suspected；跨 scope 的 suspected 须经 macro

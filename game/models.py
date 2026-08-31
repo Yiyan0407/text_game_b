@@ -56,7 +56,7 @@ def compute_max_hp(constitution: int) -> int:
 
 class Character(BaseModel):
     name: str = Field(min_length=1, max_length=32)
-    background: str = Field(default="一位初到灰港的冒险者。", max_length=500)
+    background: str = Field(default="一位初到此地的冒险者。", max_length=500)
     strength: int = Field(default=12, ge=3, le=18)
     dex: int = Field(default=12, ge=3, le=18)
     constitution: int = Field(default=12, ge=3, le=18)

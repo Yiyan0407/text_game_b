@@ -17,6 +17,7 @@ from config.settings import PROMPTS_DIR
 from game.equipment_hints import format_equipment_sync_hint
 from game.models import Character, ChatMessage, GameState
 from game.results import ActionRouteResult, StatePatch
+from game.scenario import Scenario
 from game.state_patch import patch_from_dict
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class InventorySyncAgent:
                 ("system", system_prompt),
                 (
                     "human",
+                    "【模组世界观】\n{world_context}\n\n"
                     "【游戏状态】\n{game_state_context}\n\n"
                     "【玩家角色】\n"
                     "姓名：{character_name}\n"
@@ -56,6 +58,7 @@ class InventorySyncAgent:
         mechanical_events: list[str],
         history: list[ChatMessage],
         route: ActionRouteResult | None = None,
+        scenario: Scenario | None = None,
     ) -> StatePatch:
         chain = self.prompt | self.llm
         response = await chain.ainvoke(
@@ -67,6 +70,7 @@ class InventorySyncAgent:
                 mechanical_events,
                 history,
                 route,
+                scenario,
             )
         )
         return self._parse_response((response.content or "").strip())
@@ -80,10 +84,16 @@ class InventorySyncAgent:
         mechanical_events: list[str],
         history: list[ChatMessage],
         route: ActionRouteResult | None,
+        scenario: Scenario | None = None,
     ) -> dict:
         inputs = format_character_block(character)
         inputs.update(
             {
+                "world_context": (
+                    scenario.format_for_prompt()
+                    if scenario is not None
+                    else "（未提供模组；description 勿编造无关公历年份）"
+                ),
                 "game_state_context": game_state.format_for_prompt(),
                 "route_summary": format_route_summary(route),
                 "mechanical_events": format_mechanical_events(mechanical_events),

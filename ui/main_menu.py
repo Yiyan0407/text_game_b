@@ -304,7 +304,7 @@ def render_character_creation(
     name = st.text_input("角色姓名", placeholder="例如：艾拉", key=name_key)
     background = st.text_area(
         "角色背景",
-        placeholder="例如：前海军斥候，为还债来到灰港做佣兵。",
+        placeholder="例如：前海军斥候，为还债来到边境聚落做佣兵。",
         height=100,
         key=background_key,
     )
@@ -312,7 +312,7 @@ def render_character_creation(
         "背景应描述身份与动机。"
         "若启用审核，请勿写开局无敌、满级、神器或巨额资源。"
         "职业不必与模组默认开场一致，开局会自动衔接你的身份。"
-        "背景审核通过后会由 AI 生成 1–3 项初始技能。"
+        "背景审核通过后会由 AI 根据背景生成 1–3 项初始技能，以及 2–5 件随身物品（含已穿戴/手持）。"
         "草稿会自动保存到本机，切换页面或刷新浏览器后可继续编辑。"
     )
 
@@ -332,12 +332,10 @@ def render_character_creation(
             st.error("缺少 OPENAI_API_KEY，无法启动游戏。")
             return
 
-        final_background = background.strip() or "一位初到灰港的冒险者。"
+        final_background = background.strip() or "一位初到此地的冒险者。"
         from chain.background_validator import BackgroundValidator
-        from chain.starter_skills_generator import (
-            StarterSkillsGenerationError,
-            StarterSkillsGenerator,
-        )
+        from chain.starter_loadout_generator import StarterLoadoutGenerator
+        from game.starter_loadout import StarterLoadoutGenerationError
 
         with st.spinner("正在审核角色背景……"):
             if game_config.enable_background_validation:
@@ -355,12 +353,12 @@ def render_character_creation(
             return
 
         try:
-            with st.spinner("正在根据背景生成初始技能……"):
-                starter_skills = StarterSkillsGenerator().generate(
+            with st.spinner("正在根据背景生成初始技能与随身物品……"):
+                starter_loadout = StarterLoadoutGenerator().generate(
                     final_background,
                     world_id=selected_world,
                 )
-        except StarterSkillsGenerationError as exc:
+        except StarterLoadoutGenerationError as exc:
             st.error(str(exc))
             return
 
@@ -368,7 +366,7 @@ def render_character_creation(
             name=name.strip(),
             background=final_background,
             rolled=rolled,
-            starter_skills=starter_skills,
+            starter_loadout=starter_loadout,
         )
         active_scenario = scenario.model_copy(update={"world_id": selected_world})
         clear_character_draft(scenario.id)

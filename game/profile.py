@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 from config.settings import PROFILES_DIR, SAVES_DIR
+from game.equipment import EquipmentEntry, normalize_equipment
 from game.inventory import InventoryItem, normalize_inventory_list
 from game.skills import Skill, normalize_skills_list
 from game.models import Character, GameState, compute_max_hp
@@ -37,7 +38,7 @@ class CampaignRecord(BaseModel):
 class CharacterCard(BaseModel):
     card_id: str
     name: str
-    background: str = "一位初到灰港的冒险者。"
+    background: str = "一位初到此地的冒险者。"
     strength: int = Field(default=12, ge=3, le=18)
     dex: int = Field(default=12, ge=3, le=18)
     constitution: int = Field(default=12, ge=3, le=18)
@@ -46,6 +47,7 @@ class CharacterCard(BaseModel):
     charisma: int = Field(default=12, ge=3, le=18)
     preferred_world_id: str = ""
     inventory: list[InventoryItem] = Field(default_factory=list)
+    equipment: list[EquipmentEntry] = Field(default_factory=list)
     skills: list[Skill] = Field(default_factory=list)
     notable_facts: list[str] = Field(default_factory=list)
     career_summary: str = ""
@@ -57,6 +59,11 @@ class CharacterCard(BaseModel):
     @classmethod
     def _coerce_inventory(cls, value):
         return normalize_inventory_list(value)
+
+    @field_validator("equipment", mode="before")
+    @classmethod
+    def _coerce_equipment(cls, value):
+        return normalize_equipment(value)
 
     @field_validator("skills", mode="before")
     @classmethod
@@ -84,6 +91,7 @@ class CharacterCard(BaseModel):
             charisma=character.charisma,
             preferred_world_id=preferred_world_id,
             inventory=[item.model_copy() for item in character.inventory],
+            equipment=[entry.model_copy() for entry in character.equipment],
             skills=[skill.model_copy() for skill in character.skills],
             created_at=now,
             updated_at=now,
@@ -112,6 +120,7 @@ class CharacterCard(BaseModel):
             max_hp=max_hp,
             inventory=[item.model_copy() for item in self.inventory],
             skills=list(self.skills),
+            equipment=[entry.model_copy() for entry in self.equipment],
         )
 
     def format_career_context(self) -> str:

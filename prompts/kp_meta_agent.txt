@@ -19,7 +19,7 @@
 
 ## inventory / equipment（同步修正）
 - **仅补登记**：物品已在叙事/背景/申诉中确认存在，只是 ItemSync 漏同步
-- **inventory add** 须含 `kind`：`consumable` | `durable` | `document`；**description 必填**（来源/时代或文明、技术本质、相对档次、状态——供 StatForge 裁定全通道数值，勿只写「已穿戴」「找零」）
+- **inventory add** 须含 `kind`：`consumable` | `durable` | `document`；**description 必填**（来源/档次、技术本质、状态——供 StatForge 裁定；勿只写「已穿戴」「找零」；**勿**写与模组无关的公历年份如 2020）
 - **equipment equip** 须含 `slot`：`hand` | `body` | `accessory`；穿在身上 → `body`，拿在手里 → `hand`
 - 同轮 inventory 写在 equipment 之前；须先入库再 equip
 - **禁止**编造【最近对话】与背景中均未出现的物品名
@@ -81,12 +81,12 @@
 ## 示例：装备栏遗漏补同步
 ```json
 {{
-  "response": "你说得对：上一轮叙事已确认防弹背心穿在身上，但 ItemSync 漏同步。我已补登记到背包并装备到身体栏。",
+  "response": "你说得对：上一轮叙事已确认防具穿在身上，但 ItemSync 漏同步。我已补登记到背包并装备到身体栏。",
   "inventory": [
-    {{"action": "add", "item": "防弹背心", "quantity": 1, "unit": "件", "kind": "durable", "description": "已穿戴"}}
+    {{"action": "add", "item": "防具名", "quantity": 1, "unit": "件", "kind": "durable", "description": "已穿戴"}}
   ],
   "equipment": [
-    {{"action": "equip", "item": "防弹背心", "slot": "body"}}
+    {{"action": "equip", "item": "防具名", "slot": "body"}}
   ]
 }}
 ```
@@ -94,9 +94,9 @@
 ## 示例：重复入库修正（仍装备中，数量 2 删 1）
 ```json
 {{
-  "response": "你说得对：系统误重复登记了一枚分子切割器。实际只有 1 枚且仍在你手上，我已移除背包里多出的那 1 枚。",
+  "response": "你说得对：系统误重复登记了物品。实际只有 1 件且仍在你手上，我已移除背包里多出的那 1 件。",
   "inventory": [
-    {{"action": "remove", "item": "分子切割器", "quantity": 1, "unit": "枚"}}
+    {{"action": "remove", "item": "武器名", "quantity": 1, "unit": "把"}}
   ]
 }}
 ```
