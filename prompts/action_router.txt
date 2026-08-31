@@ -70,6 +70,11 @@
 - 玩家仅「观察/搜索」但未提使用物品 → 不要设 `item_usage=use`
 - 探索模式用物：**KP 叙事后**系统 equip/consume，路由只分类
 
+### 拾取与 NPC 交付（探索模式）
+- **从地上/容器/场景捡起** → `item_usage=pickup`，`referenced_items` 填物品名；KP 叙事后系统先入背包，ItemSync 补描述/装备
+- **NPC 当面递给你/塞给你/你要过来**（如「把撬棍给我」「接过装备」）→ `item_usage=none`，`referenced_items` 填物品名（供 ItemSync 识别）；**禁止**标 `pickup`（pickup 仅用于从环境捡起）
+- 仅询问「谁有武器」而未实际拿到 → `item_usage=none`，`referenced_items` 留空
+
 ### 技能（探索模式）
 技能分两类，入库时由 SkillSync 标 `kind`：
 - **主动技能**：须**明确施展**才生效（「用潜行溜进去」「施展急救」）→ `skill_usage=use`，`referenced_skills` 填技能名；须已掌握且为**主动**技能。**被动技能不可**设 `skill_usage=use`（它们常驻生效，无需施展）。

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from game.inventory import (
     MECHANICAL_COMBAT_LOOT_DESCRIPTION,
+    MECHANICAL_PICKUP_DESCRIPTION,
     MECHANICAL_PURCHASE_DESCRIPTION,
     item_name_from_ref,
 )
@@ -93,6 +94,35 @@ def _combat_use_reserved(mechanical_events: list[str], item_ref: str) -> bool:
     return False
 
 
+def _mechanical_roll_failed(mechanical_events: list[str]) -> bool:
+    for event in mechanical_events:
+        if "检定" in event and "失败" in event:
+            return True
+    return False
+
+
+def _settle_exploration_pickup(
+    route: ActionRouteResult,
+    character: Character,
+    mechanical_events: list[str],
+) -> list[str]:
+    """探索模式拾取/接过物品：KP 后先入背包，ItemSync 再补描述与装备。"""
+    if _mechanical_roll_failed(mechanical_events):
+        return []
+    events: list[str] = []
+    for item in route.referenced_items:
+        cleaned = item.strip()
+        if not cleaned or character.has_inventory_item(cleaned):
+            continue
+        if character.add_inventory_item(
+            cleaned, description=MECHANICAL_PICKUP_DESCRIPTION
+        ):
+            matched = character.find_inventory_item(cleaned)
+            label = matched.format_detail() if matched else cleaned
+            events.append(f"获得：{label}")
+    return events
+
+
 def _settle_combat_pickup(
     route: ActionRouteResult,
     character: Character,
@@ -162,6 +192,8 @@ def resolve_post_kp_mechanics(
         return []
     if route.item_usage == "purchase":
         return execute_purchase(route, character)
+    if route.item_usage == "pickup":
+        return _settle_exploration_pickup(route, character, pre)
     if route.item_usage == "use":
         return resolve_use_item(
             character,

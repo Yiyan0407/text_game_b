@@ -50,6 +50,7 @@
 
 ## equipment
 - 叙事上已穿戴/手持 → inventory add（如需）+ equip
+- **背包尚无该物时禁止只写 equip**：须同轮 inventory add，或依赖机械层 `获得：` 后再 equip
 - 卸下 → unequip（**禁止**同轮 inventory remove）
 - 丢弃已装备物：先 unequip 再 remove
 - **slot**：`hand` | `body` | `accessory`

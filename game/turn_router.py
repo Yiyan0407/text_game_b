@@ -37,7 +37,7 @@ def needs_post_kp_mechanical(
         return False
     if game_state.is_in_combat():
         return route.item_usage in ("pickup", "use")
-    return route.item_usage in ("purchase", "use")
+    return route.item_usage in ("purchase", "use", "pickup")
 
 
 def run_post_kp_mechanical_if_needed(
