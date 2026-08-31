@@ -13,6 +13,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 SAVES_DIR = DATA_DIR / "saves"
 PROFILES_DIR = DATA_DIR / "profiles"
 SCENARIOS_DIR = DATA_DIR / "scenarios"
+LOG_FILE = PROJECT_ROOT / "logs" / "game.log"
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class Settings:
     seedream_size: str
     seedream_watermark: bool
     app_password: str
+    log_level: str
 
 
 @lru_cache
@@ -80,4 +82,5 @@ def get_settings() -> Settings:
         seedream_size=os.getenv("SEEDREAM_SIZE", "2K"),
         seedream_watermark=os.getenv("SEEDREAM_WATERMARK", "false").lower() == "true",
         app_password=os.getenv("APP_PASSWORD", "1123"),
+        log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
     )

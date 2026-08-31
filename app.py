@@ -1,5 +1,6 @@
 import streamlit as st
 
+from config.logging_setup import setup_logging
 from config.settings import get_settings
 from game.game_config import default_game_config
 from game.models import Character, ChatMessage, GameState
@@ -32,6 +33,8 @@ from ui.character_library import render_character_library, render_character_sele
 from ui.profile_menu import render_profile_selection, sync_profile_context
 from ui.scenario_generator import render_scenario_generator, render_scenario_preview
 from ui.auth import render_login_gate
+
+setup_logging()
 
 st.set_page_config(page_title="AI 跑团", page_icon="🎲", layout="wide")
 
@@ -422,6 +425,7 @@ def render_game() -> None:
             game_state,
             st.session_state.messages,
         )
+        st.page_link("pages/debug.py", label="🐛 Debug 日志", use_container_width=True)
         if st.button("返回主菜单", use_container_width=True):
             persist_save()
             sync_character_card_to_library(finalize=True)

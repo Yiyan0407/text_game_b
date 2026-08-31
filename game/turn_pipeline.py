@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 
 from chain.action_router import ActionRouter
@@ -107,6 +108,7 @@ class TurnPipeline:
         if not ctx.route.approved:
             ctx.rejected = True
             ctx.rejection_reason = ctx.route.rejection_reason
+            logger.info("prepare: 行动驳回 — %s", ctx.rejection_reason)
             return False
         try:
             ctx.mechanical_events = self._resolve_mechanics(
@@ -182,6 +184,15 @@ class TurnPipeline:
         plan = ctx.settlement_plan
         assert plan is not None
         events.append(format_settlement_plan_event(plan))
+        logger.info(
+            "settle_after_kp: turn=%d plan inventory=%s skill=%s time=%s world=%s (%s)",
+            ctx.game_state.turn_count,
+            plan.inventory_sync,
+            plan.skill_sync,
+            plan.time_sync,
+            plan.world_sync,
+            plan.reason,
+        )
 
         patch_kwargs = dict(
             route=ctx.route,
@@ -245,8 +256,16 @@ class TurnPipeline:
                 )
             )
 
+        propose_started = time.monotonic()
         proposed = await gather_best_effort(*propose_coros) if propose_coros else []
         patches = dict(zip(propose_labels, proposed))
+        if propose_labels:
+            elapsed_ms = int((time.monotonic() - propose_started) * 1000)
+            logger.info(
+                "settle_after_kp: 并发 propose [%s] 完成 (%dms)",
+                ", ".join(propose_labels),
+                elapsed_ms,
+            )
 
         if plan.inventory_sync:
             patch = patches.get("inventory")
