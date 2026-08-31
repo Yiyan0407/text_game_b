@@ -14,6 +14,7 @@ _ACTION_GUIDE = """
 | **主要动作** | 1 次 | 攻击、防御、擒抱、推撞、撤退、疾跑 |
 | **附加动作** | 1 次 | 用手雷/药水、收刀威慑（`talk`） |
 
+- 友方 NPC 参战时会**自动**攻击敌人；你只控制自己的角色。
 - 攻击已装备武器可直接打；**武器 + 武学/技能**伤害叠加。
 - 敌人 **SP** = 装甲，减少每次命中扣血；打不动就换武器或跑。
 """
@@ -38,7 +39,9 @@ def render_combat_panel(game_state: GameState) -> None:
 
     st.subheader("战斗中")
     actor = combat.current_actor()
-    actor_label = "你" if actor == "player" else actor
+    actor_label = "你" if actor == "player" else (
+        f"友方·{actor}" if combat.get_ally(actor) else actor
+    )
     st.caption(f"第 {combat.round} 回合 · 先攻：{' → '.join(combat.turn_order)}")
     st.markdown(f"**当前行动者：{actor_label}**")
 
@@ -67,8 +70,20 @@ def render_combat_panel(game_state: GameState) -> None:
             st.session_state[AUTO_COMBAT_PENDING_KEY] = True
             st.rerun()
     else:
-        st.warning(f"等待 {actor_label} 的回合（敌人行动已在后台结算）")
+        st.warning(f"等待 {actor_label} 的回合（友方/敌人行动已在后台结算）")
 
+    if combat.allies:
+        st.markdown("**友方**")
+        for ally in combat.allies:
+            if ally.hp > 0:
+                max_hp = max(1, ally.max_hp)
+                hp_ratio = max(0.0, min(1.0, ally.hp / max_hp))
+                label = f"{ally.name} HP {ally.hp}/{ally.max_hp} AC {ally.ac}（自动作战）"
+                st.progress(hp_ratio, text=label)
+            else:
+                st.caption(f"{ally.name} — 已倒下")
+
+    st.markdown("**敌人**")
     for enemy in combat.enemies:
         if enemy.hp > 0:
             max_hp = max(1, enemy.max_hp)

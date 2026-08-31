@@ -83,6 +83,7 @@ class ActionRouteResult(BaseModel):
     ends_turn: bool = False
     proficiency_bonus: bool = False
     enemy_defs: list["EnemyDefPatch"] = Field(default_factory=list)
+    ally_defs: list["AllyDefPatch"] = Field(default_factory=list)
 
 
 class EnemyDefPatch(BaseModel):
@@ -106,6 +107,33 @@ class EnemyDefPatch(BaseModel):
         sp_max = max(sp, self.sp_max) if self.sp_max > 0 else sp
         attack = (self.attack_damage or "1d6").strip()
         return CombatEnemy(
+            name=self.name.strip(),
+            hp=hp,
+            max_hp=hp,
+            ac=max(1, self.ac or 12),
+            attack_bonus=self.attack_bonus,
+            attack_damage=attack,
+            damage_notation=attack,
+            sp=sp,
+            sp_max=sp_max,
+            start_distance_m=max(0, self.start_distance_m or 10),
+            use_dex=self.use_dex,
+            attack_range_normal_m=max(0, self.attack_range_normal_m),
+            attack_range_max_m=max(0, self.attack_range_max_m),
+        )
+
+
+class AllyDefPatch(EnemyDefPatch):
+    """友方战斗单位定义（字段与 enemy_defs 相同）。"""
+
+    def to_combat_ally(self) -> "CombatAlly":
+        from game.models import CombatAlly
+
+        hp = max(1, self.hp)
+        sp = max(0, self.sp)
+        sp_max = max(sp, self.sp_max) if self.sp_max > 0 else sp
+        attack = (self.attack_damage or "1d6").strip()
+        return CombatAlly(
             name=self.name.strip(),
             hp=hp,
             max_hp=hp,

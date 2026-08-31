@@ -36,7 +36,7 @@ def format_auto_combat_user_input(result: AutoCombatResult) -> str:
         "not_in_combat": "不在战斗中",
     }.get(result.outcome, result.outcome)
     return (
-        "【自动战斗】玩家委托系统代跑剩余战斗。"
+        "【自动战斗】玩家委托系统代跑剩余战斗（含友方自动作战与敌人反击）。"
         f"系统已完整模拟 {result.rounds} 个战斗轮次，结果：{outcome_label}。"
         "请根据【已发生的结果】写一段连贯的战斗描写（交锋过程→结局），"
         "不要逐条复读系统日志，但命中/伤害/倒地/受击须与机械一致。"

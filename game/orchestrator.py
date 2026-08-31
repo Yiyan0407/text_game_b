@@ -917,6 +917,7 @@ class GameOrchestrator:
                     game_state,
                     route.enemies_spec,
                     enemy_defs=route.enemy_defs or None,
+                    ally_defs=route.ally_defs or None,
                     world_id=world_id,
                 )
             )

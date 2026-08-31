@@ -4,7 +4,7 @@ import json
 import re
 
 from game.dice import roll, roll_damage
-from game.effect_resolver import apply_damage_to_enemy, apply_incoming_damage
+from game.effect_resolver import apply_damage_to_ally, apply_damage_to_enemy, apply_incoming_damage
 from game.combat_range import (
     DEFAULT_START_DISTANCE_M,
     MELEE_REACH_M,
@@ -16,7 +16,7 @@ from game.combat_range import (
     movement_speed_for,
 )
 from game.combat_targets import effective_enemy_distance
-from game.models import Character, CombatEnemy, CombatState, GameState
+from game.models import Character, CombatAlly, CombatEnemy, CombatState, GameState
 from game.rules import ability_check, format_check_for_kp
 
 FLEE_DC = 12
@@ -190,20 +190,34 @@ def start_combat(
     enemies_spec: str,
     *,
     enemy_defs: list | None = None,
+    ally_defs: list | None = None,
     world_id: str = "",
 ) -> str:
     if enemy_defs:
         enemies = enemies_from_route_defs(enemy_defs, world_id=world_id)
     else:
         enemies = parse_enemies(enemies_spec, world_id=world_id)
+    allies: list = []
+    skipped_dead: list[str] = []
+    if ally_defs:
+        from game.combat_allies import allies_from_route_defs
+
+        allies, skipped_dead = allies_from_route_defs(
+            ally_defs, game_state=game_state, world_id=world_id
+        )
+
     dex_mod = character.modifier("dex")
     player_init = roll(f"1d20{dex_mod:+d}").total
 
     for enemy in enemies:
         enemy.initiative = roll("1d20").total
+    for ally in allies:
+        ally.initiative = roll("1d20").total
 
     order = sorted(
-        [("player", player_init)] + [(e.name, e.initiative) for e in enemies],
+        [("player", player_init)]
+        + [(e.name, e.initiative) for e in enemies]
+        + [(a.name, a.initiative) for a in allies],
         key=lambda x: x[1],
         reverse=True,
     )
@@ -215,6 +229,7 @@ def start_combat(
         active=True,
         round=1,
         enemies=enemies,
+        allies=allies,
         player_initiative=player_init,
         turn_order=turn_order,
         turn_index=0,
@@ -228,13 +243,20 @@ def start_combat(
     order_text = " → ".join(
         character.name if n == "player" else n for n in turn_order
     )
-    return (
-        f"战斗开始！先攻顺序：{order_text}。"
-        f"玩家先攻 {player_init}。"
-        + " ".join(f"{e.name} 先攻 {e.initiative}" for e in enemies)
-        + f" 起始距离：{dist_text}。"
-        + f" 你的移动力 {speed}m/回合。"
-    )
+    parts = [
+        f"战斗开始！先攻顺序：{order_text}。",
+        f"玩家先攻 {player_init}。",
+    ]
+    parts.extend(f"{e.name} 先攻 {e.initiative}" for e in enemies)
+    if allies:
+        parts.extend(f"友方 {a.name} 先攻 {a.initiative}" for a in allies)
+        parts.append(f"友方 {'、'.join(a.name for a in allies)} 将自动作战。")
+    if skipped_dead:
+        parts.append(f"以下友方无法参战（已阵亡）：{'、'.join(skipped_dead)}。")
+    if dist_text:
+        parts.append(f"起始距离：{dist_text}。")
+    parts.append(f"你的移动力 {speed}m/回合。")
+    return " ".join(parts)
 
 
 def enemy_attack(
@@ -285,6 +307,83 @@ def enemy_attack(
         detail += " " + " ".join(events)
     detail += f" 你的 HP {character.hp}/{character.effective_max_hp()}"
     return detail
+
+
+def enemy_attack_ally(
+    enemy: CombatEnemy,
+    ally: CombatAlly,
+    *,
+    game_state: GameState | None = None,
+    range_penalty: int = 0,
+    distance_m: int | None = None,
+    range_note: str = "",
+    damage_override: str | None = None,
+    attack_style: str = "",
+) -> str:
+    from game.combat_modifiers import enemy_attack_roll_modifier
+
+    ac = ally.ac
+    roll_mod = (
+        enemy.attack_bonus
+        + enemy_attack_roll_modifier(game_state.combat if game_state else None)
+        - range_penalty
+    )
+    attack = roll(f"1d20{roll_mod:+d}")
+    hit = attack.total >= ac
+
+    range_suffix = ""
+    if distance_m is not None and (range_penalty or distance_m > MELEE_REACH_M):
+        range_suffix = f"，{distance_m}m"
+        if range_note:
+            range_suffix += f" · {range_note}"
+
+    if not hit:
+        return (
+            f"{enemy.name} 攻击 {ally.name}{range_suffix}："
+            f"1d20[{attack.rolls[0]}]{roll_mod:+d}={attack.total} vs AC {ac} → 未命中"
+        )
+
+    damage_notation = damage_override or enemy.effective_attack_damage()
+    damage_roll = roll_damage(damage_notation)
+    raw_damage = damage_roll.total
+    result = apply_damage_to_ally(ally, raw_damage)
+    style = f"（{attack_style}）" if attack_style else ""
+    detail = (
+        f"{enemy.name} 攻击 {ally.name}{style}{range_suffix}："
+        f"1d20[{attack.rolls[0]}]{roll_mod:+d}={attack.total} vs AC {ac} → 命中！"
+        f"伤害 {damage_roll.describe()}。"
+    )
+    if ally.hp <= 0:
+        detail += f" 友方 {ally.name} 被击倒！"
+    else:
+        detail += f" {ally.name} 剩余 HP {ally.hp}/{ally.max_hp}"
+        if result.fully_blocked and ally.sp_max > 0:
+            detail += f"（SP {ally.sp}/{ally.sp_max}）"
+        elif result.sp_after < result.sp_before:
+            detail += f"（SP {result.sp_before}→{result.sp_after}）"
+    return detail
+
+
+def _pick_enemy_attack_target(
+    combat: CombatState,
+    character: Character,
+    enemy: CombatEnemy,
+) -> tuple[str, str] | None:
+    """选择敌人攻击目标：(kind, name)，kind 为 player 或 ally。"""
+    dist = effective_enemy_distance(combat, enemy.name)
+    candidates: list[tuple[str, str, int, int]] = []
+    if character.hp > 0:
+        candidates.append(("player", "player", dist, 0))
+    for ally in combat.living_allies():
+        if ally.can_act():
+            candidates.append(("ally", ally.name, dist, 1))
+    if not candidates:
+        return None
+    min_dist = min(item[2] for item in candidates)
+    nearest = [item for item in candidates if item[2] == min_dist]
+    nearest.sort(key=lambda item: (item[3], item[1]))
+    chosen = nearest[0]
+    return chosen[0], chosen[1]
 
 
 def _enemy_reposition(combat: CombatState, enemy: CombatEnemy) -> str | None:
@@ -338,22 +437,45 @@ def _resolve_enemy_turn(
             damage_override = profile.damage_notation
             attack_style = profile.label
     if not in_range:
-        out_of_range = f"{enemy.name} 够不着你（{range_note}，当前 {dist}m）。"
+        out_of_range = f"{enemy.name} 够不着目标（{range_note}，当前 {dist}m）。"
         if reposition:
             return f"{reposition} {out_of_range}"
         return out_of_range
+
+    target = _pick_enemy_attack_target(combat, character, enemy)
+    if target is None:
+        return f"{enemy.name}：无有效攻击目标。"
+
+    target_kind, target_name = target
     style_note = range_note if range_penalty else (attack_style or "")
-    attack = enemy_attack(
-        enemy,
-        character,
-        defending=combat.defending,
-        game_state=game_state,
-        range_penalty=range_penalty,
-        distance_m=dist,
-        range_note=style_note,
-        damage_override=damage_override,
-        attack_style=attack_style,
-    )
+
+    if target_kind == "player":
+        attack = enemy_attack(
+            enemy,
+            character,
+            defending=combat.defending,
+            game_state=game_state,
+            range_penalty=range_penalty,
+            distance_m=dist,
+            range_note=style_note,
+            damage_override=damage_override,
+            attack_style=attack_style,
+        )
+    else:
+        ally = combat.get_ally(target_name)
+        if not ally or ally.hp <= 0:
+            return f"{enemy.name}：目标 {target_name} 已不可用。"
+        attack = enemy_attack_ally(
+            enemy,
+            ally,
+            game_state=game_state,
+            range_penalty=range_penalty,
+            distance_m=dist,
+            range_note=style_note,
+            damage_override=damage_override,
+            attack_style=attack_style,
+        )
+
     if reposition:
         return f"{reposition} {attack}"
     return attack
@@ -361,6 +483,8 @@ def _resolve_enemy_turn(
 
 def resolve_until_player_turn(character: Character, game_state: GameState) -> list[str]:
     """从当前先攻位推进，直到轮到玩家或战斗结束。"""
+    from game.combat_allies import resolve_non_player_turn
+
     combat = game_state.combat
     if not combat or not combat.active:
         return []
@@ -373,7 +497,7 @@ def resolve_until_player_turn(character: Character, game_state: GameState) -> li
     for _ in range(len(combat.turn_order)):
         if combat.is_player_turn():
             break
-        event = _resolve_enemy_turn(combat, character, game_state)
+        event = resolve_non_player_turn(combat, character, game_state)
         if event:
             events.append(event)
         combat.advance_turn()
@@ -387,7 +511,9 @@ def resolve_until_player_turn(character: Character, game_state: GameState) -> li
 
 
 def advance_after_player_action(character: Character, game_state: GameState) -> list[str]:
-    """玩家行动后推进先攻，结算后续敌人回合直到再次轮到玩家。"""
+    """玩家行动后推进先攻，结算后续敌人/友方回合直到再次轮到玩家。"""
+    from game.combat_allies import resolve_non_player_turn
+
     combat = game_state.combat
     if not combat or not combat.active:
         return []
@@ -403,7 +529,7 @@ def advance_after_player_action(character: Character, game_state: GameState) -> 
             break
         if character.hp <= 0:
             break
-        event = _resolve_enemy_turn(combat, character, game_state)
+        event = resolve_non_player_turn(combat, character, game_state)
         if event:
             events.append(event)
         combat.advance_turn()
@@ -618,9 +744,15 @@ def maybe_end_combat(game_state: GameState, character: Character) -> tuple[str |
 def end_combat(game_state: GameState) -> str:
     if not game_state.combat or not game_state.combat.active:
         return "当前没有进行中的战斗。"
+    from game.ally_persistence import sync_combat_allies_to_npcs
+
+    sync_events = sync_combat_allies_to_npcs(game_state)
     game_state.combat.active = False
     game_state.combat = None
-    return "战斗结束。"
+    msg = "战斗结束。"
+    if sync_events:
+        msg += " " + " ".join(sync_events)
+    return msg
 
 
 def spend_action_or_error(combat: CombatState, cost: str) -> str | None:

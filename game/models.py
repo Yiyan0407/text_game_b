@@ -482,10 +482,27 @@ class Character(BaseModel):
         return f"{self.name} | HP {self.hp}/{cap} | {attrs}"
 
 
+class NpcCombatRecord(BaseModel):
+    """NPC 跨场战斗档案（友方参战时的 HP/护甲/死亡等）。"""
+
+    hp: int = 0
+    max_hp: int = 0
+    ac: int = 12
+    attack_damage: str = "1d6"
+    attack_bonus: int = 3
+    sp: int = 0
+    sp_max: int = 0
+    use_dex: bool = False
+    attack_range_normal_m: int = 0
+    attack_range_max_m: int = 0
+    dead: bool = False
+
+
 class NPCRelation(BaseModel):
     name: str
     attitude: str = "unknown"  # friendly | neutral | hostile | unknown
     notes: str = ""
+    combat: NpcCombatRecord | None = None
 
 
 class Quest(BaseModel):
@@ -552,10 +569,49 @@ class CombatEnemy(BaseModel):
         return True
 
 
+class CombatAlly(BaseModel):
+    """友方战斗单位：由系统自动代掷，玩家不直接控制。"""
+
+    name: str
+    hp: int
+    max_hp: int
+    ac: int = 12
+    initiative: int = 0
+    attack_bonus: int = 3
+    damage_notation: str = "1d6"
+    attack_damage: str = ""
+    sp: int = Field(default=0, ge=0)
+    sp_max: int = Field(default=0, ge=0)
+    start_distance_m: int = 10
+    surrendered: bool = False
+    use_dex: bool = False
+    attack_range_normal_m: int = 0
+    attack_range_max_m: int = 0
+
+    @model_validator(mode="after")
+    def _sync_attack_damage(self) -> Self:
+        if not self.attack_damage.strip():
+            object.__setattr__(self, "attack_damage", self.damage_notation)
+        if self.sp_max <= 0 and self.sp > 0:
+            object.__setattr__(self, "sp_max", self.sp)
+        return self
+
+    def effective_attack_damage(self) -> str:
+        return (self.attack_damage or self.damage_notation or "1d6").strip()
+
+    def can_act(self) -> bool:
+        if self.hp <= 0 or self.surrendered:
+            return False
+        if self.hp <= max(1, self.max_hp // 3):
+            return False
+        return True
+
+
 class CombatState(BaseModel):
     active: bool = False
     round: int = 1
     enemies: list[CombatEnemy] = Field(default_factory=list)
+    allies: list[CombatAlly] = Field(default_factory=list)
     player_initiative: int = 0
     turn_order: list[str] = Field(default_factory=list)
     turn_index: int = 0
@@ -576,6 +632,17 @@ class CombatState(BaseModel):
 
     def is_player_turn(self) -> bool:
         return self.current_actor() == "player"
+
+    def is_ally_turn(self) -> bool:
+        return self.get_ally(self.current_actor()) is not None
+
+    def actor_label(self, actor: str | None = None) -> str:
+        name = (actor or self.current_actor()).strip()
+        if name == "player":
+            return "玩家"
+        if self.get_ally(name):
+            return f"友方·{name}"
+        return name
 
     def advance_turn(self) -> None:
         if not self.turn_order:
@@ -662,7 +729,7 @@ class CombatState(BaseModel):
         if not self.active:
             return "战斗：未进行"
         actor = self.current_actor()
-        actor_label = "玩家" if actor == "player" else actor
+        actor_label = self.actor_label(actor)
         lines = [
             f"战斗进行中 — 第 {self.round} 回合",
             f"当前行动者：{actor_label}",
@@ -672,6 +739,17 @@ class CombatState(BaseModel):
             lines.append(self.format_action_economy())
         if self.defending:
             lines.append("玩家处于防御姿态（AC+2）")
+        if self.allies:
+            lines.append("友方：")
+            for ally in self.allies:
+                if ally.hp <= 0:
+                    status = "已倒"
+                elif not ally.can_act():
+                    status = f"失能（HP {ally.hp}/{ally.max_hp}）"
+                else:
+                    status = f"HP {ally.hp}/{ally.max_hp} AC {ally.ac}"
+                lines.append(f"  · {ally.name}：{status}")
+        lines.append("敌人：")
         for enemy in self.enemies:
             if enemy.hp <= 0:
                 status = "已倒"
@@ -686,8 +764,29 @@ class CombatState(BaseModel):
                     f" SP {enemy.sp}" if enemy.sp > 0 else ""
                 )
                 status = f"HP {enemy.hp}/{enemy.max_hp} AC {enemy.ac}{sp_text}{dist_text}"
-            lines.append(f"- {enemy.name}：{status}")
+            lines.append(f"  · {enemy.name}：{status}")
         return "\n".join(lines)
+
+    def living_allies(self) -> list[CombatAlly]:
+        return [ally for ally in self.allies if ally.hp > 0]
+
+    def fighting_allies(self) -> list[CombatAlly]:
+        return [ally for ally in self.allies if ally.can_act()]
+
+    def get_ally(self, name: str) -> CombatAlly | None:
+        cleaned = name.strip()
+        if not cleaned:
+            return None
+        for ally in self.allies:
+            if ally.name == cleaned:
+                return ally
+        for ally in self.allies:
+            if fuzzy_match_name(name, ally.name):
+                return ally
+        return None
+
+    def living_ally_names(self) -> list[str]:
+        return [ally.name for ally in self.living_allies()]
 
     def living_enemies(self) -> list[CombatEnemy]:
         return [e for e in self.enemies if e.hp > 0]
@@ -981,7 +1080,18 @@ class GameState(BaseModel):
             lines.append("已知 NPC：")
             for npc in self.npcs:
                 note = f" — {npc.notes}" if npc.notes else ""
-                lines.append(f"- {npc.name}（{npc.attitude}）{note}")
+                combat_note = ""
+                if npc.combat:
+                    if npc.combat.dead:
+                        combat_note = " · 已阵亡"
+                    elif npc.combat.max_hp > 0:
+                        combat_note = (
+                            f" · 战斗 HP {npc.combat.hp}/{npc.combat.max_hp}"
+                            f" AC {npc.combat.ac}"
+                        )
+                lines.append(
+                    f"- {npc.name}（{npc.attitude}）{combat_note}{note}"
+                )
 
         from game.check_reroll import format_last_check_for_prompt
 

@@ -188,4 +188,7 @@ def dedupe_npc_list(npcs: list[NPCRelation]) -> list[NPCRelation]:
         target.name = preferred_npc_name(target.name, npc.name)
         target.attitude = npc.attitude or target.attitude
         target.notes = merge_npc_notes(target.notes, npc.notes)
+        from game.ally_persistence import merge_combat_records
+
+        target.combat = merge_combat_records(target.combat, npc.combat)
     return merged

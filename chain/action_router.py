@@ -7,7 +7,7 @@ from chain.llm import create_chat_llm
 from config.settings import PROMPTS_DIR
 from game.difficulty import ensure_ability_check_dc
 from game.models import ABILITY_FIELDS, Character, ChatMessage, GameState
-from game.results import ActionRouteResult, EnemyDefPatch
+from game.results import ActionRouteResult, AllyDefPatch, EnemyDefPatch
 from game.scenario import Scenario
 from game.text_match import fuzzy_in_list, resolve_fuzzy_name
 from prompts.templates import load_world_prompt
@@ -442,6 +442,13 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
                 enemy_defs.append(EnemyDefPatch.model_validate(item))
             except (TypeError, ValueError):
                 continue
+    ally_defs: list[AllyDefPatch] = []
+    for item in data.get("ally_defs") or []:
+        if isinstance(item, dict):
+            try:
+                ally_defs.append(AllyDefPatch.model_validate(item))
+            except (TypeError, ValueError):
+                continue
     return ActionRouteResult(
         approved=bool(approved),
         rejection_reason=str(data.get("rejection_reason", "")).strip(),
@@ -460,6 +467,7 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
         trigger_combat=bool(data.get("trigger_combat", False)),
         enemies_spec=str(data.get("enemies_spec", "")).strip(),
         enemy_defs=enemy_defs,
+        ally_defs=ally_defs,
         combat_action=combat_action,
         action_cost=action_cost,
         attack_target=str(data.get("attack_target", "")).strip(),
@@ -681,6 +689,15 @@ class ActionRouter:
                         for part in route.enemies_spec.split(",")
                         if part.strip()
                     ]
+                ally_names = (
+                    game_state.combat.living_ally_names() if game_state.combat else []
+                )
+                if ally_names and fuzzy_in_list(route.attack_target, ally_names):
+                    route.approved = False
+                    route.rejection_reason = (
+                        f"「{route.attack_target}」是友方，不能作为攻击目标。"
+                    )
+                    return route
                 if living and not fuzzy_in_list(route.attack_target, living):
                     route.approved = False
                     route.rejection_reason = (

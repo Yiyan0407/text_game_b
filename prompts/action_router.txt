@@ -126,6 +126,16 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 
 **enemy_defs（必填，按个体自由裁定）**：每个敌人须单独填写 `name, hp, ac, attack_damage, attack_bonus, sp, sp_max, start_distance_m`；远程/载具可额外填 `use_dex`（枪械）、`attack_range_normal_m` / `attack_range_max_m`（米，覆盖自动推断）。
 
+**ally_defs（可选，友方 NPC 参战）**：当【最近对话】/KP 叙事中**明确与玩家同阵线、正在交火**的 NPC 须填；字段与 `enemy_defs` 相同。系统会在其先攻回合**自动**攻击敌人（玩家不控制友方）。**勿**把中立旁观者、未参战的 NPC 填入。
+
+- **友方数值会跨场保留**：【游戏状态】里若已有该 NPC 的战斗档案（HP/AC/死亡），须沿用——**勿**给已负伤友方重新满血；**已阵亡**友方勿再填入 `ally_defs`
+- **敌人会攻击玩家与参战友方**（优先攻击距离最近的目标）
+
+- 友方名称用叙事中的称呼（如「瘦高个枪手」「矮胖男人」），与 KP 一致
+- 读 implied 武器定 `attack_damage`（霰弹枪 `2d8`+`use_dex`、木棍 `1d6` 等）
+- 无参战友方时 **省略** `ally_defs` 或留空数组
+- `attack_target` **只能**指向 `enemy_defs` 中的敌人，**禁止**攻击友方
+
 **敌人数与【最近对话】一致**：仍在场、仍在交战的敌对个体有几人，`enemy_defs` 就填几条（可用不同姓名/编号区分）；`enemies_spec` 用逗号分隔多个。若刻意合并为群体战（一个战斗条目代表多人），须在 `name` 标明群体，且 HP/SP 应体现规模——**勿**叙事里两人仍在场却只填一条杂兵数值。
 
 **敌人攻击距离**：与玩家类似——近战约 **2m**；枪械 `use_dex`+`1d10` 约 30m（极限 50m）；重火力/高 SP（≥20）或 `3d8+` 级伤害视为远程（约 80m/150m）。超出极限射程时敌人会先靠近（每回合最多 6m），仍够不着则本回合无法攻击。
@@ -149,9 +159,10 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 
 ```json
 "enemy_defs": [
-  {{"name": "敌人名A", "hp": 6, "ac": 10, "attack_damage": "1d4", "sp": 0, "start_distance_m": 3}},
-  {{"name": "敌人名B（重载具）", "hp": 100, "ac": 18, "attack_damage": "3d8", "sp": 45, "start_distance_m": 40}},
-  {{"name": "敌人名C（巨型单位）", "hp": 200, "ac": 19, "attack_damage": "4d10", "sp": 70, "start_distance_m": 30}}
+  {{"name": "敌人名A", "hp": 6, "ac": 10, "attack_damage": "1d4", "sp": 0, "start_distance_m": 25}}
+],
+"ally_defs": [
+  {{"name": "友方NPC名", "hp": 14, "ac": 12, "attack_damage": "2d8", "attack_bonus": 4, "use_dex": true, "sp": 0, "start_distance_m": 25}}
 ]
 ```
 
@@ -209,5 +220,5 @@ approved=false，「还没轮到你，当前是 {{行动者}} 的回合。」
 ## 输出 JSON 字段
 approved, rejection_reason, needs_roll, roll_type, ability, dc, dice_notation, proficiency_bonus,
 referenced_items, referenced_skills, payment_items, payment_quantity, item_usage, skill_usage,
-mode, trigger_combat, enemies_spec, enemy_defs, combat_action, action_cost, attack_target,
+mode, trigger_combat, enemies_spec, enemy_defs, ally_defs, combat_action, action_cost, attack_target,
 move_target, move_meters, move_toward, ends_turn
