@@ -52,8 +52,8 @@ def validate_background_quick(
         if pattern.search(text) or pattern.search(normalized):
             return BackgroundValidationResult(approved=False, rejection_reason=reason)
 
-    # 现代/赛博：开局即顶层权力
-    if world_id in ("modern", "cyberpunk", ""):
+    # 现代/赛博/科幻：开局即顶层权力
+    if world_id in ("modern", "cyberpunk", "scifi", ""):
         if re.search(r"(?:掌控|统治).{0,6}(?:世界|国家|全球|财团|网络)", text):
             return BackgroundValidationResult(
                 approved=False,

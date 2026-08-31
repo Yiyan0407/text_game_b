@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from chain.json_utils import extract_json
 from chain.llm import create_chat_llm
-from config.worlds import WORLD_OPTIONS
+from config.worlds import VALID_WORLD_IDS, WORLD_OPTIONS
 from game.scenario import Scenario
 
 
@@ -84,7 +84,9 @@ class ScenarioGenerator:
             world_label = WORLD_OPTIONS.get(world_id, world_id)
             world_part = f"优先使用世界观规则包：{world_label}（world_id={world_id}）\n"
         else:
-            world_part = "请根据描述自行选择最合适的 world_id（modern/cyberpunk/xianxia/fantasy）。\n"
+            world_part = (
+                f"请根据描述自行选择最合适的 world_id（{' / '.join(VALID_WORLD_IDS)}）。\n"
+            )
         user_prompt = (
             f"{world_part}"
             f"用户描述：{description.strip()}\n"
@@ -124,7 +126,7 @@ class ScenarioGenerator:
         base = (
             "你是跑团模组编剧。根据用户要求生成中文跑团模组，输出**单个 JSON 对象**，不要 markdown 代码块。"
             "id 用英文 slug；内容要有画面感、可玩性，适合文字跑团。"
-            "world_id 只能是：modern, cyberpunk, xianxia, fantasy 之一。"
+            f"world_id 只能是：{' / '.join(VALID_WORLD_IDS)} 之一。"
             "所有字符串字段必须用 \"\" 表示空值，**禁止**写 null。"
         )
         if mode == "world":

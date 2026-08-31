@@ -7,6 +7,12 @@ from game.models import CombatEnemy
 DEFAULT_ATTACK_DAMAGE: dict[str, str] = {
     "modern": "1d6",
     "cyberpunk": "2d8",
+    "scifi": "2d8",
+    "post_apoc": "1d8",
+    "steampunk": "1d8",
+    "historical": "1d6",
+    "coc": "1d4",
+    "wuxia": "1d8",
     "xianxia": "1d8",
     "fantasy": "1d6",
 }
