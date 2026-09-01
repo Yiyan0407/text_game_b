@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import streamlit as st
 
 SESSION_KEY = "risky_action_pending"
+CONFIRMED_FLAG = "risky_action_confirmed"
 CONFIRM_BUTTON_KEY = "risky_action_confirm"
 CANCEL_BUTTON_KEY = "risky_action_cancel"
 
@@ -14,6 +16,64 @@ ACTION_DELETE_SAVE = "delete_save"
 ACTION_DELETE_SCENARIO = "delete_scenario"
 
 PENDING = object()
+
+
+def _has_dialog() -> bool:
+    return hasattr(st, "dialog")
+
+
+def render_delete_confirm_dialog(
+    *,
+    message: str,
+    on_confirm: Callable[[], None],
+    on_cancel: Callable[[], None] | None = None,
+    title: str = "确认删除",
+    confirm_label: str = "确认删除",
+    cancel_label: str = "取消",
+    dialog_key: str = "delete",
+) -> None:
+    """渲染删除确认弹窗；无 st.dialog 时回退为页内 warning。"""
+
+    def _cancel() -> None:
+        if on_cancel is not None:
+            on_cancel()
+        else:
+            st.rerun()
+
+    if _has_dialog():
+
+        @st.dialog(title, width="small")
+        def _body() -> None:
+            st.markdown(message)
+            c1, c2 = st.columns(2)
+            if c1.button(
+                confirm_label,
+                type="primary",
+                use_container_width=True,
+                key=f"{dialog_key}_confirm",
+            ):
+                on_confirm()
+            if c2.button(
+                cancel_label,
+                use_container_width=True,
+                key=f"{dialog_key}_cancel",
+            ):
+                _cancel()
+
+        _body()
+        return
+
+    st.warning(message)
+    c1, c2 = st.columns(2)
+    if c1.button(
+        confirm_label,
+        type="primary",
+        use_container_width=True,
+        key=f"{dialog_key}_confirm_inline",
+    ):
+        on_confirm()
+    if c2.button(cancel_label, use_container_width=True, key=f"{dialog_key}_cancel_inline"):
+        _cancel()
 
 
 def queue_risky_action(
@@ -62,6 +122,7 @@ def get_risky_action() -> dict[str, Any] | None:
 
 def clear_risky_action() -> None:
     st.session_state.pop(SESSION_KEY, None)
+    st.session_state.pop(CONFIRMED_FLAG, None)
 
 
 def handle_risky_action_prompt(
@@ -69,22 +130,30 @@ def handle_risky_action_prompt(
     confirm_label: str = "确认删除",
     cancel_label: str = "取消",
 ) -> dict[str, Any] | Any | None:
-    """渲染待确认提示。返回已确认的操作 dict、PENDING，或 None。"""
+    """有待确认操作时弹出对话框。返回已确认的操作 dict、PENDING，或 None。"""
     pending = get_risky_action()
     if not pending:
         return None
 
-    st.warning(pending["message"])
-    c1, c2 = st.columns(2)
-    if c1.button(
-        confirm_label,
-        type="primary",
-        use_container_width=True,
-        key=CONFIRM_BUTTON_KEY,
-    ):
+    if st.session_state.pop(CONFIRMED_FLAG, False):
+        result = pending
         clear_risky_action()
-        return pending
-    if c2.button(cancel_label, use_container_width=True, key=CANCEL_BUTTON_KEY):
+        return result
+
+    def _confirm() -> None:
+        st.session_state[CONFIRMED_FLAG] = True
+        st.rerun()
+
+    def _cancel() -> None:
         clear_risky_action()
         st.rerun()
+
+    render_delete_confirm_dialog(
+        message=pending["message"],
+        on_confirm=_confirm,
+        on_cancel=_cancel,
+        confirm_label=confirm_label,
+        cancel_label=cancel_label,
+        dialog_key="risky_action",
+    )
     return PENDING

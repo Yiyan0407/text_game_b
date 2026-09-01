@@ -100,6 +100,18 @@ def parse_hold_distance_meters(user_input: str) -> int | None:
     return None
 
 
+def effective_unit_distance(
+    combat: CombatState | None,
+    unit_a: str,
+    unit_b: str,
+    *,
+    default: int = 10,
+) -> int:
+    if combat is None:
+        return default
+    return combat.distance_between(unit_a, unit_b)
+
+
 def effective_enemy_distance(
     combat: CombatState | None,
     enemy_ref: str,

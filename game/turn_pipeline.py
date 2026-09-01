@@ -22,6 +22,7 @@ from chain.memory import ConversationWindowMemory
 from chain.memory_manager import LongTermMemoryManager
 from chain.settlement_router import SettlementRouterAgent
 from chain.skill_sync_agent import SkillSyncAgent
+from chain.enemy_forge_agent import EnemyForgeAgent
 from chain.stat_forge_agent import StatForgeAgent
 from chain.scene_map_agent import SceneMapAgent
 from chain.suggestions import ActionSuggester
@@ -66,6 +67,7 @@ class TurnPipeline:
         time_sync: TimeSyncAgent,
         world_sync: WorldSyncAgent,
         stat_forge: StatForgeAgent,
+        enemy_forge: EnemyForgeAgent | None = None,
         kp: KPChain,
         memory: LongTermMemoryManager,
         suggester: ActionSuggester,
@@ -81,6 +83,7 @@ class TurnPipeline:
         self.time_sync = time_sync
         self.world_sync = world_sync
         self.stat_forge = stat_forge
+        self.enemy_forge = enemy_forge if enemy_forge is not None else EnemyForgeAgent()
         self.kp = kp
         self.memory = memory
         self.suggester = suggester
@@ -111,7 +114,20 @@ class TurnPipeline:
             logger.info("prepare: 行动驳回 — %s", ctx.rejection_reason)
             return False
         try:
-            ctx.mechanical_events = self._resolve_mechanics(
+            forge_events: list[str] = []
+            if ctx.route.trigger_combat:
+                ctx.route.enemy_defs, forge_events = (
+                    await self.enemy_forge.aensure_combat_enemy_defs(
+                        ctx.route,
+                        character=ctx.character,
+                        game_state=ctx.game_state,
+                        scenario=ctx.scenario,
+                        narrative_context=format_recent_history(
+                            ctx.windowed_history or ctx.history
+                        ),
+                    )
+                )
+            ctx.mechanical_events = forge_events + self._resolve_mechanics(
                 ctx.route,
                 ctx.character,
                 ctx.game_state,

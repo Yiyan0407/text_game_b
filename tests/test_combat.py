@@ -1,5 +1,14 @@
-from game.combat import parse_enemies, player_attack, resolve_pickup_in_combat, start_combat, end_combat
-from game.models import Character, CombatEnemy, CombatState, GameState
+from game.combat import (
+    parse_enemies,
+    player_attack,
+    resolve_pickup_in_combat,
+    resolve_start_combat_enemies,
+    start_combat,
+    end_combat,
+    maybe_end_combat,
+)
+from game.models import Character, CombatEnemy, CombatState, GameState, NPCRelation
+from game.results import EnemyDefPatch
 
 
 def test_parse_enemies():
@@ -32,6 +41,51 @@ def test_start_combat():
     assert state.combat is not None
     assert state.combat.active
     assert "战斗开始" in result
+
+
+def test_start_combat_falls_back_when_enemy_defs_invalid():
+    character = Character(name="里昂", dex=14)
+    state = GameState()
+    bad_defs = [EnemyDefPatch(name="弯刀影子", hp=0, ac=12)]
+    result = start_combat(
+        character,
+        state,
+        "弯刀影子:12:12,持矛影子:14:11",
+        enemy_defs=bad_defs,
+    )
+    assert len(state.combat.enemies) == 2
+    assert "弯刀影子" in result
+    assert "持矛影子" in result
+    end_msg, _ = maybe_end_combat(state, character)
+    assert end_msg is None
+    assert state.is_in_combat()
+
+
+def test_start_combat_falls_back_to_hostile_npcs():
+    character = Character(name="张三", dex=12)
+    state = GameState(
+        npcs=[
+            NPCRelation(name="佝偻影子", attitude="hostile"),
+            NPCRelation(name="魁梧影子", attitude="hostile"),
+            NPCRelation(name="迅捷影子", attitude="hostile"),
+        ]
+    )
+    start_combat(character, state, "", enemy_defs=[EnemyDefPatch(name="无效", hp=0, ac=10)])
+    assert len(state.combat.enemies) == 3
+    assert state.combat.fighting_enemies()
+    end_msg, _ = maybe_end_combat(state, character)
+    assert end_msg is None
+    assert state.is_in_combat()
+
+
+def test_resolve_start_combat_enemies_prefers_valid_defs():
+    defs = [EnemyDefPatch(name="守卫", hp=12, ac=11)]
+    enemies = resolve_start_combat_enemies(
+        "野狗:8:10",
+        enemy_defs=defs,
+    )
+    assert len(enemies) == 1
+    assert enemies[0].name == "守卫"
 
 
 def test_player_attack():

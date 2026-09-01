@@ -120,7 +120,7 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 **查阅已有资料（通常不必 dex 潜行检定）**：阅读、检索、翻阅**已在手边或已获得的**信息（文档、记录、终端数据等）——`needs_roll=false`，或 `roll_type=ability_check` + **`int`**；**不要**因「等待、静止查看」就一律判 dex 潜行。仅当本回合含**穿越警戒、暴露位置、主动转移**等动作时才用 dex。
 
 ### 开战识别
-玩家**明确发动不可撤销的物理攻击**（拔刀、开枪、扑击等）或局势已不可避免进入敌对 → `trigger_combat=true`，`enemies_spec`（名字:HP:AC，兼容旧格式），**enemy_defs**（推荐，含完整战斗数值）。
+玩家**明确发动不可撤销的物理攻击**（拔刀、开枪、扑击等）或局势已不可避免进入敌对 → `trigger_combat=true`，**enemies_spec**（必填：列出所有在场敌对个体名称，兼容 `名字:HP:AC` 旧格式；HP/AC 可填占位如 `12:11`）。**enemy_defs 可省略**——系统会对每个敌人**并发**调用 EnemyForge 单独生成完整数值，避免一条大 JSON 被截断。
 
 **开战当回合（trigger_combat=true）**：
 - 必须 `combat_action=none`，`item_usage=none`（或 none）——**不要**填 attack / move / use_item / pickup
@@ -129,7 +129,9 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 
 **已在战斗中（combat.active=true）** 的攻击 → `trigger_combat=false`，`combat_action=attack`，`attack_target`，`action_cost=main`
 
-**enemy_defs（必填，按个体自由裁定）**：每个敌人须单独填写 `name, hp, ac, attack_damage, attack_bonus, sp, sp_max, start_distance_m`；远程/载具可额外填 `use_dex`（枪械）、`attack_range_normal_m` / `attack_range_max_m`（米，覆盖自动推断）。
+**enemy_defs（可选）**：若你能稳定输出完整 JSON，可填 `name, hp, ac, attack_damage, attack_bonus, sp, sp_max, start_distance_m` 等；**否则留空 `[]`**，只保证 `enemies_spec` 名称齐全。远程/载具可填 `use_dex`、`attack_range_normal_m` / `attack_range_max_m`；**可选** `start_x_m` / `start_y_m`（相对玩家 `(0,0)` 的米坐标）。
+
+**战术位置**：【游戏状态】含 ASCII 战术图与各单位的 `(x,y)m`；远距应用 `start_x_m`/`start_y_m` 拉开，勿把所有敌人堆在 10m 内。
 
 **ally_defs（可选，友方 NPC 参战）**：当【最近对话】/KP 叙事中**明确与玩家同阵线、正在交火**的 NPC 须填；字段与 `enemy_defs` 相同。系统会在其先攻回合**自动**攻击敌人（玩家不控制友方）。**勿**把中立旁观者、未参战的 NPC 填入。
 
@@ -141,7 +143,7 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 - 无参战友方时 **省略** `ally_defs` 或留空数组
 - `attack_target` **只能**指向 `enemy_defs` 中的敌人，**禁止**攻击友方
 
-**敌人数与【最近对话】一致**：仍在场、仍在交战的敌对个体有几人，`enemy_defs` 就填几条（可用不同姓名/编号区分）；`enemies_spec` 用逗号分隔多个。若刻意合并为群体战（一个战斗条目代表多人），须在 `name` 标明群体，且 HP/SP 应体现规模——**勿**叙事里两人仍在场却只填一条杂兵数值。
+**敌人数与【最近对话】一致**：仍在场、仍在交战的敌对个体有几人，`enemies_spec` 就列几个名字（逗号分隔）；`enemy_defs` 条数应与之对应（可留空由 EnemyForge 补全）。若刻意合并为群体战，须在 `name` 标明群体——**勿**叙事里两人仍在场却只列一个名字。
 
 **敌人攻击距离**：与玩家类似——近战约 **2m**；枪械 `use_dex`+`1d10` 约 30m（极限 50m）；重火力/高 SP（≥20）或 `3d8+` 级伤害视为远程（约 80m/150m）。超出极限射程时敌人会先靠近（每回合最多 6m），仍够不着则本回合无法攻击。
 
@@ -164,10 +166,10 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 
 ```json
 "enemy_defs": [
-  {{"name": "敌人名A", "hp": 6, "ac": 10, "attack_damage": "1d4", "sp": 0, "start_distance_m": 25}}
+  {{"name": "敌人名A", "hp": 6, "ac": 10, "attack_damage": "1d4", "sp": 0, "start_distance_m": 25, "start_x_m": 25, "start_y_m": 0}}
 ],
 "ally_defs": [
-  {{"name": "友方NPC名", "hp": 14, "ac": 12, "attack_damage": "2d8", "attack_bonus": 4, "use_dex": true, "sp": 0, "start_distance_m": 25}}
+  {{"name": "友方NPC名", "hp": 14, "ac": 12, "attack_damage": "2d8", "attack_bonus": 4, "use_dex": true, "sp": 0, "start_x_m": -2, "start_y_m": 2}}
 ]
 ```
 

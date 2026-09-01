@@ -108,6 +108,68 @@ def enemies_from_route_defs(
     return enemies
 
 
+def infer_enemies_from_hostile_npcs(
+    game_state: GameState,
+    *,
+    world_id: str = "",
+) -> list[CombatEnemy]:
+    """从 game_state 中 attitude=hostile 的 NPC 生成战斗单位。"""
+    from game.enemy_defaults import apply_world_defaults
+
+    enemies: list[CombatEnemy] = []
+    for npc in game_state.npcs:
+        if npc.attitude != "hostile":
+            continue
+        if npc.combat and npc.combat.dead:
+            continue
+        if npc.combat and npc.combat.max_hp > 0:
+            rec = npc.combat
+            hp = rec.hp if rec.hp > 0 else rec.max_hp
+            enemy = CombatEnemy(
+                name=npc.name,
+                hp=hp,
+                max_hp=rec.max_hp,
+                ac=max(1, rec.ac or 12),
+                attack_bonus=rec.attack_bonus,
+                attack_damage=rec.attack_damage or "1d6",
+                damage_notation=rec.attack_damage or "1d6",
+                sp=max(0, rec.sp),
+                sp_max=max(0, rec.sp_max or rec.sp),
+                use_dex=rec.use_dex,
+                attack_range_normal_m=max(0, rec.attack_range_normal_m),
+                attack_range_max_m=max(0, rec.attack_range_max_m),
+            )
+        else:
+            enemy = CombatEnemy(name=npc.name, hp=12, max_hp=12, ac=11)
+        if world_id:
+            apply_world_defaults(enemy, world_id)
+        enemies.append(enemy)
+    return enemies
+
+
+def resolve_start_combat_enemies(
+    enemies_spec: str,
+    *,
+    enemy_defs: list | None = None,
+    game_state: GameState | None = None,
+    world_id: str = "",
+) -> list[CombatEnemy]:
+    """解析开战敌人：defs → spec → 敌对 NPC，保证至少一名。"""
+    enemies: list[CombatEnemy] = []
+    if enemy_defs:
+        enemies = enemies_from_route_defs(enemy_defs, world_id=world_id)
+    if not enemies and enemies_spec.strip():
+        try:
+            enemies = parse_enemies(enemies_spec, world_id=world_id)
+        except ValueError:
+            enemies = []
+    if not enemies and game_state is not None:
+        enemies = infer_enemies_from_hostile_npcs(game_state, world_id=world_id)
+    if not enemies:
+        raise ValueError("无法解析敌人，请明确攻击目标或敌人名称。")
+    return enemies
+
+
 def parse_enemies(spec: str, *, world_id: str = "") -> list[CombatEnemy]:
     """解析敌人描述。
 
@@ -193,10 +255,12 @@ def start_combat(
     ally_defs: list | None = None,
     world_id: str = "",
 ) -> str:
-    if enemy_defs:
-        enemies = enemies_from_route_defs(enemy_defs, world_id=world_id)
-    else:
-        enemies = parse_enemies(enemies_spec, world_id=world_id)
+    enemies = resolve_start_combat_enemies(
+        enemies_spec,
+        enemy_defs=enemy_defs,
+        game_state=game_state,
+        world_id=world_id,
+    )
     allies: list = []
     skipped_dead: list[str] = []
     if ally_defs:
@@ -223,8 +287,14 @@ def start_combat(
     )
     turn_order = [name for name, _ in order]
     speed = movement_speed_for(character)
-    distances = {enemy.name: enemy.start_distance_m for enemy in enemies}
+    from game.combat_grid import layout_start_positions, sync_legacy_distances
 
+    positions = layout_start_positions(
+        enemies,
+        allies,
+        enemy_defs=enemy_defs,
+        ally_defs=ally_defs,
+    )
     game_state.combat = CombatState(
         active=True,
         round=1,
@@ -235,10 +305,13 @@ def start_combat(
         turn_index=0,
         movement_speed_m=speed,
         movement_remaining_m=speed,
-        enemy_distances=distances,
+        unit_positions_m=positions,
+        enemy_distances={},
     )
+    sync_legacy_distances(game_state.combat)
     dist_text = "；".join(
-        f"{enemy.name} {enemy.start_distance_m}m" for enemy in enemies
+        f"{enemy.name} {game_state.combat.distance_between('player', enemy.name)}m"
+        for enemy in enemies
     )
     order_text = " → ".join(
         character.name if n == "player" else n for n in turn_order
@@ -364,18 +437,48 @@ def enemy_attack_ally(
     return detail
 
 
+def _nearest_hostile_for_enemy(
+    combat: CombatState,
+    enemy: CombatEnemy,
+    character: Character,
+) -> tuple[str, str] | None:
+    """返回 (kind, unit_id)，kind 为 player 或 ally。"""
+    best: tuple[str, str, int, int] | None = None
+    if character.hp > 0:
+        dist = combat.distance_between(enemy.name, "player")
+        best = ("player", "player", dist, 0)
+    for ally in combat.living_allies():
+        if not ally.can_act():
+            continue
+        dist = combat.distance_between(enemy.name, ally.name)
+        if best is None or dist < best[2]:
+            best = ("ally", ally.name, dist, 1)
+    if best is None:
+        return None
+    return best[0], best[1]
+
+
+def _hostile_position(combat: CombatState, kind: str, unit_id: str) -> tuple[int, int] | None:
+    from game.combat_grid import PLAYER_UNIT_ID
+
+    if kind == "player":
+        return combat.get_position(PLAYER_UNIT_ID)
+    return combat.get_position(unit_id)
+
+
 def _pick_enemy_attack_target(
     combat: CombatState,
     character: Character,
     enemy: CombatEnemy,
 ) -> tuple[str, str] | None:
     """选择敌人攻击目标：(kind, name)，kind 为 player 或 ally。"""
-    dist = effective_enemy_distance(combat, enemy.name)
     candidates: list[tuple[str, str, int, int]] = []
     if character.hp > 0:
+        dist = combat.distance_between(enemy.name, "player")
         candidates.append(("player", "player", dist, 0))
     for ally in combat.living_allies():
         if ally.can_act():
+            dist = combat.distance_between(enemy.name, ally.name)
             candidates.append(("ally", ally.name, dist, 1))
     if not candidates:
         return None
@@ -386,19 +489,36 @@ def _pick_enemy_attack_target(
     return chosen[0], chosen[1]
 
 
-def _enemy_reposition(combat: CombatState, enemy: CombatEnemy) -> str | None:
+def _enemy_reposition(
+    combat: CombatState,
+    enemy: CombatEnemy,
+    character: Character,
+) -> str | None:
     """敌人回合开始时后撤或靠近，以进入有效攻击距离。"""
-    dist = effective_enemy_distance(combat, enemy.name)
+    from game.combat_grid import move_away_m, move_toward_m
+
+    hostile = _nearest_hostile_for_enemy(combat, enemy, character)
+    if hostile is None:
+        return None
+    kind, unit_id = hostile
+    anchor_pos = _hostile_position(combat, kind, unit_id)
+    enemy_pos = combat.get_position(enemy.name)
+    if anchor_pos is None or enemy_pos is None:
+        return None
+
+    dist = combat.distance_between(enemy.name, unit_id if kind == "ally" else "player")
     retreat = enemy_retreat_meters(enemy, dist)
     if retreat > 0:
-        new_dist = dist + retreat
-        combat.set_distance_to(enemy.name, new_dist)
+        new_pos = move_away_m(enemy_pos, anchor_pos, retreat)
+        combat.set_position(enemy.name, new_pos)
+        new_dist = combat.distance_between(enemy.name, unit_id if kind == "ally" else "player")
         return f"{enemy.name} 后撤 {retreat}m（距离 {new_dist}m）。"
     move = enemy_approach_meters(enemy, dist)
     if move <= 0:
         return None
-    new_dist = dist - move
-    combat.set_distance_to(enemy.name, new_dist)
+    new_pos = move_toward_m(enemy_pos, anchor_pos, move)
+    combat.set_position(enemy.name, new_pos)
+    new_dist = combat.distance_between(enemy.name, unit_id if kind == "ally" else "player")
     return f"{enemy.name} 靠近 {move}m（距离 {new_dist}m）。"
 
 
@@ -417,8 +537,18 @@ def _resolve_enemy_turn(
         return f"{enemy.name} 已投降，跳过回合。"
     if not enemy.can_act():
         return f"{enemy.name} 已失能，跳过回合。"
-    reposition = _enemy_reposition(combat, enemy)
-    dist = effective_enemy_distance(combat, enemy.name)
+    reposition = _enemy_reposition(combat, enemy, character)
+
+    target = _pick_enemy_attack_target(combat, character, enemy)
+    if target is None:
+        return f"{enemy.name}：无有效攻击目标。"
+
+    target_kind, target_name = target
+    if target_kind == "player":
+        dist = combat.distance_between(enemy.name, "player")
+    else:
+        dist = combat.distance_between(enemy.name, target_name)
+
     in_range, range_penalty, range_note = enemy_attack_range_status(dist, enemy)
     damage_override: str | None = None
     attack_style = ""
@@ -442,11 +572,6 @@ def _resolve_enemy_turn(
             return f"{reposition} {out_of_range}"
         return out_of_range
 
-    target = _pick_enemy_attack_target(combat, character, enemy)
-    if target is None:
-        return f"{enemy.name}：无有效攻击目标。"
-
-    target_kind, target_name = target
     style_note = range_note if range_penalty else (attack_style or "")
 
     if target_kind == "player":
@@ -546,6 +671,8 @@ def player_move(
     *,
     toward: bool = True,
 ) -> str:
+    from game.combat_grid import PLAYER_UNIT_ID, move_away_m, move_toward_m
+
     combat = game_state.combat
     if not combat or not combat.active:
         return "当前不在战斗中。"
@@ -562,20 +689,67 @@ def player_move(
     if not enemy or enemy.hp <= 0:
         return f"找不到存活的敌人：{target_name}"
 
-    current = effective_enemy_distance(combat, enemy.name)
+    player_pos = combat.get_position(PLAYER_UNIT_ID)
+    enemy_pos = combat.get_position(enemy.name)
+    if player_pos is None or enemy_pos is None:
+        return "无法读取战斗位置。"
+
     actual = combat.spend_movement(meters)
     if actual <= 0:
         return "移动力不足，无法移动。"
 
     if toward:
-        new_dist = max(0, current - actual)
+        new_pos = move_toward_m(player_pos, enemy_pos, actual)
         verb = "靠近"
     else:
-        new_dist = current + actual
+        new_pos = move_away_m(player_pos, enemy_pos, actual)
         verb = "远离"
-    combat.set_distance_to(enemy.name, new_dist)
+    combat.set_position(PLAYER_UNIT_ID, new_pos)
+    new_dist = combat.distance_between(PLAYER_UNIT_ID, enemy.name)
     return (
         f"向 {enemy.name} {verb} {actual}m，当前距离 {new_dist}m。"
+        f"剩余移动力 {combat.movement_remaining_m}/{combat.movement_speed_m}m。"
+    )
+
+
+def player_move_to(
+    character: Character,
+    game_state: GameState,
+    x_m: int,
+    y_m: int,
+) -> str:
+    from game.combat_grid import PLAYER_UNIT_ID, move_toward_m
+
+    combat = game_state.combat
+    if not combat or not combat.active:
+        return "当前不在战斗中。"
+    if not combat.is_player_turn():
+        actor = combat.current_actor()
+        label = "玩家" if actor == "player" else actor
+        return f"还没轮到你，当前是 {label} 的回合。"
+    if not combat.has_movement():
+        return "本回合移动力已用尽。"
+
+    player_pos = combat.get_position(PLAYER_UNIT_ID)
+    if player_pos is None:
+        return "无法读取玩家位置。"
+
+    target = (int(x_m), int(y_m))
+    from game.combat_grid import distance_m
+
+    needed = distance_m(player_pos, target)
+    if needed <= 0:
+        return "你已在该位置。"
+
+    actual = combat.spend_movement(needed)
+    if actual <= 0:
+        return "移动力不足，无法移动。"
+
+    new_pos = move_toward_m(player_pos, target, actual)
+    combat.set_position(PLAYER_UNIT_ID, new_pos)
+    moved = distance_m(player_pos, new_pos)
+    return (
+        f"移动至 ({new_pos[0]},{new_pos[1]})m（本次 {moved}m）。"
         f"剩余移动力 {combat.movement_remaining_m}/{combat.movement_speed_m}m。"
     )
 

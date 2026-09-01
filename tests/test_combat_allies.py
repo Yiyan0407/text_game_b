@@ -72,6 +72,7 @@ def test_ally_turn_damages_enemy():
             )
         ],
         enemy_distances={"拾荒者": 2},
+        unit_positions_m={"player": (0, 0), "拾荒者": (2, 0), "枪手": (0, 0)},
     )
     state = GameState(combat=combat)
     with patch("game.combat_allies.roll") as mock_roll:
@@ -228,6 +229,7 @@ def test_enemy_attacks_ally():
             )
         ],
         enemy_distances={"拾荒者": 2},
+        unit_positions_m={"player": (0, 0), "拾荒者": (2, 0), "枪手": (1, 0)},
     )
     state = GameState(combat=combat)
     with patch("game.combat._pick_enemy_attack_target", return_value=("ally", "枪手")):
@@ -252,7 +254,7 @@ def test_pick_enemy_target_prefers_player_on_tie():
         active=True,
         allies=[CombatAlly(name="枪手", hp=10, max_hp=10, ac=12, start_distance_m=10)],
         enemies=[CombatEnemy(name="敌人", hp=10, max_hp=10, ac=10, start_distance_m=10)],
-        enemy_distances={"敌人": 10},
+        unit_positions_m={"player": (0, 0), "枪手": (20, 0), "敌人": (10, 0)},
     )
     target = _pick_enemy_attack_target(
         combat, character, combat.enemies[0]

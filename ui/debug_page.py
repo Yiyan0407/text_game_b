@@ -39,7 +39,7 @@ def render_debug_page() -> None:
         return
 
     st.title("🐛 Debug 日志")
-    st.caption(f"日志文件：`{log_file_path()}` · 访问路径 `/debug`")
+    st.caption(f"日志文件：`{log_file_path()}` · 仅可通过地址栏 `/debug` 访问")
 
     nav_left, nav_right = st.columns([1, 1])
     with nav_left:

@@ -6,7 +6,7 @@ from ui.form_drafts import (
     init_new_profile_draft,
     sync_new_profile_draft_to_disk,
 )
-from ui.loading import run_with_spinner
+from ui.risky_action import render_delete_confirm_dialog
 
 
 def sync_profile_context() -> None:
@@ -65,12 +65,8 @@ def render_profile_selection(profile_manager: ProfileManager) -> None:
     confirm_id = st.session_state.get("confirm_delete_profile_id")
     if confirm_id:
         confirm_name = st.session_state.get("confirm_delete_profile_name", "该档案")
-        st.warning(
-            f"确定删除档案「{confirm_name}」？"
-            "将永久删除其下所有角色卡与存档，且无法恢复。"
-        )
-        c1, c2 = st.columns(2)
-        if c1.button("确认删除", type="primary", use_container_width=True):
+
+        def _delete_profile() -> None:
             with st.spinner("正在删除档案……"):
                 profile_manager.delete_profile(confirm_id)
             if st.session_state.get("current_profile_id") == confirm_id:
@@ -79,10 +75,22 @@ def render_profile_selection(profile_manager: ProfileManager) -> None:
             st.session_state.pop("confirm_delete_profile_id", None)
             st.session_state.pop("confirm_delete_profile_name", None)
             st.rerun()
-        if c2.button("取消", use_container_width=True):
+
+        def _cancel_profile_delete() -> None:
             st.session_state.pop("confirm_delete_profile_id", None)
             st.session_state.pop("confirm_delete_profile_name", None)
             st.rerun()
+
+        render_delete_confirm_dialog(
+            title="确认删除档案",
+            message=(
+                f"确定删除档案「{confirm_name}」？"
+                "将永久删除其下所有角色卡与存档，且无法恢复。"
+            ),
+            on_confirm=_delete_profile,
+            on_cancel=_cancel_profile_delete,
+            dialog_key=f"delete_profile_{confirm_id}",
+        )
 
     st.divider()
     st.subheader("新建档案")

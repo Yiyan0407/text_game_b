@@ -3,7 +3,7 @@ import streamlit as st
 from config.worlds import WORLD_OPTIONS
 from game.models import ABILITY_ORDER
 from game.profile import CharacterCard, ProfileManager
-from ui.loading import run_with_spinner
+from ui.risky_action import render_delete_confirm_dialog
 
 
 def _render_card_stats(card: CharacterCard) -> None:
@@ -74,12 +74,8 @@ def render_character_library(profile_manager: ProfileManager) -> None:
     confirm_card: CharacterCard | None = st.session_state.get("confirm_delete_card")
     if confirm_card:
         save_count = st.session_state.get("confirm_delete_save_count", 0)
-        st.warning(
-            f"确定删除角色「{confirm_card.name}」？"
-            f"将永久删除角色卡及关联的 **{save_count}** 个存档。"
-        )
-        c1, c2 = st.columns(2)
-        if c1.button("确认删除", type="primary", use_container_width=True):
+
+        def _delete_card() -> None:
             with st.spinner("正在删除角色与存档……"):
                 save_manager = profile_manager.get_save_manager(profile_id)
                 deleted_ids = save_manager.list_save_ids_for_character(confirm_card.card_id)
@@ -88,14 +84,22 @@ def render_character_library(profile_manager: ProfileManager) -> None:
             st.session_state.pop("confirm_delete_card", None)
             st.session_state.pop("confirm_delete_save_count", None)
             st.rerun()
-        if c2.button("取消", use_container_width=True):
+
+        def _cancel_card_delete() -> None:
             st.session_state.pop("confirm_delete_card", None)
             st.session_state.pop("confirm_delete_save_count", None)
             st.rerun()
-        if st.button("返回主菜单", use_container_width=True):
-            st.session_state.page = "menu"
-            st.rerun()
-        return
+
+        render_delete_confirm_dialog(
+            title="确认删除角色",
+            message=(
+                f"确定删除角色「{confirm_card.name}」？"
+                f"将永久删除角色卡及关联的 **{save_count}** 个存档。"
+            ),
+            on_confirm=_delete_card,
+            on_cancel=_cancel_card_delete,
+            dialog_key=f"delete_card_{confirm_card.card_id}",
+        )
 
     cards = profile_manager.list_character_cards(profile_id)
     if not cards:

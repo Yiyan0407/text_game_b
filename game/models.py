@@ -620,10 +620,40 @@ class CombatState(BaseModel):
     bonus_action_used: bool = False
     movement_speed_m: int = 9
     movement_remaining_m: int = 9
+    unit_positions_m: dict[str, tuple[int, int]] = Field(default_factory=dict)
     enemy_distances: dict[str, int] = Field(default_factory=dict)
     free_interact_used: bool = False
     smoke_cover_rounds: int = 0
     flash_disorient_rounds: int = 0
+
+    @field_validator("unit_positions_m", mode="before")
+    @classmethod
+    def _coerce_unit_positions(cls, value):
+        if not value:
+            return {}
+        if not isinstance(value, dict):
+            return {}
+        coerced: dict[str, tuple[int, int]] = {}
+        for key, pos in value.items():
+            if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                coerced[str(key)] = (int(pos[0]), int(pos[1]))
+        return coerced
+
+    @model_validator(mode="after")
+    def _migrate_unit_positions(self) -> Self:
+        if self.unit_positions_m:
+            from game.combat_grid import sync_legacy_distances
+
+            sync_legacy_distances(self)
+            return self
+        if self.enemy_distances or self.enemies or self.allies:
+            from game.combat_grid import migrate_positions_from_distances, sync_legacy_distances
+
+            object.__setattr__(
+                self, "unit_positions_m", migrate_positions_from_distances(self)
+            )
+            sync_legacy_distances(self)
+        return self
 
     def current_actor(self) -> str:
         if not self.turn_order:
@@ -660,19 +690,62 @@ class CombatState(BaseModel):
             self.movement_remaining_m = self.movement_speed_m
             self.free_interact_used = False
 
+    def get_position(self, unit_id: str) -> tuple[int, int] | None:
+        from game.combat_grid import PLAYER_UNIT_ID
+
+        key = PLAYER_UNIT_ID if unit_id == "player" else unit_id.strip()
+        return self.unit_positions_m.get(key)
+
+    def set_position(self, unit_id: str, pos: tuple[int, int]) -> None:
+        from game.combat_grid import PLAYER_UNIT_ID, sync_legacy_distances
+
+        key = PLAYER_UNIT_ID if unit_id == "player" else unit_id.strip()
+        self.unit_positions_m[key] = (int(pos[0]), int(pos[1]))
+        sync_legacy_distances(self)
+
+    def distance_between(self, unit_a: str, unit_b: str) -> int:
+        from game.combat_grid import PLAYER_UNIT_ID, distance_m
+
+        pos_a = self.get_position(unit_a)
+        pos_b = self.get_position(unit_b)
+        if pos_a is None or pos_b is None:
+            return 10
+        return distance_m(pos_a, pos_b)
+
     def distance_to(self, enemy_name: str) -> int | None:
         enemy = self.get_enemy(enemy_name)
         if enemy is None:
             return None
+        from game.combat_grid import PLAYER_UNIT_ID
+
+        if self.get_position(enemy.name) is not None and self.get_position(PLAYER_UNIT_ID) is not None:
+            return self.distance_between(PLAYER_UNIT_ID, enemy.name)
         if enemy.name in self.enemy_distances:
             return self.enemy_distances[enemy.name]
         return enemy.start_distance_m
 
     def set_distance_to(self, enemy_name: str, meters: int) -> None:
+        """兼容旧 API：沿 x 轴调整敌人坐标以保持距玩家 meters。"""
         enemy = self.get_enemy(enemy_name)
         if enemy is None:
             return
-        self.enemy_distances[enemy.name] = max(0, int(meters))
+        from game.combat_grid import PLAYER_UNIT_ID
+
+        player_pos = self.get_position(PLAYER_UNIT_ID) or (0, 0)
+        enemy_pos = self.get_position(enemy.name)
+        if enemy_pos is None:
+            self.set_position(enemy.name, (max(0, int(meters)), 0))
+            return
+        dx = enemy_pos[0] - player_pos[0]
+        dy = enemy_pos[1] - player_pos[1]
+        current = self.distance_between(PLAYER_UNIT_ID, enemy.name)
+        if current <= 0:
+            self.set_position(enemy.name, (player_pos[0] + max(0, int(meters)), player_pos[1]))
+            return
+        scale = max(0, int(meters)) / current
+        nx = player_pos[0] + int(round(dx * scale))
+        ny = player_pos[1] + int(round(dy * scale))
+        self.set_position(enemy.name, (nx, ny))
 
     def has_movement(self) -> bool:
         return self.movement_remaining_m > 0
@@ -739,6 +812,13 @@ class CombatState(BaseModel):
             lines.append(self.format_action_economy())
         if self.defending:
             lines.append("玩家处于防御姿态（AC+2）")
+        from game.combat_grid import format_unit_positions, render_tactical_map
+
+        map_text = render_tactical_map(self)
+        if map_text:
+            lines.append("战术位置：")
+            lines.extend(format_unit_positions(self))
+            lines.append(map_text)
         if self.allies:
             lines.append("友方：")
             for ally in self.allies:

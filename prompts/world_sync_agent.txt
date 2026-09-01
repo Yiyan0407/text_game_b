@@ -49,7 +49,8 @@
 - 设为 true 仅当玩家**获得或看清**地图/示意图；须在 memory_facts 记录来源
 
 ### end_combat
-- 仅当 KP 叙事确认战斗结束且机械层未已 end 时
+- 仅当 KP 叙事确认**全部**敌人已无法继续作战、且机械层仍有 `combat.active` 时设为 true
+- **击杀一名敌人后仍有其他敌人存活** → 必须省略 `end_combat`（设为 false 或不输出）
 
 ## 开场模式
 输入含「游戏刚刚开始」或 START 指令时：须 scene、出场 NPC、initial_quests（time 由 TimeSync 处理）

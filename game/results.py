@@ -95,6 +95,8 @@ class EnemyDefPatch(BaseModel):
     sp: int = 0
     sp_max: int = 0
     start_distance_m: int = 10
+    start_x_m: int = 0
+    start_y_m: int = 0
     use_dex: bool = False
     attack_range_normal_m: int = 0
     attack_range_max_m: int = 0

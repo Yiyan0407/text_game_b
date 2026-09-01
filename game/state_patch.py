@@ -286,7 +286,11 @@ def apply_state_patch(
     events.extend(resolve_background_processes(game_state))
 
     if patch.end_combat and game_state.is_in_combat():
-        events.append(end_combat(game_state))
+        combat = game_state.combat
+        if combat and combat.living_enemies():
+            pass
+        else:
+            events.append(end_combat(game_state))
 
     return [event for event in events if event]
 

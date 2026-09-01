@@ -46,6 +46,7 @@ def _build_pipeline(**agent_overrides) -> TurnPipeline:
         time_sync=agents["time_sync"],
         world_sync=agents["world_sync"],
         stat_forge=MagicMock(),
+        enemy_forge=MagicMock(),
         kp=MagicMock(),
         memory=MagicMock(),
         suggester=MagicMock(),

@@ -21,7 +21,11 @@ from ui.chat import (
     render_live_user_message,
 )
 from ui.game_state_panel import render_game_state_panel
-from ui.combat_panel import AUTO_COMBAT_PENDING_KEY, render_combat_panel
+from ui.combat_panel import (
+    AUTO_COMBAT_PENDING_KEY,
+    apply_combat_move_pending,
+    render_combat_entry,
+)
 from ui.action_suggestions import render_action_suggestions
 from ui.loading import LoadingPlaceholder, run_with_spinner
 from ui.streaming import finalize_streaming_turn, render_phased_turn
@@ -407,7 +411,6 @@ def render_game() -> None:
 
     with st.sidebar:
         render_character_sheet(character)
-        render_combat_panel(game_state)
         st.divider()
         render_game_state_panel(
             game_state,
@@ -432,7 +435,6 @@ def render_game() -> None:
             game_state,
             st.session_state.messages,
         )
-        st.page_link("pages/debug.py", label="🐛 Debug 日志", use_container_width=True)
         if st.button("返回主菜单", use_container_width=True):
             persist_save()
             sync_character_card_to_library(finalize=True)
@@ -468,6 +470,11 @@ def render_game() -> None:
 
     render_gameplay_hint(game_state)
     render_chat_history(st.session_state.messages)
+
+    if apply_combat_move_pending(character, game_state):
+        st.rerun()
+
+    render_combat_entry(game_state, character=character)
     render_action_suggestions(st.session_state.get("action_suggestions", []))
 
     if st.session_state.pop(AUTO_COMBAT_PENDING_KEY, False):
@@ -541,5 +548,20 @@ def main() -> None:
         st.rerun()
 
 
-if __name__ == "__main__":
+def run_app() -> None:
     main()
+
+
+pg = st.navigation(
+    [
+        st.Page(run_app, title="AI 跑团", default=True),
+        st.Page(
+            "pages/debug.py",
+            title="Debug 日志",
+            url_path="debug",
+            visibility="hidden",
+        ),
+    ],
+    position="hidden",
+)
+pg.run()

@@ -7,6 +7,7 @@ from game.ally_persistence import (
     init_npc_combat_record,
     is_ally_dead_in_world,
 )
+from game.combat_grid import move_away_m, move_toward_m
 from game.combat_range import (
     MELEE_REACH_M,
     apply_ranged_melee_fallback,
@@ -14,7 +15,7 @@ from game.combat_range import (
     enemy_attack_range_status,
     enemy_retreat_meters,
 )
-from game.combat_targets import effective_enemy_distance
+from game.combat_targets import effective_unit_distance
 from game.dice import roll, roll_damage
 from game.effect_resolver import apply_damage_to_enemy
 from game.enemy_defaults import apply_world_defaults
@@ -57,11 +58,14 @@ def allies_from_route_defs(
     return allies, skipped_dead
 
 
-def _pick_ally_target(combat: CombatState) -> CombatEnemy | None:
+def _pick_ally_target(combat: CombatState, ally: CombatAlly) -> CombatEnemy | None:
     living = combat.fighting_enemies()
     if not living:
         return None
-    return min(living, key=lambda enemy: effective_enemy_distance(combat, enemy.name))
+    return min(
+        living,
+        key=lambda enemy: effective_unit_distance(combat, ally.name, enemy.name),
+    )
 
 
 def ally_attack_enemy(
@@ -69,7 +73,7 @@ def ally_attack_enemy(
     enemy: CombatEnemy,
     combat: CombatState,
 ) -> str:
-    dist = effective_enemy_distance(combat, enemy.name)
+    dist = effective_unit_distance(combat, ally.name, enemy.name)
     in_range, range_penalty, range_note = enemy_attack_range_status(dist, ally)
     damage_override: str | None = None
     attack_style = ""
@@ -126,17 +130,24 @@ def ally_attack_enemy(
 
 
 def _ally_reposition(combat: CombatState, ally: CombatAlly, enemy: CombatEnemy) -> str | None:
-    dist = effective_enemy_distance(combat, enemy.name)
+    ally_pos = combat.get_position(ally.name)
+    enemy_pos = combat.get_position(enemy.name)
+    if ally_pos is None or enemy_pos is None:
+        return None
+
+    dist = effective_unit_distance(combat, ally.name, enemy.name)
     retreat = enemy_retreat_meters(ally, dist)
     if retreat > 0:
-        new_dist = dist + retreat
-        combat.set_distance_to(enemy.name, new_dist)
+        new_pos = move_away_m(ally_pos, enemy_pos, retreat)
+        combat.set_position(ally.name, new_pos)
+        new_dist = effective_unit_distance(combat, ally.name, enemy.name)
         return f"【友方】{ally.name} 后撤 {retreat}m（距 {enemy.name} {new_dist}m）。"
     move = enemy_approach_meters(ally, dist)
     if move <= 0:
         return None
-    new_dist = max(0, dist - move)
-    combat.set_distance_to(enemy.name, new_dist)
+    new_pos = move_toward_m(ally_pos, enemy_pos, move)
+    combat.set_position(ally.name, new_pos)
+    new_dist = effective_unit_distance(combat, ally.name, enemy.name)
     return f"【友方】{ally.name} 靠近 {enemy.name} {move}m（距离 {new_dist}m）。"
 
 
@@ -151,12 +162,12 @@ def resolve_ally_turn(
     if not ally.can_act():
         return f"【友方】{ally.name} 已失能，跳过回合。"
 
-    target = _pick_ally_target(combat)
+    target = _pick_ally_target(combat, ally)
     if target is None:
         return f"【友方】{ally.name}：无存活敌人。"
 
     reposition = _ally_reposition(combat, ally, target)
-    dist = effective_enemy_distance(combat, target.name)
+    dist = effective_unit_distance(combat, ally.name, target.name)
     in_range, _, _ = enemy_attack_range_status(dist, ally)
     if in_range:
         attack = ally_attack_enemy(ally, target, combat)
@@ -165,7 +176,7 @@ def resolve_ally_turn(
         return attack
 
     if reposition:
-        dist = effective_enemy_distance(combat, target.name)
+        dist = effective_unit_distance(combat, ally.name, target.name)
         in_range, _, range_note = enemy_attack_range_status(dist, ally)
         if in_range:
             return f"{reposition} {ally_attack_enemy(ally, target, combat)}"

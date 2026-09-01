@@ -10,6 +10,7 @@ from chain.settlement_router import SettlementRouterAgent
 from chain.skill_sync_agent import SkillSyncAgent
 from chain.suggestions import ActionSuggester
 from chain.scene_map_agent import SceneMapAgent
+from chain.enemy_forge_agent import EnemyForgeAgent
 from chain.stat_forge_agent import StatForgeAgent
 from chain.summarizer import StorySummarizer
 from chain.time_sync_agent import TimeSyncAgent
@@ -133,6 +134,7 @@ class GameOrchestrator:
         time_sync_agent: TimeSyncAgent | None = None,
         world_sync_agent: WorldSyncAgent | None = None,
         stat_forge_agent: StatForgeAgent | None = None,
+        enemy_forge_agent: EnemyForgeAgent | None = None,
         scene_map_agent: SceneMapAgent | None = None,
         kp_meta_agent: KpMetaAgent | None = None,
     ):
@@ -152,6 +154,9 @@ class GameOrchestrator:
         self.time_sync = time_sync_agent if time_sync_agent is not None else TimeSyncAgent()
         self.world_sync = world_sync_agent if world_sync_agent is not None else WorldSyncAgent()
         self.stat_forge = stat_forge_agent if stat_forge_agent is not None else StatForgeAgent()
+        self.enemy_forge = (
+            enemy_forge_agent if enemy_forge_agent is not None else EnemyForgeAgent()
+        )
         self.scene_map = scene_map_agent if scene_map_agent is not None else SceneMapAgent()
         self.opening_integrator = (
             opening_integrator if opening_integrator is not None else OpeningIntegrator()
@@ -166,6 +171,7 @@ class GameOrchestrator:
             time_sync=self.time_sync,
             world_sync=self.world_sync,
             stat_forge=self.stat_forge,
+            enemy_forge=self.enemy_forge,
             kp=self.kp,
             memory=self.memory,
             suggester=self.suggester,

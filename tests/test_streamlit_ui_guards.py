@@ -68,3 +68,12 @@ def test_game_state_panel_uses_memory_journal_dialog():
     assert "open_scene_map" in map_text
     assert "render_cytoscape_html" in map_text
     assert "st.iframe" in map_text
+    risky = ROOT / "ui" / "risky_action.py"
+    risky_text = risky.read_text(encoding="utf-8")
+    assert "render_delete_confirm_dialog" in risky_text
+    assert "st.dialog" in risky_text
+    combat = ROOT / "ui" / "combat_panel.py"
+    combat_text = combat.read_text(encoding="utf-8")
+    assert "render_combat_entry" in combat_text
+    assert "open_combat_panel" in combat_text
+    assert "COMBAT_PANEL_OPEN_KEY" in combat_text

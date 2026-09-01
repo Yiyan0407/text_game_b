@@ -117,7 +117,7 @@ def test_melee_enemy_cannot_attack_at_distance():
     event = _resolve_enemy_turn(state.combat, character, state)
     assert event is not None
     assert "靠近" in event
-    assert "够不着你" in event
+    assert "够不着目标" in event
     assert state.combat.enemy_distances["变异体"] == 4
     assert character.hp == 20
 
@@ -188,5 +188,5 @@ def test_enemy_turn_resolves_after_player_action():
         action_used=True,
     )
     events = advance_after_player_action(character, state)
-    assert any("够不着你" in event for event in events)
+    assert any("够不着目标" in event for event in events)
     assert character.hp == 20

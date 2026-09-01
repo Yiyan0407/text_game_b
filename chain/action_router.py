@@ -2,6 +2,10 @@ import logging
 
 from langchain_core.prompts import ChatPromptTemplate
 
+from chain.mechanical_route import (
+    mechanical_fallback_route,
+    normalize_exploration_combat_start,
+)
 from chain.json_utils import extract_json_dict
 from chain.llm import create_chat_llm
 from config.settings import PROMPTS_DIR
@@ -408,33 +412,67 @@ def _coerce_str_list(value) -> list[str]:
     return []
 
 
+def _coerce_optional_str(value, default: str = "") -> str:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.lower() in ("null", "none", "nil"):
+            return default
+        return stripped
+    return str(value).strip()
+
+
+def _coerce_literal(value, allowed: tuple[str, ...], default: str) -> str:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        if stripped in ("null", "none", "nil", ""):
+            return default
+        if stripped in allowed:
+            return stripped
+    if value in allowed:
+        return str(value)
+    return default
+
+
 def _route_from_dict(data: dict) -> ActionRouteResult:
-    roll_type = data.get("roll_type", "none")
-    if roll_type not in ("ability_check", "dice", "none"):
-        roll_type = "none"
-    item_usage = data.get("item_usage", "none")
-    if item_usage not in ("none", "use", "pickup", "observe", "purchase"):
-        item_usage = "none"
-    skill_usage = data.get("skill_usage", "none")
-    if skill_usage not in ("none", "use", "learn"):
-        skill_usage = "none"
-    mode = data.get("mode", "exploration")
-    if mode not in ("exploration", "combat"):
-        mode = "exploration"
-    combat_action = data.get("combat_action", "none")
-    valid_actions = {
-        "none", "attack", "flee", "defend", "use_item",
-        "interact", "talk", "grapple", "shove", "help", "search",
-        "move", "dash", "end_turn",
-    }
-    if combat_action not in valid_actions:
-        combat_action = "none"
-    action_cost = data.get("action_cost", "main")
-    if action_cost not in ("main", "bonus", "free"):
-        action_cost = "main"
-    approved = data.get("approved", False)
-    if isinstance(approved, str):
-        approved = approved.strip().lower() in ("true", "1", "yes", "是", "批准", "通过")
+    roll_type = _coerce_literal(
+        data.get("roll_type", "none"),
+        ("ability_check", "dice", "none"),
+        "none",
+    )
+    item_usage = _coerce_literal(
+        data.get("item_usage", "none"),
+        ("none", "use", "pickup", "observe", "purchase"),
+        "none",
+    )
+    skill_usage = _coerce_literal(
+        data.get("skill_usage", "none"),
+        ("none", "use", "learn"),
+        "none",
+    )
+    mode = _coerce_literal(
+        data.get("mode", "exploration"),
+        ("exploration", "combat"),
+        "exploration",
+    )
+    combat_action = _coerce_literal(
+        data.get("combat_action", "none"),
+        (
+            "none", "attack", "flee", "defend", "use_item",
+            "interact", "talk", "grapple", "shove", "help", "search",
+            "move", "dash", "end_turn",
+        ),
+        "none",
+    )
+    action_cost = _coerce_literal(
+        data.get("action_cost", "main"),
+        ("main", "bonus", "free"),
+        "main",
+    )
+    approved = _coerce_bool(data.get("approved"), False)
     enemy_defs: list[EnemyDefPatch] = []
     for item in data.get("enemy_defs") or []:
         if isinstance(item, dict):
@@ -450,13 +488,13 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
             except (TypeError, ValueError):
                 continue
     return ActionRouteResult(
-        approved=bool(approved),
-        rejection_reason=str(data.get("rejection_reason", "")).strip(),
-        needs_roll=bool(data.get("needs_roll", False)),
+        approved=approved,
+        rejection_reason=_coerce_optional_str(data.get("rejection_reason")),
+        needs_roll=_coerce_bool(data.get("needs_roll"), False),
         roll_type=roll_type,
-        ability=str(data.get("ability", "")).strip().lower(),
+        ability=_coerce_optional_str(data.get("ability")).lower(),
         dc=_coerce_int(data.get("dc"), 0),
-        dice_notation=str(data.get("dice_notation", "")).strip(),
+        dice_notation=_coerce_optional_str(data.get("dice_notation")),
         referenced_items=_coerce_str_list(data.get("referenced_items")),
         referenced_skills=_coerce_str_list(data.get("referenced_skills")),
         payment_items=_coerce_str_list(data.get("payment_items")),
@@ -464,19 +502,56 @@ def _route_from_dict(data: dict) -> ActionRouteResult:
         item_usage=item_usage,
         skill_usage=skill_usage,
         mode=mode,
-        trigger_combat=bool(data.get("trigger_combat", False)),
-        enemies_spec=str(data.get("enemies_spec", "")).strip(),
+        trigger_combat=_coerce_bool(data.get("trigger_combat"), False),
+        enemies_spec=_coerce_optional_str(data.get("enemies_spec")),
         enemy_defs=enemy_defs,
         ally_defs=ally_defs,
         combat_action=combat_action,
         action_cost=action_cost,
-        attack_target=str(data.get("attack_target", "")).strip(),
-        move_target=str(data.get("move_target", "")).strip(),
+        attack_target=_coerce_optional_str(data.get("attack_target")),
+        move_target=_coerce_optional_str(data.get("move_target")),
         move_meters=max(0, _coerce_int(data.get("move_meters"), 0)),
         move_toward=_coerce_bool(data.get("move_toward"), True),
-        ends_turn=bool(data.get("ends_turn", False)),
+        ends_turn=_coerce_bool(data.get("ends_turn"), False),
         proficiency_bonus=_coerce_bool(data.get("proficiency_bonus"), False),
     )
+
+
+def _recover_partial_route(data: dict) -> ActionRouteResult | None:
+    """JSON 字段异常时，尽量从已解析片段恢复开战等关键裁定。"""
+    if not isinstance(data, dict):
+        return None
+    try:
+        route = _route_from_dict(data)
+    except (TypeError, ValueError):
+        route = None
+    if route is not None and route.approved:
+        return route
+    enemies_spec = _coerce_optional_str(data.get("enemies_spec"))
+    trigger = _coerce_bool(data.get("trigger_combat"), False)
+    if not trigger or not enemies_spec:
+        return None
+    try:
+        return _route_from_dict(
+            {
+                **data,
+                "approved": True,
+                "trigger_combat": True,
+                "enemies_spec": enemies_spec,
+                "combat_action": "none",
+                "item_usage": "none",
+                "mode": "combat",
+            }
+        )
+    except (TypeError, ValueError):
+        return ActionRouteResult(
+            approved=True,
+            mode="combat",
+            trigger_combat=True,
+            enemies_spec=enemies_spec,
+            combat_action="none",
+            item_usage="none",
+        )
 
 
 class ActionRouter:
@@ -539,6 +614,21 @@ class ActionRouter:
         history: list[ChatMessage],
     ) -> ActionRouteResult:
         route = self._parse_route(text)
+        if (
+            not route.approved
+            and route.rejection_reason == _PARSE_FAILURE_REASON
+        ):
+            fallback = mechanical_fallback_route(
+                user_input,
+                game_state,
+                history=history,
+            )
+            if fallback is not None:
+                logger.info("行动路由使用机械兜底：%s", user_input.strip()[:80])
+                route = fallback
+        normalize_exploration_combat_start(
+            route, user_input, game_state, history
+        )
         route = self.validate(route, character, game_state, user_input=user_input.strip(), history=history)
         return route
 
@@ -588,8 +678,19 @@ class ActionRouter:
         if data is not None:
             try:
                 return _route_from_dict(data)
-            except (TypeError, ValueError):
-                logger.warning("行动路由 JSON 字段异常: %s", text[:500])
+            except (TypeError, ValueError) as exc:
+                recovered = _recover_partial_route(data)
+                if recovered is not None:
+                    logger.info(
+                        "行动路由 JSON 字段异常，已从片段恢复 trigger_combat=%s",
+                        recovered.trigger_combat,
+                    )
+                    return recovered
+                logger.warning(
+                    "行动路由 JSON 字段异常: %s (%s)",
+                    text[:500],
+                    type(exc).__name__,
+                )
         else:
             logger.warning("行动路由 JSON 解析失败: %s", text[:500] or "（空响应）")
         return ActionRouteResult(
@@ -663,6 +764,16 @@ class ActionRouter:
             return route
 
         if route.trigger_combat:
+            if not route.enemies_spec.strip():
+                hostile_names = [
+                    npc.name
+                    for npc in game_state.npcs
+                    if npc.attitude == "hostile" and npc.name.strip()
+                ]
+                if hostile_names:
+                    route.enemies_spec = ",".join(
+                        f"{name}:12:11" for name in hostile_names
+                    )
             if not route.enemies_spec.strip():
                 route.approved = False
                 route.rejection_reason = "无法确定攻击目标，请明确你要与谁开战。"

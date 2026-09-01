@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import logging
 
-from langchain_core.exceptions import (
-    ModelConnectionError,
-    ModelRateLimitError,
-    ModelTimeoutError,
-)
+import langchain_core.exceptions as _lc_exc
 from langchain_core.runnables.retry import ExponentialJitterParams
 from langchain_openai import ChatOpenAI
 
 from config.settings import get_settings
+
+ModelConnectionError = getattr(_lc_exc, "ModelConnectionError", ConnectionError)
+ModelRateLimitError = getattr(_lc_exc, "ModelRateLimitError", Exception)
+ModelTimeoutError = getattr(_lc_exc, "ModelTimeoutError", TimeoutError)
 
 logger = logging.getLogger(__name__)
 

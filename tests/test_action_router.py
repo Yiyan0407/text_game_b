@@ -435,6 +435,43 @@ def test_validate_trigger_combat_clears_same_turn_combat_action():
     assert result.item_usage == "none"
 
 
+def test_validate_trigger_combat_preserves_pickup():
+    route = _approved_route(
+        trigger_combat=True,
+        enemies_spec="长矛手:14:11",
+        mode="combat",
+        item_usage="pickup",
+        referenced_items=["短剑"],
+    )
+    result = ActionRouter.validate(route, Character(name="测试"), GameState())
+    assert result.approved is True
+    assert result.combat_action == "none"
+    assert result.item_usage == "pickup"
+    assert result.referenced_items == ["短剑"]
+
+
+def test_parse_route_tolerates_null_literals_and_truncated_enemy_defs():
+    text = """```json
+{
+    "approved": true,
+    "rejection_reason": null,
+    "needs_roll": false,
+    "roll_type": null,
+    "ability": null,
+    "skill_usage": null,
+    "mode": "exploration",
+    "trigger_combat": true,
+    "enemies_spec": "影子-弯刀:12:12,影子-短矛:12:12,影子-钉盾:14:13",
+    "enemy_defs":
+```"""
+    route = ActionRouter._parse_route(text)
+    assert route.approved is True
+    assert route.trigger_combat is True
+    assert "影子-弯刀" in route.enemies_spec
+    assert route.skill_usage == "none"
+    assert route.rejection_reason == ""
+
+
 def test_apply_granularity_allows_compound_action():
     route = _approved_route(
         item_usage="purchase",
