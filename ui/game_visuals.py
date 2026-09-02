@@ -66,7 +66,9 @@ def _render_sidebar_scene_slot(game_state: GameState, scenario: Scenario) -> Non
             game_state.register_scene_image(game_state.current_scene, result.url)
             persist_save()
             st.rerun()
-        st.error(result.error or "场景图生成失败，请检查图片 API 配置。")
+        from chain.image_prompt_safety import format_image_generation_error
+
+        st.error(format_image_generation_error(result.error or "场景图生成失败，请检查图片 API 配置。"))
 
 
 def render_sidebar_visual_panel(*, game_state: GameState, scenario: Scenario | None) -> bool:

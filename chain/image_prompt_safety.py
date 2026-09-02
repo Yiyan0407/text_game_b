@@ -62,10 +62,18 @@ _POLICY_MARKERS: tuple[str, ...] = (
     "policyviolation",
     "copyright",
     "content policy",
+    "outputimage",
+    "inputtext",
     "内容安全",
     "敏感内容",
+    "敏感信息",
     "版权",
 )
+
+
+def is_output_policy_error(error: str) -> bool:
+    lowered = (error or "").lower()
+    return "outputimage" in lowered or "输出图片" in lowered or "输出图像" in lowered
 
 
 def is_content_policy_error(error: str) -> bool:
@@ -74,14 +82,29 @@ def is_content_policy_error(error: str) -> bool:
 
 
 def format_content_policy_hint(error: str) -> str:
+    output_blocked = is_output_policy_error(error)
+    target = "生成的图片" if output_blocked else "提示词"
     return (
         f"{error}\n\n"
-        "图片服务认为提示词可能涉及版权或敏感内容。\n"
-        "建议：\n"
-        "· 角色名与背景避免现有作品人名、品牌或 IP（如迪士尼、原神、漫威角色等）\n"
-        "· 改用原创身份描述（如「边境佣兵」「雾港调查员」）\n"
-        "· 修改后点击「重新生成立绘」；若仍被拦截，系统会用清洗敏感词后的完整画风提示词自动重试"
+        f"图片服务认为{target}可能涉及敏感或版权内容。\n"
+        "系统已自动尝试：① 清洗提示词 ② AI 矫正提示词 后重试。\n"
+        "若仍失败，建议：\n"
+        "· 背景改为更中性的原创身份（如「边境佣兵」「雾港调查员」）\n"
+        "· 避免血腥、惊悚、裸露、知名 IP/名人等描述\n"
+        "· 修改后再次点击生成"
     )
+
+
+def format_image_generation_error(error: str) -> str:
+    """将图片 API 原始错误转为用户可读说明（避免重复包装）。"""
+    text = (error or "").strip()
+    if not text:
+        return "出图失败，请稍后重试。"
+    if "系统已自动尝试" in text:
+        return text
+    if is_content_policy_error(text):
+        return format_content_policy_hint(text)
+    return text
 
 
 def sanitize_image_text(text: str, *, max_len: int = 200) -> str:

@@ -4,10 +4,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from chain.image_prompt_safety import (
-    format_content_policy_hint,
-    is_content_policy_error,
-)
+from chain.image_prompt_safety import is_content_policy_error
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -118,6 +115,7 @@ def generate_with_policy_fallback(
     fallback_prompt: str,
     provider: str,
     settings,
+    image_kind: str = "image",
 ) -> ImageGenerationResult:
     generate: Callable[[str], ImageGenerationResult]
     if provider == "seedream":
@@ -131,13 +129,28 @@ def generate_with_policy_fallback(
     if result.ok or not is_content_policy_error(result.error):
         return result
 
-    logger.info("图片 API 内容策略拦截，尝试合规简化提示词")
+    logger.info("图片 API 内容策略拦截，尝试合规清洗提示词")
     retry = generate(fallback_prompt)
     if retry.ok:
         return retry
 
-    error = retry.error or result.error
-    return ImageGenerationResult(error=format_content_policy_hint(error or result.error))
+    last_error = retry.error or result.error
+    if is_content_policy_error(last_error):
+        from chain.image_prompt_refiner import ImagePromptRefiner
+
+        refined_prompt = ImagePromptRefiner().refine(
+            fallback_prompt or primary_prompt,
+            error=last_error,
+            image_kind=image_kind,
+        )
+        if refined_prompt:
+            logger.info("图片 API 仍拦截，尝试 LLM 矫正提示词")
+            refined = generate(refined_prompt)
+            if refined.ok:
+                return refined
+            last_error = refined.error or last_error
+
+    return ImageGenerationResult(error=last_error or result.error)
 
 
 def _build_prompt(scene_name: str, world: str, tone: str) -> str:
@@ -170,4 +183,5 @@ def generate_scene_image(scene_name: str, world: str, tone: str = "") -> ImageGe
         fallback_prompt=fallback,
         provider=provider,
         settings=settings,
+        image_kind="scene",
     )

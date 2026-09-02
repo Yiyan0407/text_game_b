@@ -93,4 +93,5 @@ def generate_portrait_url(card: CharacterCard, *, world_id: str = "") -> ImageGe
         fallback_prompt=fallback,
         provider=provider,
         settings=settings,
+        image_kind="portrait",
     )
