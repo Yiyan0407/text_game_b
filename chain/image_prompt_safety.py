@@ -80,7 +80,7 @@ def format_content_policy_hint(error: str) -> str:
         "建议：\n"
         "· 角色名与背景避免现有作品人名、品牌或 IP（如迪士尼、原神、漫威角色等）\n"
         "· 改用原创身份描述（如「边境佣兵」「雾港调查员」）\n"
-        "· 修改后点击「重新生成立绘」；系统会自动尝试更简化的合规提示词"
+        "· 修改后点击「重新生成立绘」；若仍被拦截，系统会用清洗敏感词后的完整画风提示词自动重试"
     )
 
 
@@ -108,6 +108,6 @@ def build_safe_scene_prompt(scene_name: str, world: str, tone: str) -> str:
     setting = sanitize_image_text(world, max_len=64) or "幻想世界"
     return (
         f"原创场景氛围插画，电影级光影，广角或中景，无文字、无水印，"
-        f"非现有作品取景。地点氛围：{place}。世界设定：{setting}。基调：{mood}。"
-        f"可出现远景匿名人物，强调环境与沉浸感。"
+        f"非现有作品取景。地点：{place}。世界设定：{setting}。基调：{mood}。"
+        f"可出现路人、NPC 或远景匿名人物以增强氛围，强调环境细节与沉浸感。"
     )
