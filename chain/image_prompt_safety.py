@@ -103,11 +103,13 @@ def generic_role_hint(background: str) -> str:
 
 
 def build_safe_scene_prompt(scene_name: str, world: str, tone: str) -> str:
+    from chain.image_style import SCENE_STYLE, SCENE_TAIL
+
     mood = sanitize_image_text(tone or "神秘", max_len=32) or "神秘"
     place = sanitize_image_text(scene_name, max_len=64) or "虚构场景"
     setting = sanitize_image_text(world, max_len=64) or "幻想世界"
     return (
-        f"原创场景氛围插画，电影级光影，广角或中景，无文字、无水印，"
-        f"非现有作品取景。地点：{place}。世界设定：{setting}。基调：{mood}。"
-        f"可出现路人、NPC 或远景匿名人物以增强氛围，强调环境细节与沉浸感。"
+        f"{SCENE_STYLE}"
+        f"地点：{place}。世界设定：{setting}。基调：{mood}。"
+        f"{SCENE_TAIL}"
     )

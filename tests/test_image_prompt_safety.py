@@ -29,13 +29,13 @@ def test_safe_portrait_prompt_keeps_style_and_strips_risky_text():
     safe = build_portrait_prompt(card, safe_mode=True)
     assert "钢铁侠" not in safe
     assert "近期经历" not in safe
-    assert "精致插画" in safe
-    assert "电影级光影" in safe
-    assert "风格统一" in safe
-    assert "原创角色" in safe
+    assert "写实" in safe
+    assert "摄影" in safe
+    assert "写实风格" in safe
+    assert "原创角色" not in safe
     assert "角色称呼" not in safe
     assert "边境佣兵" in safe
-    assert "精致插画" in normal
+    assert "写实" in normal
 
 
 def test_format_content_policy_hint():

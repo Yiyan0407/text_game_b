@@ -14,7 +14,7 @@ def test_build_portrait_prompt_includes_background_and_world():
     card.preferred_world_id = "coc"
     text = build_portrait_prompt(card)
     assert "艾拉" in text
-    assert "全身立绘" in text
+    assert "写实" in text
     assert "雾港来的老练调查员" in text
     assert "克苏鲁" in text
 

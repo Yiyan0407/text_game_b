@@ -3,19 +3,9 @@
 from config.settings import get_settings
 from config.worlds import WORLD_OPTIONS
 from chain.image_prompt_safety import sanitize_image_text
+from chain.image_style import PORTRAIT_STYLE, PORTRAIT_TAIL
 from chain.scene_image import ImageGenerationResult, generate_with_policy_fallback
 from game.profile import CharacterCard
-
-_PORTRAIT_STYLE = (
-    "原创角色全身立绘，独立设计、非现有影视游戏作品人物，从头到脚完整呈现，"
-    "自然站立或轻微动态姿势，精致插画、电影级光影，单一主角居中，"
-    "背景简洁不抢戏，无文字、无水印、无 UI 边框。"
-)
-
-_PORTRAIT_TAIL = (
-    "严格遵循上述性别、年龄与种族/族裔设定；"
-    "强调全身服装、装备、体态与气质，风格统一、辨识度高。"
-)
 
 
 def _world_label(world_id: str) -> str:
@@ -82,11 +72,11 @@ def build_portrait_prompt(
         identity_line = f"角色称呼：{name}。人物设定：{background}。"
 
     return (
-        f"{_PORTRAIT_STYLE}"
+        f"{PORTRAIT_STYLE}"
         f"{identity_line}"
         f"{appearance_text}"
         f"世界观氛围：{world}。{hint_block}"
-        f"{_PORTRAIT_TAIL}"
+        f"{PORTRAIT_TAIL}"
     )
 
 
