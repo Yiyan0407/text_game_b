@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from game.effect_resolver import apply_incoming_damage
+from game.player_death import death_events_if_needed
 from game.models import Character, GameState, NPCRelation
 from game.results import AbilityCheckResult, ActionRouteResult
 
@@ -117,16 +118,15 @@ def _apply_failure_damage(character: Character, raw_damage: int) -> list[str]:
         return []
 
     result = apply_incoming_damage(character, raw_damage)
-    if character.hp < 1:
-        character.hp = 1
+    events = death_events_if_needed(character)
 
     if result.fully_blocked and result.effective_sp > 0:
         source = f"（{result.sp_source}）" if result.sp_source else ""
-        return [
+        return events + [
             f"🛡️ 失败反制：SP{result.effective_sp} 完全挡住 {raw_damage} 点伤害{source}"
         ]
 
-    return result.format_events()
+    return events + result.format_events()
 
 
 def apply_check_failure_consequences(

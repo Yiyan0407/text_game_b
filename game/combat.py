@@ -906,7 +906,7 @@ def maybe_end_combat(game_state: GameState, character: Character) -> tuple[str |
 
     if character.hp <= 0:
         end_combat(game_state)
-        return "你已倒下，战斗结束。", True
+        return "你已死亡，战斗结束。", True
 
     if not combat.fighting_enemies():
         msg = end_combat(game_state)

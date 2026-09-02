@@ -10,15 +10,21 @@ from game.scenario import Scenario
 
 
 def test_character_draft_keys():
-    name_key, background_key, world_key = character_draft_keys("missing_fishermen")
+    name_key, background_key, world_key, gender_key, age_key = character_draft_keys(
+        "missing_fishermen"
+    )
     assert name_key.endswith("_name")
     assert background_key.endswith("_background")
     assert world_key.endswith("_world")
+    assert gender_key.endswith("_gender")
+    assert age_key.endswith("_age")
 
 
 def test_init_and_clear_character_draft():
     state = {}
-    name_key, background_key, world_key = character_draft_keys("test_scenario")
+    name_key, background_key, world_key, gender_key, age_key = character_draft_keys(
+        "test_scenario"
+    )
 
     class FakeState(dict):
         def __getitem__(self, key):
@@ -43,6 +49,8 @@ def test_init_and_clear_character_draft():
         assert fake[name_key] == ""
         assert fake[background_key] == ""
         assert fake[world_key] == "fantasy"
+        assert fake[gender_key] == "不明确"
+        assert fake[age_key] == "青年"
 
         fake[name_key] = "艾拉"
         clear_character_draft("test_scenario")

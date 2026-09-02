@@ -31,16 +31,22 @@ class AutoCombatResult:
 def format_auto_combat_user_input(result: AutoCombatResult) -> str:
     outcome_label = {
         "victory": "玩家获胜",
-        "defeat": "玩家倒下",
+        "defeat": "玩家死亡",
         "stalemate": "战斗超时仍未结束",
         "not_in_combat": "不在战斗中",
     }.get(result.outcome, result.outcome)
-    return (
+    base = (
         "【自动战斗】玩家委托系统代跑剩余战斗（含友方自动作战与敌人反击）。"
         f"系统已完整模拟 {result.rounds} 个战斗轮次，结果：{outcome_label}。"
         "请根据【已发生的结果】写一段连贯的战斗描写（交锋过程→结局），"
         "不要逐条复读系统日志，但命中/伤害/倒地/受击须与机械一致。"
     )
+    if result.outcome == "defeat":
+        base += (
+            " **玩家已永久死亡**：只写死亡结局与余波，"
+            "**禁止**重生、满血醒来、竞技场循环、场景重置式「再来一遍」。"
+        )
+    return base
 
 
 def _nearest_living_enemy(combat: CombatState) -> CombatEnemy | None:
@@ -156,7 +162,7 @@ def run_auto_combat(character: Character, game_state: GameState) -> AutoCombatRe
     if outcome == "victory":
         events.append("[自动战斗] 战斗结束：敌人已无法继续作战。")
     elif outcome == "defeat":
-        events.append("[自动战斗] 战斗结束：你已倒下。")
+        events.append("[自动战斗] 战斗结束：你已死亡。")
     elif outcome == "stalemate":
         events.append("[自动战斗] 已达模拟轮次上限，战斗仍在进行。")
 

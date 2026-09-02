@@ -10,11 +10,14 @@ def _effective_sp_display(character: Character) -> tuple[int, str]:
 
 
 
-def render_character_sheet(character: Character) -> None:
-    st.subheader("角色卡")
-    st.markdown(f"**{character.name}**")
-    st.caption(character.background)
-    st.divider()
+def render_character_sheet(character: Character, *, show_identity: bool = True) -> None:
+    if show_identity:
+        st.subheader("角色卡")
+        st.markdown(f"**{character.name}**")
+        st.caption(character.background)
+        st.divider()
+    else:
+        st.subheader("状态")
 
     row1 = st.columns(3)
     row2 = st.columns(3)
@@ -27,8 +30,11 @@ def render_character_sheet(character: Character) -> None:
         col.metric(f"{label} {key.upper()}", value, delta=f"{mod:+d}", delta_color="off")
 
     max_hp = max(1, character.effective_max_hp())
-    hp_ratio = max(0.0, min(1.0, character.hp / max_hp))
-    st.progress(hp_ratio, text=f"HP {character.hp}/{max_hp}")
+    if character.is_alive():
+        hp_ratio = max(0.0, min(1.0, character.hp / max_hp))
+        st.progress(hp_ratio, text=f"HP {character.hp}/{max_hp}")
+    else:
+        st.progress(0.0, text=f"HP 0/{max_hp} · 已死亡")
 
     effective_sp, sp_source = _effective_sp_display(character)
     if effective_sp > 0:

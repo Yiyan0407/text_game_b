@@ -103,6 +103,23 @@ def test_merge_brief_includes_passive_skills_for_kp():
     assert "基因改造" in text
 
 
+def test_narrative_brief_combat_start_turn_constraints():
+    route = ActionRouteResult(
+        approved=True,
+        mode="combat",
+        trigger_combat=True,
+        enemies_spec="蜷缩的影子（少年）:8:10",
+        combat_action="none",
+    )
+    events = [
+        "战斗开始！先攻顺序：张三 → 蜷缩的影子（少年）。",
+        "轮到你行动。请在本轮发送战斗指令（移动、攻击、防御等）。",
+    ]
+    text = build_narrative_brief_static("攻击少年", route, events)
+    assert "【开战当回合 — 叙事硬约束】" in text
+    assert "禁止" in text and "击杀" in text
+
+
 def test_build_narrative_brief_passes_history():
     history = [
         ChatMessage(role="assistant", content="上一轮结尾。"),

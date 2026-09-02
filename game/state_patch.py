@@ -13,7 +13,7 @@ from game.inventory import (
     MECHANICAL_PURCHASE_DESCRIPTION,
     item_name_from_ref,
 )
-from game.post_kp_mechanics import combat_pickup_reserved
+from game.player_death import is_respawn_memory_text
 from game.models import Character, GameState
 from game.results import (
     ActionRouteResult,
@@ -259,6 +259,8 @@ def apply_state_patch(
             payload = str(fact).strip()
             text = payload
         if text:
+            if not character.is_alive() and is_respawn_memory_text(text):
+                continue
             settings = get_settings()
             added = game_state.add_memory_entries([payload], settings.max_memory_facts)
             for item in added:

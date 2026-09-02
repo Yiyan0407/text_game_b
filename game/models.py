@@ -63,7 +63,7 @@ class Character(BaseModel):
     intelligence: int = Field(default=12, ge=3, le=18)
     wisdom: int = Field(default=12, ge=3, le=18)
     charisma: int = Field(default=12, ge=3, le=18)
-    hp: int = Field(default=20, ge=1)
+    hp: int = Field(default=20, ge=0)
     max_hp: int = Field(default=20, ge=1)
     inventory: list[InventoryItem] = Field(default_factory=list)
     skills: list[Skill] = Field(default_factory=list)
@@ -99,6 +99,15 @@ class Character(BaseModel):
                 self.equip_item(entry.item_name, slot="hand")
         self.active_gear = []
         return self
+
+    def is_alive(self) -> bool:
+        return self.hp > 0
+
+    def vitals_label(self) -> str:
+        cap = self.effective_max_hp()
+        if not self.is_alive():
+            return f"HP 0/{cap}（已死亡）"
+        return f"HP {self.hp}/{cap}"
 
     def modifier(self, attr: str) -> int:
         field = ABILITY_FIELDS.get(attr.lower(), attr.lower())

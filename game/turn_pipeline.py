@@ -453,6 +453,7 @@ class TurnPipeline:
             ctx.effective_input,
             ctx.route,
             ctx.mechanical_events,
+            character=ctx.character,
             game_config=ctx.game_config,
             scenario=ctx.scenario,
             progress=progress,

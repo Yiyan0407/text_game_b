@@ -74,6 +74,7 @@ def setup_logging() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("langchain_openai").setLevel(logging.WARNING)
 
     _CONFIGURED = True
     logging.getLogger(__name__).info("日志已初始化 level=%s file=%s", settings.log_level, log_path)

@@ -54,6 +54,37 @@ _COMBAT_NARRATIVE_MARKERS = (
     "竞技场",
 )
 
+_ATTACK_MARKERS = (
+    "攻击",
+    "砍向",
+    "砍",
+    "刺杀",
+    "刺向",
+    "刺",
+    "杀",
+    "扑向",
+    "扑击",
+    "斩",
+    "踢向",
+    "开枪",
+    "射击",
+    "射向",
+    "打向",
+    "揍",
+)
+
+_ATTACK_PRONOUN_MARKERS = (
+    "攻击他",
+    "攻击她",
+    "攻击它",
+    "砍他",
+    "砍她",
+    "杀他",
+    "杀她",
+    "打他",
+    "打她",
+)
+
 _ENEMY_ROLE_HINTS: tuple[tuple[str, str, str, int, int], ...] = (
     ("长矛", "长矛手", "1d8", 14, 11),
     ("弯刀", "弯刀手", "1d6", 12, 11),
@@ -203,6 +234,93 @@ def infer_enemy_defs(text: str, *, default_distance_m: int | None = None) -> lis
 
 def build_enemies_spec(enemy_defs: list[EnemyDefPatch]) -> str:
     return ",".join(f"{item.name}:{item.hp}:{item.ac}" for item in enemy_defs)
+
+
+def looks_like_attack_on_someone(text: str) -> bool:
+    normalized = text.strip()
+    if not normalized:
+        return False
+    return any(marker in normalized for marker in _ATTACK_MARKERS)
+
+
+def find_npc_in_text(text: str, game_state: GameState):
+    from game.models import NPCRelation
+
+    if not text.strip():
+        return None
+    npcs: list[NPCRelation] = list(game_state.npcs or [])
+    if not npcs:
+        return None
+    for npc in npcs:
+        name = npc.name.strip()
+        if not name:
+            continue
+        if name in text:
+            return npc
+        core = re.sub(r"[（(].+[)）]", "", name).strip()
+        if core and core in text:
+            return npc
+        if core and any(part in text for part in core.split() if len(part) >= 2):
+            return npc
+    return None
+
+
+def resolve_attack_target_npc(
+    user_input: str,
+    game_state: GameState,
+    *,
+    history: list[ChatMessage] | None = None,
+):
+    text = user_input.strip()
+    npc = find_npc_in_text(text, game_state)
+    if npc is not None:
+        return npc
+    narrative = collect_recent_narrative(history or [])
+    npc = find_npc_in_text(f"{narrative}\n{text}", game_state)
+    if npc is not None:
+        return npc
+    npcs = list(game_state.npcs or [])
+    if len(npcs) == 1 and any(marker in text for marker in _ATTACK_PRONOUN_MARKERS):
+        return npcs[0]
+    return None
+
+
+def _civilian_enemy_def(name: str) -> EnemyDefPatch:
+    return EnemyDefPatch(
+        name=name,
+        hp=8,
+        ac=10,
+        attack_damage="1d4",
+        start_distance_m=2,
+    )
+
+
+def normalize_attack_on_npc(
+    route: ActionRouteResult,
+    user_input: str,
+    game_state: GameState,
+    history: list[ChatMessage] | None,
+) -> None:
+    """玩家明确攻击在场 NPC 时强制开战（含 friendly/neutral），不因态度驳回。"""
+    if game_state.is_in_combat() or route.trigger_combat:
+        return
+    text = user_input.strip()
+    if not looks_like_attack_on_someone(text):
+        return
+    npc = resolve_attack_target_npc(text, game_state, history=history)
+    if npc is None:
+        return
+    enemy = _civilian_enemy_def(npc.name.strip())
+    route.approved = True
+    route.rejection_reason = ""
+    route.mode = "combat"
+    route.trigger_combat = True
+    route.enemies_spec = build_enemies_spec([enemy])
+    route.enemy_defs = [enemy]
+    route.combat_action = "none"
+    route.item_usage = "none"
+    route.needs_roll = False
+    route.roll_type = "none"
 
 
 def _combat_start_route(

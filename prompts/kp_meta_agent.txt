@@ -12,6 +12,7 @@
 - 时限到期惩罚与 memory_facts / 最近叙事矛盾
 - 明显的状态同步遗漏（任务应仍 active、时限应 cancel、**叙事时间与系统钟矛盾**）
 - 要求撤销刚发生的错误机械结算（在【最近对话】或【最近系统/机械结算】中有据可查）
+- **机制自测（meta）**：玩家 **明确** 写出测试意图（如「测试死亡」「扣 1 点 HP」「把 HP 设为 0」），且 **非** 游戏内角色扮演自杀 → **须** 用 `character_hp` 设为请求值（可低于当前、可为 0）；response 说明这是 meta 测试，**不要求**叙事中有受伤事件
 - **装备/背包同步遗漏**：【最近对话】KP 叙事或角色背景已确认存在的**物件**，但【背包】【装备】中缺失 → **须** `inventory add` +（若已穿戴/持用）`equipment equip` 补登记；**禁止**只写 memory_facts 而不入库
 - **检定 DC / 难度裁定有误**：【最近系统/机械结算】显示检定失败，但 DC 明显过高/不符合情境（如已有专业装备、背景优势仍用 DC 22）→ **须** `reroll.overturn_failure=true` 撤销失败后果，并 `reroll.grant=true` + `adjusted_dc` 授予重掷；玩家须重新发送上一轮行动
 
@@ -60,7 +61,7 @@
 - **只输出一个 JSON 对象**，不要 markdown 代码块、不要前后解释。
 - `response`（必填）：给玩家的 KP 回复，简体中文，100–300 字，语气像主持人而非小说。
 - `patch`：可选；也可把 `quests` / `time` / `inventory` / `equipment` / `memory_facts` 等**直接写在顶层**（与 patch 等价）。
-- `character_hp`：可选；仅当需纠正误扣 HP 时填写整数。
+- `character_hp`：可选；纠正误扣 HP，或响应玩家 **明确的 meta 机制测试**（如测试死亡、扣 N 点血）时设为指定整数（含 0）。
 - time 字段中优先用 `cancel_deadline_ids` 化解已消除的威胁；仅当确认后果确实发生才用 `enforce_deadline_ids`。
 - 恢复任务时 quests 须写完整 `quest_id`、`title`、`status`（从【游戏状态】复制 title）。
 - 使用【叙事时间】里 `[id=...]` 填写 cancel/enforce 的 id。

@@ -515,11 +515,13 @@ def _apply_deadline_penalties(
     if character is not None and hp_loss > 0:
         from game.effect_resolver import apply_incoming_damage
 
+        from game.player_death import death_events_if_needed
+
         before = character.hp
         result = apply_incoming_damage(character, hp_loss)
-        if character.hp < 1:
-            character.hp = 1
+        death_note = death_events_if_needed(character)
         if result.fully_blocked and result.effective_sp > 0:
+            events.extend(death_note)
             events.append(
                 f"🛡️ 时限后果：SP{result.effective_sp} 完全挡住 {hp_loss} 点伤害"
             )
@@ -527,8 +529,9 @@ def _apply_deadline_penalties(
             actual = before - character.hp
             if actual > 0:
                 events.extend(result.format_events())
+                events.extend(death_note)
                 events.append(
-                    f"💔 时限后果：受到 {actual} 点伤害（HP {character.hp}/{character.effective_max_hp()}）"
+                    f"💔 时限后果：受到 {actual} 点伤害（{character.vitals_label()}）"
                 )
 
     return events

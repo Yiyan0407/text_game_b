@@ -37,6 +37,7 @@ class Settings:
     enable_action_suggestions: bool
     enable_scene_map: bool
     enable_scene_images: bool
+    enable_character_portraits: bool
     image_provider: str
     seedream_api_key: str
     seedream_base_url: str
@@ -77,6 +78,8 @@ def get_settings() -> Settings:
         enable_action_suggestions=os.getenv("ENABLE_ACTION_SUGGESTIONS", "true").lower() == "true",
         enable_scene_map=os.getenv("ENABLE_SCENE_MAP", "true").lower() == "true",
         enable_scene_images=os.getenv("ENABLE_SCENE_IMAGES", "false").lower() == "true",
+        enable_character_portraits=os.getenv("ENABLE_CHARACTER_PORTRAITS", "true").lower()
+        == "true",
         image_provider=os.getenv("IMAGE_PROVIDER", "seedream"),
         seedream_api_key=os.getenv("SEEDREAM_API_KEY", ""),
         seedream_base_url=os.getenv(

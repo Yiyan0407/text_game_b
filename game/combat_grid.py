@@ -12,6 +12,9 @@ if TYPE_CHECKING:
 
 PLAYER_UNIT_ID = "player"
 PosM = tuple[int, int]
+TACTICAL_CELL_SIZE_M = 1.0
+MIN_VIEWPORT_CELLS = 11
+MAX_VIEWPORT_CELLS = 41
 
 
 def distance_m(pos_a: PosM, pos_b: PosM) -> int:
@@ -182,12 +185,58 @@ def _collect_unit_entries(combat: CombatState) -> list[tuple[str, PosM, str]]:
 
 
 def display_scale(entries: list[tuple[str, PosM, str]], *, viewport_cells: int = 9) -> float:
+    """战术格尺寸（米）；移动格固定 1m。viewport_cells 保留兼容旧调用。"""
+    del entries, viewport_cells
+    return TACTICAL_CELL_SIZE_M
+
+
+def _resolve_viewport_cells(
+    combat: CombatState,
+    entries: list[tuple[str, PosM, str]],
+    *,
+    focus_player: bool = False,
+) -> int:
     if not entries:
-        return 2.0
+        return MIN_VIEWPORT_CELLS
+
+    player_pos = next((pos for uid, pos, _ in entries if uid == PLAYER_UNIT_ID), None)
+    if focus_player and player_pos is not None:
+        move = combat.movement_remaining_m if combat.has_movement() else 0
+        max_dist = max(
+            (distance_m(player_pos, pos) for _, pos, _ in entries),
+            default=0,
+        )
+        half_extent = max(move, max_dist, 4) + 2
+        cells = int(half_extent * 2 + 1)
+        if cells % 2 == 0:
+            cells += 1
+        return min(MAX_VIEWPORT_CELLS, max(MIN_VIEWPORT_CELLS, cells))
+
     xs = [pos[0] for _, pos, _ in entries]
     ys = [pos[1] for _, pos, _ in entries]
-    span = max(max(xs) - min(xs), max(ys) - min(ys), 2)
-    return max(2.0, span / max(1, viewport_cells - 1))
+    span = max(max(xs) - min(xs), max(ys) - min(ys), 4)
+    cells = int(math.ceil(span)) + 6
+    if cells % 2 == 0:
+        cells += 1
+    return min(MAX_VIEWPORT_CELLS, max(MIN_VIEWPORT_CELLS, cells))
+
+
+def _iter_move_target_cells(
+    combat: CombatState,
+    view: TacticalMapView,
+    unit_positions: set[PosM],
+):
+    player_pos = combat.get_position(PLAYER_UNIT_ID)
+    max_move = combat.movement_remaining_m if combat.has_movement() else 0
+    for row in range(view.viewport_cells):
+        for col in range(view.viewport_cells):
+            x_m, y_m = cell_center_m(view, row, col)
+            if (x_m, y_m) in unit_positions:
+                continue
+            if player_pos is not None and max_move > 0:
+                if distance_m(player_pos, (x_m, y_m)) > max_move:
+                    continue
+            yield x_m, y_m
 
 
 def build_tactical_unit_markers(combat: CombatState) -> list[TacticalUnitMarker]:
@@ -289,7 +338,7 @@ def render_tactical_map_html(
     width: int = 640,
     height: int = 480,
     show_move_targets: bool = False,
-    viewport_cells: int = 9,
+    viewport_cells: int | None = None,
 ) -> str:
     """生成战术平面 SVG（供 Streamlit st.html / iframe 嵌入，风格对齐场景地图）。"""
     markers = [m for m in build_tactical_unit_markers(combat) if not m.dead]
@@ -297,7 +346,15 @@ def render_tactical_map_html(
     inner_w = max(120, width - padding * 2)
     inner_h = max(120, height - padding * 2)
 
-    view = build_tactical_map_view(combat, viewport_cells=viewport_cells) if markers else None
+    view = (
+        build_tactical_map_view(
+            combat,
+            viewport_cells=viewport_cells,
+            focus_player=show_move_targets,
+        )
+        if markers
+        else None
+    )
     if view is not None:
         x_range, y_range = tactical_view_ranges(view)
         min_x, max_x = x_range[0], x_range[1]
@@ -362,20 +419,16 @@ def render_tactical_map_html(
     cell_shapes: list[str] = []
     if show_move_targets and view is not None:
         unit_positions = {(m.x_m, m.y_m) for m in markers}
-        half_w_px = (view.meters_per_cell / span_x) * inner_w / 2
-        half_h_px = (view.meters_per_cell / span_y) * inner_h / 2
-        for row in range(view.viewport_cells):
-            for col in range(view.viewport_cells):
-                x_m, y_m = cell_center_m(view, row, col)
-                if (x_m, y_m) in unit_positions:
-                    continue
-                cx, cy = to_sx(x_m), to_sy(y_m)
-                cell_shapes.append(
-                    f'<rect x="{cx - half_w_px:.1f}" y="{cy - half_h_px:.1f}" '
-                    f'width="{half_w_px * 2:.1f}" height="{half_h_px * 2:.1f}" '
-                    f'fill="rgba(148,163,184,0.25)" stroke="rgba(148,163,184,0.55)" '
-                    f'stroke-width="1"/>'
-                )
+        half_w_px = (TACTICAL_CELL_SIZE_M / span_x) * inner_w / 2
+        half_h_px = (TACTICAL_CELL_SIZE_M / span_y) * inner_h / 2
+        for x_m, y_m in _iter_move_target_cells(combat, view, unit_positions):
+            cx, cy = to_sx(x_m), to_sy(y_m)
+            cell_shapes.append(
+                f'<rect x="{cx - half_w_px:.1f}" y="{cy - half_h_px:.1f}" '
+                f'width="{half_w_px * 2:.1f}" height="{half_h_px * 2:.1f}" '
+                f'fill="rgba(148,163,184,0.25)" stroke="rgba(148,163,184,0.55)" '
+                f'stroke-width="1"/>'
+            )
 
     kind_colors = {
         "player": ("#2563eb", "#93c5fd"),
@@ -440,14 +493,18 @@ def build_tactical_map_figure(
     combat: CombatState,
     *,
     show_move_targets: bool = False,
-    viewport_cells: int = 9,
+    viewport_cells: int | None = None,
     chart_height: int = 420,
 ):
     """Plotly 战术图：单位散点 + 可选可点击移动格。"""
     import plotly.graph_objects as go
 
     markers = [m for m in build_tactical_unit_markers(combat) if not m.dead]
-    view = build_tactical_map_view(combat, viewport_cells=viewport_cells)
+    view = build_tactical_map_view(
+        combat,
+        viewport_cells=viewport_cells,
+        focus_player=show_move_targets,
+    )
     fig = go.Figure()
 
     if show_move_targets:
@@ -456,15 +513,11 @@ def build_tactical_map_figure(
         hover: list[str] = []
         custom: list[list] = []
         unit_positions = {(m.x_m, m.y_m) for m in markers}
-        for row in range(view.viewport_cells):
-            for col in range(view.viewport_cells):
-                x_m, y_m = cell_center_m(view, row, col)
-                if (x_m, y_m) in unit_positions:
-                    continue
-                mx.append(x_m)
-                my.append(y_m)
-                hover.append(f"移动到 ({x_m}, {y_m}) m")
-                custom.append(["move", x_m, y_m])
+        for x_m, y_m in _iter_move_target_cells(combat, view, unit_positions):
+            mx.append(x_m)
+            my.append(y_m)
+            hover.append(f"移动到 ({x_m}, {y_m}) m")
+            custom.append(["move", x_m, y_m])
         if mx:
             fig.add_trace(
                 go.Scatter(
@@ -570,12 +623,22 @@ def build_tactical_map_figure(
 def build_tactical_map_view(
     combat: CombatState,
     *,
-    viewport_cells: int = 9,
+    viewport_cells: int | None = None,
+    focus_player: bool = False,
 ) -> TacticalMapView:
     entries = _collect_unit_entries(combat)
-    meters_per_cell = display_scale(entries, viewport_cells=viewport_cells)
+    meters_per_cell = TACTICAL_CELL_SIZE_M
+    if viewport_cells is None:
+        viewport_cells = _resolve_viewport_cells(
+            combat,
+            entries,
+            focus_player=focus_player,
+        )
 
-    if entries:
+    player_pos = combat.get_position(PLAYER_UNIT_ID)
+    if focus_player and player_pos is not None:
+        center_x, center_y = float(player_pos[0]), float(player_pos[1])
+    elif entries:
         xs = [pos[0] for _, pos, _ in entries]
         ys = [pos[1] for _, pos, _ in entries]
         center_x = (min(xs) + max(xs)) / 2
@@ -584,8 +647,8 @@ def build_tactical_map_view(
         center_x = center_y = 0.0
 
     half = (viewport_cells - 1) / 2
-    origin_x = center_x - half * meters_per_cell
-    origin_y = center_y - half * meters_per_cell
+    origin_x = int(round(center_x - half * meters_per_cell))
+    origin_y = int(round(center_y - half * meters_per_cell))
 
     grid: list[list[list[tuple[str, str, str]]]] = [
         [[] for _ in range(viewport_cells)] for _ in range(viewport_cells)
@@ -643,9 +706,9 @@ def build_tactical_map_view(
     )
 
 
-def render_tactical_map(combat: CombatState, *, viewport_cells: int = 9) -> str:
+def render_tactical_map(combat: CombatState, *, viewport_cells: int | None = None) -> str:
     view = build_tactical_map_view(combat, viewport_cells=viewport_cells)
-    lines = [f"战术图（约 {view.meters_per_cell:.0f}m/格）"]
+    lines = [f"战术图（{view.meters_per_cell:.0f}m/格）"]
     for row in view.cells:
         lines.append(" ".join(cell.symbol.ljust(3) for cell in row))
     return "\n".join(lines)

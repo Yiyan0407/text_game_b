@@ -205,6 +205,19 @@ def test_apply_save_to_session_syncs_character_card(tmp_path):
         session_module.st.session_state = original
 
 
+def test_save_accepts_zero_hp(save_setup):
+    character = Character(name="艾拉", hp=0, max_hp=20)
+    save_game = SaveGame.create(
+        scenario_id="missing_fishermen",
+        scenario_title="雾港失踪案",
+        character=character,
+        game_state=GameState(turn_count=3, current_scene="竞技场"),
+        messages=[],
+    )
+    assert save_game.character.hp == 0
+    SaveManager(saves_dir=save_setup).save(save_game)
+
+
 def test_apply_save_to_session_updates_world_id():
     scenario = Scenario(id="missing_fishermen", title="雾港失踪案", world_id="fantasy")
     save_game = SaveGame.create(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from game.appearance import AGE_OPTIONS, DEFAULT_AGE, DEFAULT_GENDER, GENDER_OPTIONS
 from game.character_creation import AbilityRollDetail, RolledAbilities
 from game.draft_store import DraftStore
 
@@ -22,9 +23,15 @@ def character_draft_prefix(scenario_id: str) -> str:
     return f"char_create_{scenario_id}"
 
 
-def character_draft_keys(scenario_id: str) -> tuple[str, str, str]:
+def character_draft_keys(scenario_id: str) -> tuple[str, str, str, str, str]:
     prefix = character_draft_prefix(scenario_id)
-    return f"{prefix}_name", f"{prefix}_background", f"{prefix}_world"
+    return (
+        f"{prefix}_name",
+        f"{prefix}_background",
+        f"{prefix}_world",
+        f"{prefix}_gender",
+        f"{prefix}_age",
+    )
 
 
 def _character_draft_slug(scenario_id: str) -> str:
@@ -103,17 +110,25 @@ def _character_draft_has_content(
         return True
     if str(fields.get("world_id", default_world)) != default_world:
         return True
+    if str(fields.get("gender", DEFAULT_GENDER)) != DEFAULT_GENDER:
+        return True
+    if str(fields.get("age", DEFAULT_AGE)) != DEFAULT_AGE:
+        return True
     return rolled is not None
 
 
 def init_character_draft(scenario_id: str, default_world: str) -> None:
-    name_key, background_key, world_key = character_draft_keys(scenario_id)
+    name_key, background_key, world_key, gender_key, age_key = character_draft_keys(
+        scenario_id
+    )
     disk = draft_store().load(_character_draft_slug(scenario_id)) or {}
     fields = disk.get("fields") if isinstance(disk.get("fields"), dict) else {}
 
     seed_widget(name_key, fields.get("name", ""))
     seed_widget(background_key, fields.get("background", ""))
     seed_widget(world_key, fields.get("world_id") or default_world)
+    seed_widget(gender_key, fields.get("gender") or DEFAULT_GENDER)
+    seed_widget(age_key, fields.get("age") or DEFAULT_AGE)
 
 
 def restore_character_draft_extras(scenario_id: str) -> None:
@@ -125,11 +140,15 @@ def restore_character_draft_extras(scenario_id: str) -> None:
 
 
 def sync_character_draft_to_disk(scenario_id: str, *, default_world: str) -> None:
-    name_key, background_key, world_key = character_draft_keys(scenario_id)
+    name_key, background_key, world_key, gender_key, age_key = character_draft_keys(
+        scenario_id
+    )
     fields = {
         "name": st.session_state.get(name_key, ""),
         "background": st.session_state.get(background_key, ""),
         "world_id": st.session_state.get(world_key, default_world),
+        "gender": st.session_state.get(gender_key, DEFAULT_GENDER),
+        "age": st.session_state.get(age_key, DEFAULT_AGE),
     }
     store = draft_store()
     slug = _character_draft_slug(scenario_id)

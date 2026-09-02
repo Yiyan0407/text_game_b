@@ -28,6 +28,7 @@
 | world_sync | KP 叙事出现换场景、NPC 变化/登场、任务进展、新事实、地图发现、后台进程、战斗结束 |
 
 ## 重要原则
+- 【机械结算结果】含「你已死亡/HP 0」时：world_sync 可记录死亡后果与任务失败，**勿**因 KP 写了重生/重置而 true；inventory/skill 通常 false
 - 纯对话/观察：inventory/skill/world 可 false，但 **time_sync 通常仍为 true**
 - **禁止**输出 inventory / scene / time 等补丁字段
 - 检定失败且 route 标 learn：skill_sync 应为 false（主动技能未学会）

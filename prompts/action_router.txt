@@ -129,6 +129,10 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 
 **已在战斗中（combat.active=true）** 的攻击 → `trigger_combat=false`，`combat_action=attack`，`attack_target`，`action_cost=main`
 
+**战斗已结束后再攻击（combat.active=false）**：玩家对仍在场个体发动物理攻击（扑击、刺击、挥砍等）→ **须** `trigger_combat=true` + `enemies_spec` 含该目标；**禁止**仅用探索/叙事模式让敌人「收手离开」代替机械战斗。即使【最近对话】里对方曾表现好奇/中立/**friendly**，玩家一旦**主动攻击**即视为开战。
+
+**攻击友方/中立 NPC（探索模式）**：玩家**明确**攻击任意在场 NPC（含 attitude=friendly/neutral、手无寸铁、正在对话者）→ **必须** `approved=true`，`trigger_combat=true`，`enemies_spec` 含该 NPC 全名；**禁止**以「并非敌对」「不符合情境」「对方在关心你」等理由 `approved=false`。关系态度不阻止玩家作恶；道德后果交给 KP 叙事，不由路由替玩家做决定。
+
 **enemy_defs（可选）**：若你能稳定输出完整 JSON，可填 `name, hp, ac, attack_damage, attack_bonus, sp, sp_max, start_distance_m` 等；**否则留空 `[]`**，只保证 `enemies_spec` 名称齐全。远程/载具可填 `use_dex`、`attack_range_normal_m` / `attack_range_max_m`；**可选** `start_x_m` / `start_y_m`（相对玩家 `(0,0)` 的米坐标）。
 
 **战术位置**：【游戏状态】含 ASCII 战术图与各单位的 `(x,y)m`；远距应用 `start_x_m`/`start_y_m` 拉开，勿把所有敌人堆在 10m 内。
@@ -141,7 +145,7 @@ NPC 刚提问/求助后，玩家用「行、好、可以、我们看看」等**�
 - 友方名称用叙事中的称呼（如「瘦高个枪手」「矮胖男人」），与 KP 一致
 - 读 implied 武器定 `attack_damage`（霰弹枪 `2d8`+`use_dex`、木棍 `1d6` 等）
 - 无参战友方时 **省略** `ally_defs` 或留空数组
-- `attack_target` **只能**指向 `enemy_defs` 中的敌人，**禁止**攻击友方
+- `attack_target` **只能**指向 `enemy_defs` 中的敌人，**禁止**在**已战斗中**把 `ally_defs` 友方作为 attack 目标（探索模式开战不受此限）
 
 **敌人数与【最近对话】一致**：仍在场、仍在交战的敌对个体有几人，`enemies_spec` 就列几个名字（逗号分隔）；`enemy_defs` 条数应与之对应（可留空由 EnemyForge 补全）。若刻意合并为群体战，须在 `name` 标明群体——**勿**叙事里两人仍在场却只列一个名字。
 

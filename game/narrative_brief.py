@@ -2,6 +2,7 @@
 
 from game.check_consequences import format_check_failure_constraints_for_kp
 from game.combat_constraints import format_combat_constraints_for_kp
+from game.player_death import format_death_constraints_for_kp
 from game.game_config import GameConfig, default_game_config
 from game.models import Character, GameState, ScenarioProgress
 from game.narrative_time import format_turn_time_hint
@@ -34,6 +35,7 @@ def build_narrative_brief_static(
     route: ActionRouteResult | None,
     mechanical_events: list[str],
     *,
+    character: Character | None = None,
     game_config: GameConfig | None = None,
     scenario: Scenario | None = None,
     progress: ScenarioProgress | None = None,
@@ -62,6 +64,10 @@ def build_narrative_brief_static(
     if combat_constraints:
         lines.append("")
         lines.append(combat_constraints)
+    death_constraints = format_death_constraints_for_kp(character, mechanical_events)
+    if death_constraints:
+        lines.append("")
+        lines.append(death_constraints)
 
     if scenario is not None and scenario.key_nodes:
         active_progress = progress
@@ -138,6 +144,15 @@ def merge_narrative_brief_with_state(
     lines.append("")
     lines.append("【当前状态】")
     lines.append(f"场景：{game_state.current_scene or '（未知）'}")
+    if game_state.is_in_combat() and game_state.combat:
+        combat = game_state.combat
+        living = combat.living_enemy_names()
+        if living:
+            lines.append(f"战斗进行中，存活敌人：{'、'.join(living)}")
+        if combat.is_player_turn():
+            lines.append("当前轮到玩家行动。")
+    if not character.is_alive():
+        lines.append("玩家状态：已死亡（HP 0，永久；叙事禁止复活/重生）。")
     if game_state.npcs:
         npc_text = "；".join(
             f"{npc.name}（{npc.attitude}）" for npc in game_state.npcs[:8]
@@ -174,6 +189,7 @@ def build_narrative_brief(
         user_input,
         route,
         mechanical_events,
+        character=character,
         game_config=config,
         scenario=scenario,
         progress=progress,

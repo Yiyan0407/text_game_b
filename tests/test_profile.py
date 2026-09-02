@@ -5,7 +5,7 @@ import pytest
 from game.inventory import InventoryItem
 from game.models import Character, ChatMessage, GameState
 from game.skills import Skill
-from game.profile import CharacterCard, ProfileManager
+from game.profile import CharacterCard, ProfileManager, CharacterLoadout
 from game.save import SaveGame, SaveManager
 
 
@@ -61,7 +61,8 @@ def test_character_card_roundtrip_and_runtime_reset(tmp_path):
     )
     manager.save_character_card(profile.profile_id, card)
     loaded = manager.load_character_card(profile.profile_id, card.card_id)
-    runtime = loaded.to_runtime_character()
+    loadout = card.library_loadout()
+    runtime = loaded.to_runtime_character(loadout)
 
     assert loaded.name == "李逍遥"
     assert runtime.strength == 14
@@ -208,6 +209,86 @@ def test_delete_profile_removes_all_data(tmp_path):
     assert manager.get_save_manager(profile.profile_id).list_saves() == []
 
 
+def test_sync_card_marks_deceased_on_death(tmp_path):
+    from game.profile import CampaignRecord, sync_card_from_adventure
+    from game.scenario import Scenario
+
+    card = CharacterCard.from_character(Character(name="艾拉"))
+    character = Character(name="艾拉", hp=0, max_hp=20)
+    game_state = GameState(turn_count=12, story_summary="在竞技场中被长矛刺穿。")
+    scenario = Scenario(id="arena", title="试炼竞技场", world_id="fantasy")
+    card.campaign_history.append(
+        CampaignRecord(
+            scenario_id="arena",
+            scenario_title="试炼竞技场",
+            status="active",
+        )
+    )
+
+    sync_card_from_adventure(card, character, game_state, scenario)
+    sync_card_from_adventure(card, character, game_state, scenario)
+
+    assert card.deceased is True
+    assert card.death_note
+    failed = [r for r in card.campaign_history if r.scenario_id == "arena" and r.status == "failed"]
+    assert len(failed) == 1
+    assert failed[0].turn_count == 12
+    assert card.is_playable() is False
+
+
+def test_consolidate_campaign_history_merges_duplicate_failed():
+    from game.profile import CampaignRecord, _consolidate_campaign_history
+
+    card = CharacterCard.from_character(Character(name="艾拉"))
+    card.campaign_history = [
+        CampaignRecord(scenario_id="arena", scenario_title="陨神竞技场", status="failed", turn_count=2),
+        CampaignRecord(scenario_id="arena", scenario_title="陨神竞技场", status="failed", turn_count=2),
+        CampaignRecord(scenario_id="arena", scenario_title="陨神竞技场", status="failed", turn_count=2),
+    ]
+    _consolidate_campaign_history(card)
+    assert len(card.campaign_history) == 1
+    assert card.campaign_history[0].status == "failed"
+
+
+def test_prepare_card_rejects_deceased(tmp_path):
+    from game.profile import prepare_card_for_new_campaign
+    from game.scenario import Scenario
+
+    card = CharacterCard.from_character(Character(name="艾拉"))
+    card.deceased = True
+    scenario = Scenario(id="arena", title="试炼竞技场", world_id="fantasy")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="已死亡"):
+        prepare_card_for_new_campaign(card, scenario)
+
+
+def test_sync_merges_inventory_into_library():
+    from game.profile import sync_card_from_adventure
+    from game.scenario import Scenario
+
+    card = CharacterCard.from_character(Character(name="测试", inventory=["旧剑"]))
+    character = Character(name="测试", inventory=["新符"])
+    game_state = GameState(turn_count=3)
+    scenario = Scenario(id="mod", title="测试模组", world_id="fantasy")
+
+    sync_card_from_adventure(card, character, game_state, scenario)
+
+    names = {item.name for item in card.inventory}
+    assert names == {"旧剑", "新符"}
+
+
+def test_loadout_only_carries_selected_items():
+    card = CharacterCard.from_character(
+        Character(name="测试", inventory=["旧剑", "新符"], skills=["剑术", "潜行"])
+    )
+    loadout = CharacterLoadout(skill_names=["剑术"], item_names=["旧剑"])
+    runtime = card.to_runtime_character(loadout)
+    assert [skill.name for skill in runtime.skills] == ["剑术"]
+    assert [item.name for item in runtime.inventory] == ["旧剑"]
+
+
 def test_delete_character_card_also_deletes_linked_saves(tmp_path):
     manager = ProfileManager(profiles_dir=tmp_path / "profiles")
     profile = manager.create_profile("测试")
@@ -219,7 +300,7 @@ def test_delete_character_card_also_deletes_linked_saves(tmp_path):
             SaveGame.create(
                 scenario_id="missing_fishermen",
                 scenario_title="雾港失踪案",
-                character=card.to_runtime_character(),
+                character=card.to_runtime_character(card.library_loadout()),
                 game_state=GameState(turn_count=idx + 1),
                 messages=[],
                 save_id=f"save-{idx}",

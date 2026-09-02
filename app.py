@@ -12,7 +12,9 @@ from game.profile import ProfileManager
 from game.save import SaveManager
 from game.scenario import Scenario
 from game.kp_directive import is_kp_directive
+from game.player_death import DEATH_REJECTION
 from game.session import append_tool_events, persist_save, reload_current_save_from_disk, sync_character_card_to_library
+from ui.game_visuals import render_scene_banner, render_sidebar_portrait_slot
 from ui.character_sheet import render_character_sheet
 from ui.chat import (
     AUTO_SEND_PROMPT_KEY,
@@ -207,6 +209,11 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
 
     try:
         kp_meta_turn = is_kp_directive(user_input)
+        if not character.is_alive() and not kp_meta_turn:
+            st.session_state.messages.append(
+                ChatMessage(role="system", content=f"⚠️ {DEATH_REJECTION}")
+            )
+            return
         if settings.enable_streaming:
             progress = LoadingPlaceholder()
             progress.show("KP 沟通中……" if kp_meta_turn else "裁定行动中……")
@@ -332,35 +339,6 @@ def handle_player_message(user_input: str, *, history: list[ChatMessage]) -> Non
             persist_save()
 
 
-def _render_scene_image(game_state: GameState, scenario: Scenario) -> None:
-    settings = get_settings()
-    if game_state.scene_image_url:
-        st.image(game_state.scene_image_url, caption=game_state.current_scene)
-
-    if not settings.enable_scene_images:
-        return
-
-    if st.button("🖼️ 生成场景图", use_container_width=True):
-        from chain.scene_image import generate_scene_image
-
-        with st.spinner("绘制场景中……"):
-            url = generate_scene_image(
-                game_state.current_scene,
-                scenario.world,
-                scenario.tone,
-            )
-        if url:
-            game_state.scene_image_url = url
-            persist_save()
-            st.rerun()
-        else:
-            provider = get_settings().image_provider
-            if provider == "seedream":
-                st.error("场景图生成失败，请检查 SEEDREAM_API_KEY 与 SEEDREAM_MODEL。")
-            else:
-                st.error("场景图生成失败，请检查 OPENAI_API_KEY 配置。")
-
-
 def render_gameplay_hint(game_state: GameState) -> None:
     if game_state.turn_count <= 3:
         prefix = "刚进入新模组，" if game_state.turn_count == 0 else ""
@@ -371,38 +349,6 @@ def render_gameplay_hint(game_state: GameState) -> None:
         )
 
 
-def _render_sync_save_feedback() -> None:
-    error = st.session_state.pop("sync_save_error", None)
-    if error:
-        st.error(error)
-    feedback = st.session_state.pop("sync_save_feedback", None)
-    if feedback:
-        st.toast(feedback)
-
-
-def _handle_sync_save_click() -> None:
-    result = reload_current_save_from_disk()
-    if not result.success:
-        st.session_state.sync_save_error = result.error
-    elif result.already_latest:
-        st.session_state.sync_save_feedback = "已是最新进度"
-    elif result.new_messages:
-        st.session_state.sync_save_feedback = f"已同步，新增 {result.new_messages} 条记录"
-    else:
-        st.session_state.sync_save_feedback = f"已同步 · 回合 {result.turn_count}"
-    st.rerun()
-
-
-def _render_sync_save_button(*, button_key: str) -> None:
-    if st.button(
-        "🔄 同步最新进度",
-        key=button_key,
-        use_container_width=True,
-        help="从磁盘重新加载当前存档。观战时用此按钮刷新页面查看最新回合，无需刷新浏览器。",
-    ):
-        _handle_sync_save_click()
-
-
 def render_game() -> None:
     _render_sync_save_feedback()
     character: Character = st.session_state.character
@@ -410,15 +356,16 @@ def render_game() -> None:
     scenario: Scenario = st.session_state.scenario
 
     with st.sidebar:
-        render_character_sheet(character)
+        has_portrait = render_sidebar_portrait_slot(scenario=scenario)
+        if has_portrait:
+            st.divider()
+        render_character_sheet(character, show_identity=not has_portrait)
         st.divider()
         render_game_state_panel(
             game_state,
             scenario,
             game_config=st.session_state.get("game_config"),
         )
-        st.divider()
-        _render_scene_image(game_state, scenario)
         st.divider()
         if st.session_state.get("current_character_id"):
             st.caption("长期角色：进度会自动同步到角色卡")
@@ -468,7 +415,15 @@ def render_game() -> None:
     with sync_col:
         _render_sync_save_button(button_key="sync_save_header")
 
+    render_scene_banner(game_state, scenario)
+    st.divider()
     render_gameplay_hint(game_state)
+    if not character.is_alive():
+        st.error(
+            "角色已死亡（HP 0）。普通行动已禁用；"
+            "可在下方输入 **【kp】** 与主持人沟通（如申诉、读档说明），"
+            "或从主菜单 **继续冒险** 读取其他存档。"
+        )
     render_chat_history(st.session_state.messages)
 
     if apply_combat_move_pending(character, game_state):
@@ -486,9 +441,13 @@ def render_game() -> None:
     user_input = render_chat_input(
         disabled=not get_settings().openai_api_key,
         placeholder=(
-            "攻击 [敌人] / 推撞 / 交涉 / 使用药水 / 结束回合……"
-            if game_state.is_in_combat()
-            else None
+            "角色已死亡 — 仅可输入【kp】沟通，例：【kp】把 HP 恢复到 10（测试）"
+            if not character.is_alive()
+            else (
+                "攻击 [敌人] / 推撞 / 交涉 / 使用药水 / 结束回合……"
+                if game_state.is_in_combat()
+                else None
+            )
         ),
     )
     turn_input = st.session_state.pop(AUTO_SEND_PROMPT_KEY, None) or user_input
@@ -502,6 +461,38 @@ def render_game() -> None:
         render_live_user_message(turn_input)
         handle_player_message(turn_input, history=history)
         st.rerun()
+
+
+def _render_sync_save_feedback() -> None:
+    error = st.session_state.pop("sync_save_error", None)
+    if error:
+        st.error(error)
+    feedback = st.session_state.pop("sync_save_feedback", None)
+    if feedback:
+        st.toast(feedback)
+
+
+def _handle_sync_save_click() -> None:
+    result = reload_current_save_from_disk()
+    if not result.success:
+        st.session_state.sync_save_error = result.error
+    elif result.already_latest:
+        st.session_state.sync_save_feedback = "已是最新进度"
+    elif result.new_messages:
+        st.session_state.sync_save_feedback = f"已同步，新增 {result.new_messages} 条记录"
+    else:
+        st.session_state.sync_save_feedback = f"已同步 · 回合 {result.turn_count}"
+    st.rerun()
+
+
+def _render_sync_save_button(*, button_key: str) -> None:
+    if st.button(
+        "🔄 同步最新进度",
+        key=button_key,
+        use_container_width=True,
+        help="从磁盘重新加载当前存档。观战时用此按钮刷新页面查看最新回合，无需刷新浏览器。",
+    ):
+        _handle_sync_save_click()
 
 
 def main() -> None:

@@ -3,8 +3,9 @@ from chain.mechanical_route import (
     infer_enemy_defs,
     mechanical_fallback_route,
     normalize_exploration_combat_start,
+    normalize_attack_on_npc,
 )
-from game.models import Character, ChatMessage, CombatEnemy, CombatState, GameState
+from game.models import Character, ChatMessage, CombatEnemy, CombatState, GameState, NPCRelation
 from game.results import ActionRouteResult
 
 
@@ -92,3 +93,43 @@ def test_infer_enemy_defs_uses_distance_from_steps():
     defs = infer_enemy_defs("它们停在三十步外。")
     assert defs
     assert defs[0].start_distance_m == 30
+
+
+def test_normalize_attack_on_friendly_npc():
+    state = GameState(
+        npcs=[
+            NPCRelation(
+                name="蜷缩的影子（少年）",
+                attitude="friendly",
+                notes="试图与你交流",
+            )
+        ]
+    )
+    route = ActionRouteResult(
+        approved=False,
+        mode="exploration",
+        rejection_reason="并非敌对目标",
+    )
+    normalize_attack_on_npc(route, "攻击蜷缩的影子", state, history=[])
+    assert route.approved is True
+    assert route.trigger_combat is True
+    assert "蜷缩的影子（少年）" in route.enemies_spec
+    assert route.rejection_reason == ""
+
+
+def test_normalize_attack_on_npc_with_pronoun_single_npc():
+    history = [
+        ChatMessage(
+            role="assistant",
+            content="蜷缩的影子（少年）关切地望着你。",
+        ),
+    ]
+    state = GameState(
+        npcs=[
+            NPCRelation(name="蜷缩的影子（少年）", attitude="friendly"),
+        ]
+    )
+    route = ActionRouteResult(approved=False, mode="exploration")
+    normalize_attack_on_npc(route, "我就要攻击他", state, history=history)
+    assert route.approved is True
+    assert route.trigger_combat is True

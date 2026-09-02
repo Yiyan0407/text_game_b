@@ -7,7 +7,8 @@ import streamlit as st
 
 from chain.llm_errors import format_llm_user_error
 from config.worlds import DEFAULT_WORLD_ID, WORLD_OPTIONS
-from game.profile import CharacterCard
+from game.appearance import GENDER_OPTIONS, AGE_OPTIONS
+from game.profile import CharacterCard, CharacterLoadout
 from game.save import SaveManager
 from game.scenario import Scenario
 from game.scenario_loader import delete_generated_scenario, list_scenarios
@@ -179,6 +180,34 @@ def render_scenario_selection() -> None:
             st.rerun()
         return
 
+    preselected = st.session_state.get("selected_character_card")
+    pending_scenario_id = st.session_state.get("pending_loadout_scenario_id")
+    if preselected and pending_scenario_id:
+        pending_scenario = next(
+            (item for item in scenarios if item.id == pending_scenario_id),
+            None,
+        )
+        if pending_scenario:
+            from game.game_config import default_game_config
+            from ui.character_loadout import maybe_open_loadout_dialog
+
+            game_config = st.session_state.get("game_config") or default_game_config()
+
+            def _start_with_loadout(card, loadout) -> None:
+                start_new_game_with_card(
+                    pending_scenario,
+                    card,
+                    game_config=game_config,
+                    loadout=loadout,
+                )
+
+            maybe_open_loadout_dialog(
+                [preselected],
+                pending_scenario,
+                game_config=game_config,
+                on_confirm=_start_with_loadout,
+            )
+
     for scenario in scenarios:
         with st.container(border=True):
             world_label = WORLD_OPTIONS.get(scenario.world_id, scenario.world_id)
@@ -189,9 +218,10 @@ def render_scenario_selection() -> None:
                 c1, c2, c3 = st.columns(3)
                 if c1.button("选择", key=f"scenario_{scenario.id}", use_container_width=True):
                     st.session_state.selected_scenario = scenario
-                    preselected = st.session_state.get("selected_character_card")
                     if preselected:
-                        start_new_game_with_card(scenario, preselected)
+                        from ui.character_loadout import queue_loadout
+
+                        queue_loadout(preselected, scenario)
                     else:
                         st.session_state.page = "select_character"
                     st.rerun()
@@ -204,9 +234,10 @@ def render_scenario_selection() -> None:
                     queue_delete_scenario(scenario.id, title=scenario.title)
             elif st.button("选择", key=f"scenario_{scenario.id}", use_container_width=True):
                 st.session_state.selected_scenario = scenario
-                preselected = st.session_state.get("selected_character_card")
                 if preselected:
-                    start_new_game_with_card(scenario, preselected)
+                    from ui.character_loadout import queue_loadout
+
+                    queue_loadout(preselected, scenario)
                 else:
                     st.session_state.page = "select_character"
                 st.rerun()
@@ -244,7 +275,7 @@ def render_character_creation(
     )
     init_character_draft(scenario.id, default_world)
     restore_character_draft_extras(scenario.id)
-    name_key, background_key, world_key = character_draft_keys(scenario.id)
+    name_key, background_key, world_key, gender_key, age_key = character_draft_keys(scenario.id)
 
     rolled = get_rolled_abilities(scenario.id, default_factory=roll_ability_scores)
     prev_total_key = rolled_abilities_prev_total_key(scenario.id)
@@ -302,14 +333,19 @@ def render_character_creation(
         key=world_key,
     )
     name = st.text_input("角色姓名", placeholder="例如：艾拉", key=name_key)
+    demo_col1, demo_col2 = st.columns(2)
+    with demo_col1:
+        gender = st.selectbox("性别", options=list(GENDER_OPTIONS), key=gender_key)
+    with demo_col2:
+        age = st.selectbox("年龄", options=list(AGE_OPTIONS), key=age_key)
     background = st.text_area(
         "角色背景",
-        placeholder="例如：前海军斥候，为还债来到边境聚落做佣兵。",
+        placeholder="例如：前海军斥候，为还债来到边境聚落做佣兵。可在此描述种族、外貌与动机。",
         height=100,
         key=background_key,
     )
     st.caption(
-        "背景应描述身份与动机。"
+        "背景应描述身份与动机；**种族/族裔**请写在背景里（如人类、精灵、亚裔），立绘会据此推断。"
         "若启用审核，请勿写开局无敌、满级、神器或巨额资源。"
         "职业不必与模组默认开场一致，开局会自动衔接你的身份。"
         "背景审核通过后会由 AI 根据背景生成 1–3 项初始技能，以及 2–5 件随身物品（含已穿戴/手持）。"
@@ -375,11 +411,25 @@ def render_character_creation(
             character,
             preferred_world_id=selected_world,
         )
+        from game.appearance import CharacterAppearance
+
+        saved_card.appearance = CharacterAppearance(gender=gender, age=age)
         with st.spinner("保存角色卡……"):
             st.session_state.profile_manager.save_character_card(
                 st.session_state.current_profile_id,
                 saved_card,
             )
+        from game.character_portrait import generate_and_save_portrait, portrait_enabled
+
+        if portrait_enabled():
+            with st.spinner("正在生成角色立绘……"):
+                portrait_result = generate_and_save_portrait(
+                    st.session_state.profile_manager,
+                    st.session_state.current_profile_id,
+                    saved_card,
+                    world_id=selected_world,
+                )
+                saved_card = portrait_result.card
         st.session_state.pop("selected_character_card", None)
         start_new_game(active_scenario, character, character_card=saved_card, game_config=game_config)
 
@@ -398,15 +448,30 @@ def start_new_game_with_card(
     card: CharacterCard,
     *,
     game_config=None,
+    loadout: CharacterLoadout | None = None,
 ) -> None:
     from game.game_config import GameConfig, default_game_config
 
+    if card.deceased:
+        st.error(
+            f"角色「{card.name}」已死亡，无法开始新冒险。"
+            "请创建新角色，或删除该角色卡。"
+        )
+        return
+
     world_id = card.preferred_world_id or scenario.world_id
     active_scenario = scenario.model_copy(update={"world_id": world_id})
-    character = card.to_runtime_character()
+    loadout = loadout or CharacterLoadout()
+    character = card.to_runtime_character(loadout)
     st.session_state.pop("selected_character_card", None)
     config = game_config or default_game_config()
-    start_new_game(active_scenario, character, character_card=card, game_config=config)
+    start_new_game(
+        active_scenario,
+        character,
+        character_card=card,
+        game_config=config,
+        loadout=loadout,
+    )
 
 
 def start_new_game(
@@ -416,6 +481,7 @@ def start_new_game(
     character_card: CharacterCard | None = None,
     career_context: str = "",
     game_config=None,
+    loadout=None,
 ) -> None:
     from config.settings import get_settings
     from game.game_config import GameConfig, default_game_config
@@ -425,6 +491,7 @@ def start_new_game(
     from game.session import append_tool_events, persist_save
 
     config: GameConfig = game_config or default_game_config()
+    loadout = loadout or CharacterLoadout()
 
     game_state = GameState()
     orchestrator = st.session_state.orchestrator
@@ -432,7 +499,7 @@ def start_new_game(
 
     if character_card:
         if not career_context:
-            career_context = character_card.format_career_context()
+            career_context = character_card.format_career_context(loadout)
         prepare_card_for_new_campaign(character_card, scenario)
         st.session_state.profile_manager.save_character_card(
             st.session_state.current_profile_id,

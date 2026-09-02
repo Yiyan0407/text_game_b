@@ -1,4 +1,5 @@
 from game.combat_grid import (
+    cell_center_m,
     distance_m,
     layout_start_positions,
     migrate_positions_from_distances,
@@ -8,6 +9,7 @@ from game.combat_grid import (
     square_view_ranges,
     tactical_view_ranges,
     build_tactical_map_view,
+    _iter_move_target_cells,
 )
 from game.models import CombatAlly, CombatEnemy, CombatState
 
@@ -92,6 +94,27 @@ def test_render_tactical_map_html_includes_units():
     assert "长矛手" in html
     assert "svg" in html
     assert "#2563eb" in html
+
+
+def test_move_cells_are_one_meter():
+    combat = CombatState(
+        active=True,
+        unit_positions_m={"player": (0, 0), "长矛手": (8, 0)},
+        enemies=[
+            CombatEnemy(name="长矛手", hp=10, max_hp=10, ac=11, start_distance_m=8),
+        ],
+        turn_order=["player"],
+        turn_index=0,
+        movement_remaining_m=6,
+    )
+    view = build_tactical_map_view(combat, focus_player=True)
+    assert view.meters_per_cell == 1.0
+    assert cell_center_m(view, 0, 0) == (view.origin_x_m, view.origin_y_m)
+    assert cell_center_m(view, 0, 1) == (view.origin_x_m + 1, view.origin_y_m)
+    unit_positions = {(0, 0), (8, 0)}
+    reachable = list(_iter_move_target_cells(combat, view, unit_positions))
+    assert (6, 0) in reachable
+    assert (7, 0) not in reachable
 
 
 def test_render_tactical_map_html_shows_move_cells_when_requested():

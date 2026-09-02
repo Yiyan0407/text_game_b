@@ -56,6 +56,43 @@ def format_damage_constraints_for_kp(mechanical_events: list[str]) -> str:
     return "\n".join(lines)
 
 
+_COMBAT_START_MARKERS = ("战斗开始", "先攻顺序")
+
+
+def is_combat_start_without_attack_resolution(
+    mechanical_events: list[str],
+    route: ActionRouteResult | None,
+) -> bool:
+    """开战当回合：先攻/站位已结算，但尚无攻击命中/伤害机械行。"""
+    if not any(
+        marker in event for event in mechanical_events for marker in _COMBAT_START_MARKERS
+    ):
+        return False
+    if _attack_resolution_events(mechanical_events):
+        return False
+    if route is not None and route.trigger_combat:
+        return True
+    return any("轮到你行动" in event for event in mechanical_events)
+
+
+def format_combat_start_constraints_for_kp(
+    mechanical_events: list[str],
+    route: ActionRouteResult | None,
+) -> str:
+    if not is_combat_start_without_attack_resolution(mechanical_events, route):
+        return ""
+    return "\n".join(
+        [
+            "【开战当回合 — 叙事硬约束】",
+            "- 本回合机械层仅完成先攻、站位与（若有）先攻更高者的自动回合；**尚未**执行玩家攻击掷骰。",
+            "- 【已发生的结果】中若无「攻击 … → 命中/未命中」或伤害行，**禁止**描写：",
+            "  武器命中、贯穿、重创、击倒、击杀；敌人消散/化为影子/死亡/战斗结束。",
+            "- 可写拔剑、冲刺、敌意爆发、对方惊愕或举臂防御、对峙瞬间、环境反应等**开战一瞬**。",
+            "- 实际交击须等玩家下一条战斗指令（攻击/移动/防御等）；勿把本回合写成战斗已结束。",
+        ]
+    )
+
+
 def format_combat_constraints_for_kp(
     mechanical_events: list[str],
     route: ActionRouteResult | None,
@@ -63,10 +100,13 @@ def format_combat_constraints_for_kp(
     blocked = mechanical_events_include_combat_block(mechanical_events)
     attack_failed = mechanical_events_include_attack_failure(mechanical_events)
     damage_constraints = format_damage_constraints_for_kp(mechanical_events)
-    if not blocked and not attack_failed and not damage_constraints:
+    start_constraints = format_combat_start_constraints_for_kp(mechanical_events, route)
+    if not blocked and not attack_failed and not damage_constraints and not start_constraints:
         return ""
 
     sections: list[str] = []
+    if start_constraints:
+        sections.append(start_constraints)
     if damage_constraints:
         sections.append(damage_constraints)
 

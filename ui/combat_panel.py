@@ -23,7 +23,7 @@ _ACTION_GUIDE = """
 
 | 资源 | 消耗 | 典型用途 |
 |------|------|----------|
-| **移动力** | 免费 | 靠近/远离敌人（`move`）或下方坐标移动 |
+| **移动力** | 免费 | 靠近/远离敌人（`move`）或战术图点格移动 |
 | **免费物件互动** | 免费 · 每回合 1 次 | 拾取眼前物品、快速拔/收武器 |
 | **主要动作** | 1 次 | 攻击、防御、擒抱、推撞、撤退、疾跑 |
 | **附加动作** | 1 次 | 用手雷/药水、收刀威慑（`talk`） |
@@ -54,83 +54,6 @@ def _ally_status(ally, combat) -> str:
     pos = combat.get_position(ally.name)
     pos_label = f" · ({pos[0]},{pos[1]})" if pos else ""
     return f"{ally.name} HP {ally.hp}/{ally.max_hp} AC {ally.ac}{pos_label} · 距你 {dist}m（自动作战）"
-
-
-def _render_move_controls(combat, *, character: Character | None) -> None:
-    if character is None or not combat.is_player_turn() or not combat.has_movement():
-        return
-    player_pos = combat.get_position(PLAYER_UNIT_ID) or (0, 0)
-    st.caption(
-        f"移动目标（米坐标，剩余移动力 {combat.movement_remaining_m}m）"
-        " · 也可文字指令如「靠近长矛手 6m」"
-    )
-    col_x, col_y, col_btn = st.columns([1, 1, 1])
-    with col_x:
-        target_x = st.number_input(
-            "X",
-            value=int(player_pos[0]),
-            step=1,
-            key="combat_move_target_x",
-            label_visibility="collapsed",
-        )
-    with col_y:
-        target_y = st.number_input(
-            "Y",
-            value=int(player_pos[1]),
-            step=1,
-            key="combat_move_target_y",
-            label_visibility="collapsed",
-        )
-    with col_btn:
-        if st.button("移动到此", key="combat_move_submit", use_container_width=True):
-            st.session_state[COMBAT_MOVE_PENDING_KEY] = {
-                "x_m": int(target_x),
-                "y_m": int(target_y),
-            }
-            st.rerun()
-
-    living_enemies = combat.living_enemy_names()
-    if living_enemies:
-        quick_col1, quick_col2 = st.columns(2)
-        with quick_col1:
-            toward = st.selectbox(
-                "快速靠近",
-                ["—"] + living_enemies,
-                key="combat_move_toward_enemy",
-                label_visibility="visible",
-            )
-            if toward != "—" and st.button(
-                "执行靠近",
-                key="combat_move_toward_btn",
-                use_container_width=True,
-            ):
-                pos = combat.get_position(toward)
-                if pos is not None:
-                    st.session_state[COMBAT_MOVE_PENDING_KEY] = {
-                        "x_m": pos[0],
-                        "y_m": pos[1],
-                    }
-                    st.rerun()
-        with quick_col2:
-            away = st.selectbox(
-                "快速远离",
-                ["—"] + living_enemies,
-                key="combat_move_away_enemy",
-            )
-            if away != "—" and st.button(
-                "执行远离",
-                key="combat_move_away_btn",
-                use_container_width=True,
-            ):
-                pos = combat.get_position(away) or (0, 0)
-                player_pos = combat.get_position(PLAYER_UNIT_ID) or (0, 0)
-                dx = player_pos[0] - pos[0]
-                dy = player_pos[1] - pos[1]
-                st.session_state[COMBAT_MOVE_PENDING_KEY] = {
-                    "x_m": player_pos[0] + dx,
-                    "y_m": player_pos[1] + dy,
-                }
-                st.rerun()
 
 
 TACTICAL_MAP_HEIGHT = 400
@@ -245,7 +168,6 @@ def render_tactical_map_panel(
     game_state: GameState | None = None,
 ) -> None:
     _render_tactical_map(combat, character=character, game_state=game_state)
-    _render_move_controls(combat, character=character)
     with st.expander("ASCII 战术图（供核对）", expanded=False):
         st.code(render_tactical_map(combat), language="text")
 
@@ -271,7 +193,7 @@ def _render_combat_content(game_state: GameState, *, character: Character | None
     if combat.is_player_turn():
         st.info(
             f"轮到你了 — {combat.format_action_economy()}。"
-            "可在战术图**点击方格**或下方设坐标移动，或文字指令；用完后输入「结束回合」。"
+            "可在战术图**点击方格**移动，或文字指令；用完后输入「结束回合」。"
         )
         main = "✓" if combat.has_main_action() else "✗"
         bonus = "✓" if combat.has_bonus_action() else "✗"

@@ -5,6 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from chain.mechanical_route import (
     mechanical_fallback_route,
     normalize_exploration_combat_start,
+    normalize_attack_on_npc,
 )
 from chain.json_utils import extract_json_dict
 from chain.llm import create_chat_llm
@@ -629,6 +630,7 @@ class ActionRouter:
         normalize_exploration_combat_start(
             route, user_input, game_state, history
         )
+        normalize_attack_on_npc(route, user_input, game_state, history)
         route = self.validate(route, character, game_state, user_input=user_input.strip(), history=history)
         return route
 
@@ -709,6 +711,13 @@ class ActionRouter:
     ) -> ActionRouteResult:
         in_combat = game_state.is_in_combat()
         roll_context = _format_recent_history(history or [], limit=6)
+
+        if not character.is_alive():
+            route.approved = False
+            route.rejection_reason = (
+                "角色已死亡（HP 0），无法执行该行动。请使用【kp】沟通，或从主菜单读取其他存档。"
+            )
+            return route
 
         if in_combat:
             _normalize_combat_attack_route(route, user_input)

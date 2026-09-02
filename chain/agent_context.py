@@ -100,8 +100,8 @@ def format_character_block(character: Character) -> dict[str, str]:
         "character_inventory": character.format_inventory(),
         "character_equipment": character.format_equipment(),
         "character_skills": character.format_skills(),
-        "hp": str(character.hp),
+        "hp": character.vitals_label(),
         "max_hp": str(cap),
-        "character_hp": str(character.hp),
+        "character_hp": character.vitals_label(),
         "character_max_hp": str(cap),
     }
