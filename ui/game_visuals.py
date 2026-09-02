@@ -5,7 +5,6 @@ from __future__ import annotations
 import streamlit as st
 
 from config.settings import get_settings
-from game.character_portrait import resolve_portrait_path
 from game.models import GameState
 from game.profile import ProfileManager
 from game.scenario import Scenario
@@ -71,35 +70,33 @@ def _render_sidebar_scene_slot(game_state: GameState, scenario: Scenario) -> Non
 
 
 def render_sidebar_visual_panel(*, game_state: GameState, scenario: Scenario | None) -> bool:
-    """侧边栏：立绘与当前场景图并排；返回是否有立绘。"""
+    """侧边栏：立绘在上、当前场景图在下；返回是否有立绘。"""
     profile_id, _, card = _load_current_character_card()
     has_portrait = False
     world_id = scenario.world_id if scenario else ""
 
     if card and profile_id and scenario:
         manager: ProfileManager = st.session_state.profile_manager
-        portrait_col, scene_col = st.columns(2)
-        with portrait_col:
-            has_portrait = render_portrait(
-                manager,
-                profile_id,
-                card,
-                use_container_width=True,
-                show_caption=True,
-            )
-            if not has_portrait:
-                st.caption(card.name)
-            render_portrait_actions(
-                manager,
-                profile_id,
-                card,
-                key_prefix="game_sidebar",
-                world_id=world_id or card.preferred_world_id,
-                compact=True,
-                show_image=False,
-            )
-        with scene_col:
-            _render_sidebar_scene_slot(game_state, scenario)
+        has_portrait = render_portrait(
+            manager,
+            profile_id,
+            card,
+            use_container_width=True,
+            show_caption=True,
+        )
+        if not has_portrait:
+            st.caption(card.name)
+        render_portrait_actions(
+            manager,
+            profile_id,
+            card,
+            key_prefix="game_sidebar",
+            world_id=world_id or card.preferred_world_id,
+            compact=True,
+            show_image=False,
+        )
+        st.divider()
+        _render_sidebar_scene_slot(game_state, scenario)
     elif scenario:
         _render_sidebar_scene_slot(game_state, scenario)
 
