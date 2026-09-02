@@ -14,7 +14,7 @@ from game.scenario import Scenario
 from game.kp_directive import is_kp_directive
 from game.player_death import DEATH_REJECTION
 from game.session import append_tool_events, persist_save, reload_current_save_from_disk, sync_character_card_to_library
-from ui.game_visuals import render_scene_banner, render_sidebar_portrait_slot
+from ui.game_visuals import render_current_scene_label, render_sidebar_visual_panel
 from ui.character_sheet import render_character_sheet
 from ui.chat import (
     AUTO_SEND_PROMPT_KEY,
@@ -356,7 +356,7 @@ def render_game() -> None:
     scenario: Scenario = st.session_state.scenario
 
     with st.sidebar:
-        has_portrait = render_sidebar_portrait_slot(scenario=scenario)
+        has_portrait = render_sidebar_visual_panel(game_state=game_state, scenario=scenario)
         if has_portrait:
             st.divider()
         render_character_sheet(character, show_identity=not has_portrait)
@@ -412,11 +412,10 @@ def render_game() -> None:
     title_col, sync_col = st.columns([6, 1])
     with title_col:
         st.title(f"🎲 {scenario.title}")
+        render_current_scene_label(game_state)
     with sync_col:
         _render_sync_save_button(button_key="sync_save_header")
 
-    render_scene_banner(game_state, scenario)
-    st.divider()
     render_gameplay_hint(game_state)
     if not character.is_alive():
         st.error(

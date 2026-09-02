@@ -102,7 +102,11 @@ def generate_and_save_portrait(
 
 
 def _portrait_failure_hint(error: str) -> str:
+    from chain.image_prompt_safety import format_content_policy_hint, is_content_policy_error
+
     lowered = error.lower()
+    if is_content_policy_error(error):
+        return format_content_policy_hint(error)
     if "modelnotopen" in lowered or "not activated" in lowered:
         return (
             f"{error}\n\n"

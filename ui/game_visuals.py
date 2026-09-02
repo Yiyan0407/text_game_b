@@ -11,43 +11,12 @@ from game.profile import ProfileManager
 from game.scenario import Scenario
 from game.session import persist_save
 from ui.character_portrait import render_portrait, render_portrait_actions
+from ui.scene_gallery_dialog import render_scene_gallery_entry
 
 
-def render_scene_banner(game_state: GameState, scenario: Scenario) -> None:
-    """主栏顶部宽幅场景图，叙事区上方像「当前镜头」。"""
-    settings = get_settings()
+def render_current_scene_label(game_state: GameState) -> None:
     scene_label = game_state.current_scene.strip() or "当前场景"
-
-    if game_state.scene_image_url:
-        st.image(
-            game_state.scene_image_url,
-            use_container_width=True,
-            caption=f"📍 {scene_label}",
-        )
-    else:
-        st.markdown(f"### 📍 {scene_label}")
-
-    if not settings.enable_scene_images:
-        return
-
-    if st.button(
-        "🖼️ 绘制场景",
-        key="generate_scene_banner",
-        help="根据当前地点与模组基调生成场景氛围图",
-    ):
-        from chain.scene_image import generate_scene_image
-
-        with st.spinner("绘制场景中……"):
-            result = generate_scene_image(
-                game_state.current_scene,
-                scenario.world,
-                scenario.tone,
-            )
-        if result.ok:
-            game_state.scene_image_url = result.url
-            persist_save()
-            st.rerun()
-        st.error(result.error or "场景图生成失败，请检查图片 API 配置。")
+    st.markdown(f"**📍 {scene_label}**")
 
 
 def _load_current_character_card():
@@ -63,44 +32,84 @@ def _load_current_character_card():
     return profile_id, character_id, card
 
 
-def render_sidebar_portrait_slot(*, scenario: Scenario | None = None) -> bool:
-    """立绘区：有图则展示；无图且可生成则显示占位与生成按钮。"""
-    profile_id, _, card = _load_current_character_card()
-    if not profile_id or card is None:
-        return False
+def _render_sidebar_scene_slot(game_state: GameState, scenario: Scenario) -> None:
+    settings = get_settings()
+    scene_label = game_state.current_scene.strip() or "当前场景"
 
-    manager: ProfileManager = st.session_state.profile_manager
-    has_portrait = render_portrait(
-        manager,
-        profile_id,
-        card,
+    if game_state.scene_image_url:
+        st.image(
+            game_state.scene_image_url,
+            use_container_width=True,
+            caption=f"📍 {scene_label}",
+        )
+    else:
+        st.caption("📍 " + scene_label)
+        st.caption("（尚未绘制场景图）")
+
+    if not settings.enable_scene_images:
+        return
+
+    if st.button(
+        "🖼️ 绘制场景",
+        key="generate_scene_sidebar",
         use_container_width=True,
-        show_caption=True,
-    )
-    world_id = scenario.world_id if scenario else card.preferred_world_id
-    if has_portrait:
-        render_portrait_actions(
-            manager,
-            profile_id,
-            card,
-            key_prefix="game_sidebar",
-            world_id=world_id,
-            compact=True,
-            show_image=False,
-        )
-        return True
+        help="根据当前地点与模组基调生成场景氛围图",
+    ):
+        from chain.scene_image import generate_scene_image
 
-    from game.character_portrait import portrait_enabled
+        with st.spinner("绘制场景中……"):
+            result = generate_scene_image(
+                game_state.current_scene,
+                scenario.world,
+                scenario.tone,
+            )
+        if result.ok and result.url:
+            game_state.register_scene_image(game_state.current_scene, result.url)
+            persist_save()
+            st.rerun()
+        st.error(result.error or "场景图生成失败，请检查图片 API 配置。")
 
-    if portrait_enabled():
-        st.caption(f"**{card.name}**")
-        render_portrait_actions(
-            manager,
-            profile_id,
-            card,
-            key_prefix="game_sidebar",
-            world_id=world_id,
-            compact=True,
-            show_image=False,
-        )
-    return False
+
+def render_sidebar_visual_panel(*, game_state: GameState, scenario: Scenario | None) -> bool:
+    """侧边栏：立绘与当前场景图并排；返回是否有立绘。"""
+    profile_id, _, card = _load_current_character_card()
+    has_portrait = False
+    world_id = scenario.world_id if scenario else ""
+
+    if card and profile_id and scenario:
+        manager: ProfileManager = st.session_state.profile_manager
+        portrait_col, scene_col = st.columns(2)
+        with portrait_col:
+            has_portrait = render_portrait(
+                manager,
+                profile_id,
+                card,
+                use_container_width=True,
+                show_caption=True,
+            )
+            if not has_portrait:
+                st.caption(card.name)
+            render_portrait_actions(
+                manager,
+                profile_id,
+                card,
+                key_prefix="game_sidebar",
+                world_id=world_id or card.preferred_world_id,
+                compact=True,
+                show_image=False,
+            )
+        with scene_col:
+            _render_sidebar_scene_slot(game_state, scenario)
+    elif scenario:
+        _render_sidebar_scene_slot(game_state, scenario)
+
+    render_scene_gallery_entry(game_state)
+    return has_portrait
+
+
+def render_sidebar_portrait_slot(*, scenario: Scenario | None = None) -> bool:
+    """兼容旧调用：仅立绘区。"""
+    game_state: GameState | None = st.session_state.get("game_state")
+    if game_state is None:
+        return False
+    return render_sidebar_visual_panel(game_state=game_state, scenario=scenario)

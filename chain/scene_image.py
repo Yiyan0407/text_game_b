@@ -1,8 +1,13 @@
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
 
+from chain.image_prompt_safety import (
+    format_content_policy_hint,
+    is_content_policy_error,
+)
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -37,31 +42,6 @@ def _extract_http_error(response: httpx.Response) -> str:
     if text:
         return text[:500]
     return f"HTTP {response.status_code}"
-
-
-def _build_prompt(scene_name: str, world: str, tone: str) -> str:
-    mood = tone or "神秘"
-    return (
-        f"跑团 TRPG 场景氛围插画，电影级光影，广角或中景，无文字、无水印。"
-        f"地点：{scene_name}。世界观：{world}。基调：{mood}。"
-        f"可出现路人、NPC 或远景人物以增强氛围，强调环境细节与沉浸感。"
-    )
-
-
-def generate_scene_image(scene_name: str, world: str, tone: str = "") -> ImageGenerationResult:
-    """生成场景图，返回 URL 与错误信息。"""
-    settings = get_settings()
-    if not settings.enable_scene_images:
-        return ImageGenerationResult(error="场景图生成未启用（ENABLE_SCENE_IMAGES=false）")
-
-    prompt = _build_prompt(scene_name, world, tone)
-    provider = settings.image_provider.lower()
-
-    if provider == "seedream":
-        return _generate_seedream(prompt, settings)
-    if provider == "openai":
-        return _generate_openai_dalle(prompt, settings)
-    return ImageGenerationResult(error=f"不支持的图片提供商：{settings.image_provider}")
 
 
 def _generate_seedream(prompt: str, settings) -> ImageGenerationResult:
@@ -130,3 +110,63 @@ def _generate_openai_dalle(prompt: str, settings) -> ImageGenerationResult:
     except Exception as exc:
         logger.exception("DALL·E 出图失败")
         return ImageGenerationResult(error=f"DALL·E 出图失败：{exc}")
+
+
+def generate_with_policy_fallback(
+    *,
+    primary_prompt: str,
+    fallback_prompt: str,
+    provider: str,
+    settings,
+) -> ImageGenerationResult:
+    generate: Callable[[str], ImageGenerationResult]
+    if provider == "seedream":
+        generate = lambda p: _generate_seedream(p, settings)
+    elif provider == "openai":
+        generate = lambda p: _generate_openai_dalle(p, settings)
+    else:
+        return ImageGenerationResult(error=f"不支持的图片提供商：{provider}")
+
+    result = generate(primary_prompt)
+    if result.ok or not is_content_policy_error(result.error):
+        return result
+
+    logger.info("图片 API 内容策略拦截，尝试合规简化提示词")
+    retry = generate(fallback_prompt)
+    if retry.ok:
+        return retry
+
+    error = retry.error or result.error
+    return ImageGenerationResult(error=format_content_policy_hint(error or result.error))
+
+
+def _build_prompt(scene_name: str, world: str, tone: str) -> str:
+    from chain.image_prompt_safety import sanitize_image_text
+
+    mood = sanitize_image_text(tone or "神秘", max_len=32) or "神秘"
+    place = sanitize_image_text(scene_name, max_len=80) or "当前场景"
+    setting = sanitize_image_text(world, max_len=80) or "幻想世界"
+    return (
+        f"原创场景氛围插画，电影级光影，广角或中景，无文字、无水印，"
+        f"非现有作品取景。地点：{place}。世界设定：{setting}。基调：{mood}。"
+        f"可出现路人或远景匿名人物以增强氛围，强调环境细节与沉浸感。"
+    )
+
+
+def generate_scene_image(scene_name: str, world: str, tone: str = "") -> ImageGenerationResult:
+    """生成场景图，返回 URL 与错误信息。"""
+    settings = get_settings()
+    if not settings.enable_scene_images:
+        return ImageGenerationResult(error="场景图生成未启用（ENABLE_SCENE_IMAGES=false）")
+
+    from chain.image_prompt_safety import build_safe_scene_prompt
+
+    prompt = _build_prompt(scene_name, world, tone)
+    fallback = build_safe_scene_prompt(scene_name, world, tone)
+    provider = settings.image_provider.lower()
+    return generate_with_policy_fallback(
+        primary_prompt=prompt,
+        fallback_prompt=fallback,
+        provider=provider,
+        settings=settings,
+    )

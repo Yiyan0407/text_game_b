@@ -916,6 +916,12 @@ class LastAbilityCheckRecord(BaseModel):
     hp_after: int = 0
 
 
+class SceneImageRecord(BaseModel):
+    scene_name: str = ""
+    image_url: str = ""
+    turn_count: int = 0
+
+
 class PendingReroll(BaseModel):
     adjusted_dc: int = 0
     ability: str = ""
@@ -947,6 +953,7 @@ class GameState(BaseModel):
     last_chapter_turn: int = 0
     combat: CombatState | None = None
     scene_image_url: str = ""
+    scene_image_gallery: list[SceneImageRecord] = Field(default_factory=list)
     visited_scenes: list[SceneRecord] = Field(default_factory=list)
     world_map_graph: WorldMapGraph | None = None
     elapsed_minutes: int = 0
@@ -1019,6 +1026,27 @@ class GameState(BaseModel):
                 self.scene_id,
                 self.current_scene,
                 turn_count=self.turn_count,
+            )
+        return self
+
+    @field_validator("scene_image_gallery", mode="before")
+    @classmethod
+    def _coerce_scene_image_gallery(cls, value):
+        if not value:
+            return []
+        if not isinstance(value, list):
+            return []
+        return value
+
+    @model_validator(mode="after")
+    def _migrate_legacy_scene_image(self) -> Self:
+        if self.scene_image_url.strip() and not self.scene_image_gallery:
+            self.scene_image_gallery.append(
+                SceneImageRecord(
+                    scene_name=self.current_scene.strip() or "未命名场景",
+                    image_url=self.scene_image_url.strip(),
+                    turn_count=self.turn_count,
+                )
             )
         return self
 
@@ -1238,6 +1266,21 @@ class GameState(BaseModel):
             return
         self.active_quests.append(
             Quest(id=quest_id, title=title, status=status, description=description)
+        )
+
+    def register_scene_image(self, scene_name: str, image_url: str) -> None:
+        url = (image_url or "").strip()
+        if not url:
+            return
+        self.scene_image_url = url
+        name = (scene_name or self.current_scene or "未命名场景").strip()
+        for record in self.scene_image_gallery:
+            if record.image_url == url:
+                if name:
+                    record.scene_name = name
+                return
+        self.scene_image_gallery.append(
+            SceneImageRecord(scene_name=name, image_url=url, turn_count=self.turn_count)
         )
 
     def is_in_combat(self) -> bool:

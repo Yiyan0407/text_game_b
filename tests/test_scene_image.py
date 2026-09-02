@@ -9,18 +9,18 @@ def test_build_prompt_chinese():
     assert "赛博朋克" in text
 
 
+@patch("chain.scene_image.generate_with_policy_fallback")
 @patch("chain.scene_image.get_settings")
-@patch("chain.scene_image._generate_seedream")
-def test_generate_uses_seedream(mock_seedream, mock_settings):
+def test_generate_uses_seedream(mock_settings, mock_fallback):
     settings = MagicMock()
     settings.enable_scene_images = True
     settings.image_provider = "seedream"
     mock_settings.return_value = settings
-    mock_seedream.return_value = ImageGenerationResult(url="https://example.com/img.png")
+    mock_fallback.return_value = ImageGenerationResult(url="https://example.com/img.png")
 
     result = generate_scene_image("场景", "世界", "基调")
     assert result.url == "https://example.com/img.png"
-    mock_seedream.assert_called_once()
+    mock_fallback.assert_called_once()
 
 
 @patch("chain.scene_image.httpx.Client")

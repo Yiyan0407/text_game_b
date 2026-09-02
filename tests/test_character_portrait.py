@@ -38,18 +38,18 @@ def test_build_portrait_prompt_includes_career_hints():
 
 
 @patch("chain.character_portrait.get_settings")
-@patch("chain.character_portrait._generate_seedream")
-def test_generate_portrait_uses_seedream(mock_seedream, mock_settings):
+@patch("chain.character_portrait.generate_with_policy_fallback")
+def test_generate_portrait_uses_seedream(mock_fallback, mock_settings):
     settings = MagicMock()
     settings.enable_character_portraits = True
     settings.image_provider = "seedream"
     mock_settings.return_value = settings
-    mock_seedream.return_value = ImageGenerationResult(url="https://example.com/portrait.png")
+    mock_fallback.return_value = ImageGenerationResult(url="https://example.com/portrait.png")
 
     card = CharacterCard.from_character(Character(name="测试"))
     result = generate_portrait_url(card, world_id="fantasy")
     assert result.url == "https://example.com/portrait.png"
-    mock_seedream.assert_called_once()
+    mock_fallback.assert_called_once()
 
 
 @patch("game.character_portrait.generate_portrait_url")
