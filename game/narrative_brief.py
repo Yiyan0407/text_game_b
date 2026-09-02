@@ -106,6 +106,7 @@ def merge_narrative_brief_with_state(
     state_events: list[str] | None = None,
     *,
     history: list | None = None,
+    user_input: str = "",
 ) -> str:
     """合并补丁应用后的状态快照。"""
     from chain.agent_context import format_kp_continuity_hint
@@ -115,6 +116,21 @@ def merge_narrative_brief_with_state(
     )
 
     lines = [brief_static.rstrip()]
+    if history and user_input.strip():
+        from game.travel_continuation import (
+            format_travel_continuation_for_kp,
+            resolve_travel_continuation,
+        )
+
+        travel = resolve_travel_continuation(
+            user_input,
+            history=history,
+            game_state=game_state,
+            state_events=state_events,
+        )
+        if travel:
+            lines.append("")
+            lines.append(format_travel_continuation_for_kp(travel))
     if history:
         continuity = format_kp_continuity_hint(history)
         if continuity:
@@ -196,5 +212,10 @@ def build_narrative_brief(
         turn_count=game_state.turn_count,
     )
     return merge_narrative_brief_with_state(
-        static, character, game_state, state_events, history=history
+        static,
+        character,
+        game_state,
+        state_events,
+        history=history,
+        user_input=user_input,
     )

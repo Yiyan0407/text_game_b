@@ -465,6 +465,7 @@ class TurnPipeline:
             ctx.game_state,
             None,
             history=ctx.history,
+            user_input=ctx.effective_input,
         )
 
     async def suggest_actions(self, ctx: TurnContext, turn: TurnResult) -> list[str]:
